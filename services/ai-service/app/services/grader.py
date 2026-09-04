@@ -1,0 +1,3 @@
+class Grader:
+    pass
+
