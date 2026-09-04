@@ -1,0 +1,3 @@
+class QuestionGenerator:
+    pass
+
