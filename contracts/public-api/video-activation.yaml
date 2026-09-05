@@ -1,0 +1,8 @@
+openapi: 3.0.3
+info:
+  title: StudyLens Public API — Video Activation Module
+  version: 0.1.0
+  description: API contracts for video metadata, classification orchestration, and preferences owned by Dev 1.
+paths: {}
+components:
+  schemas: {}

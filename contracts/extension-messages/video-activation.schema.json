@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VideoActivationMessageEnvelope",
+  "type": "object",
+  "required": [
+    "type",
+    "contractVersion",
+    "correlationId",
+    "occurredAtUtc",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Event type identifier"
+    },
+    "contractVersion": {
+      "type": "string",
+      "default": "0.1.0"
+    },
+    "correlationId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "integer"
+    },
+    "youtubeVideoId": {
+      "type": "string"
+    },
+    "occurredAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

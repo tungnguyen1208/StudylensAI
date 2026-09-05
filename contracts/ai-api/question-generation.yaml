@@ -1,0 +1,8 @@
+openapi: 3.0.3
+info:
+  title: StudyLens AI Service — Question Generation Feature
+  version: 0.1.0
+  description: AI contracts for question generation owned by Dev 2.
+paths: {}
+components:
+  schemas: {}

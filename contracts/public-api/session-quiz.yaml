@@ -1,0 +1,8 @@
+openapi: 3.0.3
+info:
+  title: StudyLens Public API — Session & Quiz Module
+  version: 0.1.0
+  description: API contracts for study sessions, transcript segments, and quiz presentation owned by Dev 2.
+paths: {}
+components:
+  schemas: {}

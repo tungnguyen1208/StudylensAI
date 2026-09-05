@@ -1,0 +1,8 @@
+openapi: 3.0.3
+info:
+  title: StudyLens Public API — Assessment & History Module
+  version: 0.1.0
+  description: API contracts for answer submissions, grading results, and history queries owned by Dev 3.
+paths: {}
+components:
+  schemas: {}

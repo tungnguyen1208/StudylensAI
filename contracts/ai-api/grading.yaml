@@ -1,0 +1,8 @@
+openapi: 3.0.3
+info:
+  title: StudyLens AI Service — Grading Feature
+  version: 0.1.0
+  description: AI contracts for semantic short answer grading owned by Dev 3.
+paths: {}
+components:
+  schemas: {}
