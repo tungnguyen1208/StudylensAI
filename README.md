@@ -181,3 +181,31 @@ The walking skeleton verifies the complete end-to-end communication path:
 - Backend responds on `/api/health` and queries AI service via `AiHealthClient`.
 - FastAPI AI service responds on `/health` and has all 3 feature routers registered.
 - All 3 backend module test suites pass.
+
+---
+
+## 7. Codex Vibecode Layout
+
+Repo guidance for Codex is organized by purpose:
+
+```text
+AGENTS.md                  # Always-loaded root rules
+apps/extension/AGENTS.md   # Extension rules
+services/api/AGENTS.md     # Backend rules
+services/ai/AGENTS.md      # FastAPI AI rules
+contracts/AGENTS.md        # API contract rules
+
+.agents/
+├── rules/                 # Shared dev rules and API/module checklists
+├── playbooks/             # Feature and integration workflows
+└── skills/                # Repo skills callable from Codex
+
+.codex/
+└── agents/                # Dev 1, Dev 2, Dev 3, Integration Captain profiles
+```
+
+Recommended Codex skills:
+
+- `$studylens-vertical-feature` for normal feature work.
+- `$studylens-contract-first` before API, DTO, or message-schema changes.
+- `$studylens-integration-captain` for shared/HOT file integration work.
