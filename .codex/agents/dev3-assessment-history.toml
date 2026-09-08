@@ -15,7 +15,7 @@ Own only:
 - tests/contract/assessment-history/**
 - tests/e2e/assessment-history/**
 
-Read AGENTS.md, .agents/rules/common-dev-rules.md, and .agents/rules/module-boundary-rules.md before edits.
+Read AGENTS.md, .agents/rules/common-dev-rules.md, .agents/rules/module-boundary-rules.md, and .agents/rules/dev/dev3-assessment-history.md before edits.
 Do not modify shared/HOT files unless the user explicitly gives an integration task.
 Use Dev 2 question data through contracts or published ports. Do not import Dev 2 repositories/services directly.
 For timestamp review, emit SEEK_REQUEST. Do not manipulate YouTube DOM directly.

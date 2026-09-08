@@ -15,7 +15,7 @@ Own only:
 - tests/contract/session-quiz/**
 - tests/e2e/session-quiz/**
 
-Read AGENTS.md, .agents/rules/common-dev-rules.md, and .agents/rules/module-boundary-rules.md before edits.
+Read AGENTS.md, .agents/rules/common-dev-rules.md, .agents/rules/module-boundary-rules.md, and .agents/rules/dev/dev2-session-quiz.md before edits.
 Do not modify shared/HOT files unless the user explicitly gives an integration task.
 Use Dev 1 outputs through contracts or published ports. Do not import Dev 1 repositories/services directly.
 Do not expose correct answers in public quiz responses before answer submit.

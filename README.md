@@ -197,6 +197,7 @@ contracts/AGENTS.md        # API contract rules
 
 .agents/
 ├── rules/                 # Shared dev rules and API/module checklists
+│   └── dev/               # Detailed Dev 1, Dev 2, Dev 3 role rules
 ├── playbooks/             # Feature and integration workflows
 └── skills/                # Repo skills callable from Codex
 
@@ -209,3 +210,9 @@ Recommended Codex skills:
 - `$studylens-vertical-feature` for normal feature work.
 - `$studylens-contract-first` before API, DTO, or message-schema changes.
 - `$studylens-integration-captain` for shared/HOT file integration work.
+
+Detailed role files:
+
+- `.agents/rules/dev/dev1-video-activation.md`
+- `.agents/rules/dev/dev2-session-quiz.md`
+- `.agents/rules/dev/dev3-assessment-history.md`

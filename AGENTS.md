@@ -877,6 +877,7 @@ services/ai/AGENTS.md      AI-service-specific rules
 contracts/AGENTS.md        contract-specific rules
 
 .agents/rules/             shared rule documents and checklists
+.agents/rules/dev/         detailed Dev 1, Dev 2, Dev 3 role rules
 .agents/playbooks/         repeatable workflows for feature and integration work
 .agents/skills/            repo-specific Codex skills
 .codex/agents/             project-scoped custom Codex agent profiles
@@ -897,6 +898,12 @@ Project custom agent profiles:
 - `.codex/agents/dev2-session-quiz.toml`
 - `.codex/agents/dev3-assessment-history.toml`
 - `.codex/agents/integration-captain.toml`
+
+Detailed dev role rules:
+
+- `.agents/rules/dev/dev1-video-activation.md`
+- `.agents/rules/dev/dev2-session-quiz.md`
+- `.agents/rules/dev/dev3-assessment-history.md`
 
 Do not spawn or delegate to multiple agents unless the user explicitly asks for
 parallel agent work or the selected skill requires it.

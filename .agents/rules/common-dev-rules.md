@@ -8,7 +8,7 @@ the daily checklist for Dev 1, Dev 2, Dev 3, and their Codex sessions.
 1. Root `AGENTS.md`.
 2. Closest nested `AGENTS.md` for the folder being edited.
 3. `.agents/rules/common-dev-rules.md`.
-4. The assigned dev task document.
+4. The assigned role file in `.agents/rules/dev/`.
 5. Related contracts in `contracts/`.
 6. Existing code inside the owned module.
 

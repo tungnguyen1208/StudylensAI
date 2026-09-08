@@ -15,7 +15,7 @@ Read these files before editing:
 2. `.agents/rules/common-dev-rules.md`
 3. `.agents/rules/module-boundary-rules.md`
 4. `.agents/playbooks/vertical-feature-workflow.md`
-5. The assigned developer task document if present.
+5. The assigned role file in `.agents/rules/dev/`.
 
 ## Workflow
 
