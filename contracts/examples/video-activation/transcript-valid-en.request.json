@@ -1,0 +1,20 @@
+{
+  "idempotencyKey": "transcript:dQw4w9WgXcQ:a4d3dc346bfadf594282aa5e630c68b1c4d8636601c4f6a09abd3f84933a5975",
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "language": "en",
+  "source": "youtubeCaption",
+  "status": "available",
+  "contentHash": "a4d3dc346bfadf594282aa5e630c68b1c4d8636601c4f6a09abd3f84933a5975",
+  "cues": [
+    {
+      "startMs": 1000,
+      "endMs": 4500,
+      "text": "Today we will learn how a matrix represents a system of linear equations."
+    },
+    {
+      "startMs": 4500,
+      "endMs": 9200,
+      "text": "Each row represents one equation while each column represents one variable in the system."
+    }
+  ]
+}

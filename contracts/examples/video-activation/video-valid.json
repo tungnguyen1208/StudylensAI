@@ -1,0 +1,15 @@
+{
+  "type": "VIDEO_CONTEXT_CHANGED",
+  "contractVersion": "0.1.0",
+  "correlationId": "context-dQw4w9WgXcQ",
+  "tabId": 42,
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "occurredAtUtc": "2026-09-04T02:00:00Z",
+  "payload": {
+    "title": "Introduction to Linear Algebra",
+    "canonicalUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "durationMs": 720000,
+    "currentTimeMs": 0,
+    "playbackState": "paused"
+  }
+}

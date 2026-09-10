@@ -1,3 +1,8 @@
+using StudyLens.Api.Features.VideoActivation.Api;
+using StudyLens.Api.Features.VideoActivation.Application.Contracts;
+using StudyLens.Api.Features.VideoActivation.Application.CreateTranscriptSnapshot;
+using StudyLens.Api.Features.VideoActivation.Infrastructure;
+
 namespace StudyLens.Api.Features.VideoActivation;
 
 public static class VideoActivationModule
@@ -6,14 +11,20 @@ public static class VideoActivationModule
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Dev 1 will register VideoActivation services, repositories, and handlers here.
+        services.AddSingleton<ITranscriptSnapshotStore, InMemoryTranscriptSnapshotStore>();
+        services.AddSingleton<CreateTranscriptSnapshotHandler>();
+        services.AddSingleton<ITranscriptSnapshotReader, TranscriptSnapshotReader>();
         return services;
     }
 
     public static IEndpointRouteBuilder MapVideoActivationEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
-        // Dev 1 will map endpoints for video detection, classification orchestration, and preferences here.
+        endpoints.MapPost(
+                "/api/video-activation/transcript-snapshots",
+                CreateTranscriptSnapshotEndpoint.HandleAsync)
+            .WithName("CreateTranscriptSnapshot")
+            .WithTags("Video Activation");
         return endpoints;
     }
 }

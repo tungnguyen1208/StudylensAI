@@ -1,0 +1,13 @@
+{
+  "type": "PLAYER_SEEKED",
+  "contractVersion": "0.1.0",
+  "correlationId": "player-dQw4w9WgXcQ",
+  "tabId": 42,
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "occurredAtUtc": "2026-09-04T02:01:00Z",
+  "payload": {
+    "currentTimeMs": 60000,
+    "previousTimeMs": 5000,
+    "durationMs": 720000
+  }
+}

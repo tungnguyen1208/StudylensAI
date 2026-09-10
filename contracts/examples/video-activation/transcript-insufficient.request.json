@@ -1,0 +1,8 @@
+{
+  "idempotencyKey": "transcript:dQw4w9WgXcQ:insufficient:vi",
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "language": "vi",
+  "source": "youtubeCaption",
+  "status": "insufficient",
+  "cues": []
+}

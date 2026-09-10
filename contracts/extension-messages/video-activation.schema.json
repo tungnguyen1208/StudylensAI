@@ -2,30 +2,47 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "VideoActivationMessageEnvelope",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "type",
     "contractVersion",
     "correlationId",
+    "tabId",
+    "youtubeVideoId",
     "occurredAtUtc",
     "payload"
   ],
   "properties": {
     "type": {
       "type": "string",
-      "description": "Event type identifier"
+      "enum": [
+        "PLAYER_PLAYING",
+        "PLAYER_PAUSED",
+        "PLAYER_BUFFERING",
+        "PLAYER_SEEKED",
+        "PLAYER_ENDED",
+        "VIDEO_CONTEXT_CHANGED",
+        "ACTIVATION_DECIDED",
+        "ACTIVATION_STOPPED",
+        "SEEK_REQUEST",
+        "SEEK_COMPLETED",
+        "SEEK_REJECTED"
+      ]
     },
     "contractVersion": {
-      "type": "string",
-      "default": "0.1.0"
+      "const": "0.1.0"
     },
     "correlationId": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "tabId": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 0
     },
     "youtubeVideoId": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{11}$"
     },
     "occurredAtUtc": {
       "type": "string",
@@ -33,6 +50,109 @@
     },
     "payload": {
       "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "VIDEO_CONTEXT_CHANGED" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/videoContextPayload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["PLAYER_PLAYING", "PLAYER_PAUSED", "PLAYER_ENDED"]
+          }
+        },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/playerPayload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "PLAYER_BUFFERING" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/bufferingPayload" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "PLAYER_SEEKED" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/seekedPayload" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nonNegativeMilliseconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "videoContextPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "canonicalUrl", "currentTimeMs"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "canonicalUrl": {
+          "type": "string",
+          "pattern": "^https://www\\.youtube\\.com/watch\\?v=[A-Za-z0-9_-]{11}$"
+        },
+        "durationMs": { "$ref": "#/$defs/nonNegativeMilliseconds" },
+        "currentTimeMs": { "$ref": "#/$defs/nonNegativeMilliseconds" },
+        "playbackState": {
+          "type": "string",
+          "enum": ["playing", "paused", "buffering", "ended"]
+        }
+      }
+    },
+    "playerPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentTimeMs"],
+      "properties": {
+        "currentTimeMs": { "$ref": "#/$defs/nonNegativeMilliseconds" },
+        "durationMs": { "$ref": "#/$defs/nonNegativeMilliseconds" }
+      }
+    },
+    "bufferingPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentTimeMs"],
+      "properties": {
+        "currentTimeMs": { "$ref": "#/$defs/nonNegativeMilliseconds" },
+        "durationMs": { "$ref": "#/$defs/nonNegativeMilliseconds" },
+        "bufferedUntilMs": { "$ref": "#/$defs/nonNegativeMilliseconds" }
+      }
+    },
+    "seekedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentTimeMs"],
+      "properties": {
+        "currentTimeMs": { "$ref": "#/$defs/nonNegativeMilliseconds" },
+        "previousTimeMs": { "$ref": "#/$defs/nonNegativeMilliseconds" },
+        "durationMs": { "$ref": "#/$defs/nonNegativeMilliseconds" }
+      }
     }
   }
 }

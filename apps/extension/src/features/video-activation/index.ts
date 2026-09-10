@@ -1,10 +1,8 @@
 /**
- * Video Activation Feature Entry Point — Dev 1
- *
- * Scope: YouTube video detection, video metadata, activation mode (Auto/Manual),
- * classification orchestration via Backend, and YouTube player adaptation.
+ * Public metadata and stable types for the Video Activation feature.
+ * The browser runtime initializer lives in content-script-entry.ts so the
+ * manifest content script can be bundled as a self-contained classic script.
  */
-
 export interface VideoActivationFeatureMetadata {
   name: string;
   version: string;
@@ -18,3 +16,6 @@ export function registerVideoActivationFeature(): VideoActivationFeatureMetadata
     owner: 'Dev 1',
   };
 }
+
+export type { PlayerPort } from '../../platform/youtube/youtube-player-adapter';
+export type { TranscriptSnapshotRef } from './models/video-activation.types';

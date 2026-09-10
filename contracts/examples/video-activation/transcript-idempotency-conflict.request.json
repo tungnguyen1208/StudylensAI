@@ -1,0 +1,15 @@
+{
+  "idempotencyKey": "transcript:dQw4w9WgXcQ:bec75a4fa897191669f97028a192c0e8daca20615135d5c1b457e339df9d8ce5",
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "language": "vi",
+  "source": "youtubeCaption",
+  "status": "available",
+  "contentHash": "137d36ddcf2e0a82ce941f02ff1ed3276f2009506ac60386c8a367d92150b4cd",
+  "cues": [
+    {
+      "startMs": 1000,
+      "endMs": 4200,
+      "text": "Nội dung khác nhưng cố tình sử dụng lại cùng một idempotency key."
+    }
+  ]
+}

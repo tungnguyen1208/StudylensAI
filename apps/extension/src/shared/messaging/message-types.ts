@@ -1,9 +1,9 @@
 export interface ExtensionMessage<T = unknown> {
   type: string;
-  contractVersion: string;
+  contractVersion: '0.1.0';
   correlationId: string;
-  tabId?: number;
-  youtubeVideoId?: string;
+  tabId: number;
+  youtubeVideoId: string;
   occurredAtUtc: string;
   payload: T;
 }
