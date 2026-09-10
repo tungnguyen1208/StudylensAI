@@ -18,3 +18,14 @@ export function registerSessionQuizFeature(): SessionQuizFeatureMetadata {
     owner: 'Dev 2',
   };
 }
+
+export {
+  SESSION_QUIZ_CONTRACT_VERSION,
+  type ActivationDecisionFixture,
+  type PreferenceSnapshot,
+  type SessionSnapshot,
+  type StartStudySessionRequest,
+  type TranscriptSnapshotRef,
+} from './models/session-quiz-contracts';
+
+export { StudyTimer, type Clock, type PlayerLifecycleEvent, type StudyTimerSnapshot, type StudyTimerStateStore } from './services/study-timer';

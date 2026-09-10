@@ -1,0 +1,15 @@
+{
+  "type": "QUIZ_AVAILABLE",
+  "contractVersion": "0.1.0",
+  "correlationId": "b01-fixture",
+  "tabId": 1,
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "occurredAtUtc": "2026-09-10T10:00:00Z",
+  "payload": {
+    "quizId": "55555555-5555-4555-8555-555555555555",
+    "sessionId": "33333333-3333-4333-8333-333333333333",
+    "segmentId": "44444444-4444-4444-8444-444444444444",
+    "createdAtUtc": "2026-09-10T10:00:00Z",
+    "questions": [{ "questionId": "66666666-6666-4666-8666-666666666666", "type": "multipleChoice", "prompt": "Which statement is supported by the segment?", "options": [{ "optionId": "a", "text": "Supported statement" }, { "optionId": "b", "text": "Unsupported statement" }], "source": { "youtubeVideoId": "dQw4w9WgXcQ", "startMs": 0, "endMs": 10000 } }]
+  }
+}
