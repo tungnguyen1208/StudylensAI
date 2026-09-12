@@ -1,0 +1,11 @@
+{
+  "contractVersion": "0.1.0",
+  "promptVersion": "0.1.0",
+  "segmentId": "44444444-4444-4444-8444-444444444444",
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "startMs": 0,
+  "endMs": 10000,
+  "questionType": "multipleChoice",
+  "difficulty": "easy",
+  "cues": [{ "startMs": 0, "endMs": 10000, "text": "A valid transcript cue used as the only source evidence." }]
+}

@@ -1,0 +1,30 @@
+openapi: 3.0.3
+info:
+  title: StudyLens Public API
+  version: 0.1.0
+  description: Public REST API contract between Browser Extension and ASP.NET Core Backend.
+servers:
+  - url: http://localhost:5000
+    description: Local development backend
+paths:
+  /api/health:
+    get:
+      summary: Backend service health check
+      operationId: getBackendHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: studylens-api

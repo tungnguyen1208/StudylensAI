@@ -1,0 +1,30 @@
+openapi: 3.0.3
+info:
+  title: StudyLens AI Service Internal API
+  version: 0.1.0
+  description: Internal REST API contract between ASP.NET Core Backend and FastAPI AI Service.
+servers:
+  - url: http://localhost:8000
+    description: Local development AI service
+paths:
+  /health:
+    get:
+      summary: AI service health check
+      operationId: getAiHealth
+      responses:
+        '200':
+          description: AI service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: studylens-ai

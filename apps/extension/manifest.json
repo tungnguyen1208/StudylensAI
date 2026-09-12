@@ -2,28 +2,31 @@
   "manifest_version": 3,
   "name": "StudyLens AI",
   "version": "0.1.0",
-  "description": "Active learning support for YouTube Web videos.",
-  "action": {
-    "default_title": "StudyLens AI"
-  },
+  "description": "Active learning companion for YouTube with automated transcript analysis and quiz generation.",
+  "permissions": [
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "http://localhost:5000/*"
+  ],
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["youtube-detector.js"],
-      "run_at": "document_idle"
-    }
-  ],
-  "host_permissions": [
-    "http://localhost:5000/*",
-    "https://www.youtube.com/*"
-  ],
-  "permissions": ["sidePanel", "tabs"],
   "side_panel": {
     "default_path": "sidepanel.html"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }
-

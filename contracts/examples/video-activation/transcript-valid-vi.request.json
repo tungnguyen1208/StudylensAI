@@ -1,0 +1,20 @@
+{
+  "idempotencyKey": "transcript:dQw4w9WgXcQ:bec75a4fa897191669f97028a192c0e8daca20615135d5c1b457e339df9d8ce5",
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "language": "vi",
+  "source": "youtubeCaption",
+  "status": "available",
+  "contentHash": "bec75a4fa897191669f97028a192c0e8daca20615135d5c1b457e339df9d8ce5",
+  "cues": [
+    {
+      "startMs": 1000,
+      "endMs": 4200,
+      "text": "Hôm nay chúng ta tìm hiểu về ma trận và cách biểu diễn một hệ phương trình tuyến tính."
+    },
+    {
+      "startMs": 4200,
+      "endMs": 9000,
+      "text": "Mỗi hàng của ma trận tương ứng với một phương trình và mỗi cột tương ứng với một biến."
+    }
+  ]
+}

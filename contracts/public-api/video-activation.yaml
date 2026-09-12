@@ -1,0 +1,129 @@
+openapi: 3.0.3
+info:
+  title: StudyLens Public API — Video Activation Module
+  version: 0.1.0
+  description: Public Extension-to-Backend contracts owned by Dev 1.
+paths:
+  /api/video-activation/transcript-snapshots:
+    post:
+      operationId: createTranscriptSnapshot
+      summary: Create or replay an idempotent transcript snapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTranscriptSnapshotRequest'
+      responses:
+        '200':
+          description: Snapshot created or an identical idempotent request replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptSnapshotRef'
+        '400':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: The idempotency key was reused with a different payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  schemas:
+    TranscriptSnapshotStatus:
+      type: string
+      enum: [available, unavailable, insufficient]
+    TranscriptSource:
+      type: string
+      enum: [youtubeCaption]
+    TranscriptCue:
+      type: object
+      additionalProperties: false
+      required: [startMs, endMs, text]
+      properties:
+        startMs:
+          type: integer
+          format: int64
+          minimum: 0
+        endMs:
+          type: integer
+          format: int64
+          minimum: 1
+        text:
+          type: string
+          minLength: 1
+    CreateTranscriptSnapshotRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - idempotencyKey
+        - youtubeVideoId
+        - language
+        - source
+        - status
+        - cues
+      properties:
+        idempotencyKey:
+          type: string
+          minLength: 1
+        youtubeVideoId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{11}$'
+        language:
+          type: string
+          minLength: 2
+        source:
+          $ref: '#/components/schemas/TranscriptSource'
+        status:
+          $ref: '#/components/schemas/TranscriptSnapshotStatus'
+        contentHash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        cues:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptCue'
+    TranscriptSnapshotRef:
+      type: object
+      additionalProperties: false
+      required:
+        - transcriptSnapshotId
+        - youtubeVideoId
+        - language
+        - status
+        - version
+      properties:
+        transcriptSnapshotId:
+          type: string
+          format: uuid
+        youtubeVideoId:
+          type: string
+        language:
+          type: string
+        status:
+          $ref: '#/components/schemas/TranscriptSnapshotStatus'
+        contentHash:
+          type: string
+          nullable: true
+        version:
+          type: string
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [code, status, message, traceId, retryable]
+      properties:
+        code:
+          type: string
+        status:
+          type: integer
+        message:
+          type: string
+        traceId:
+          type: string
+        retryable:
+          type: boolean

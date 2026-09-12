@@ -862,3 +862,48 @@ Integration / Stabilization / Evaluation
 ```
 
 Do not start advanced personalization, flashcards, spaced repetition, advanced dashboard analytics, multi-platform support, or Vector DB work before the MVP flow is stable.
+
+---
+
+## 22. Codex Vibecode Workspace Layout
+
+Codex-facing repo guidance is split by purpose:
+
+```text
+AGENTS.md                  repo-level rules loaded automatically
+apps/extension/AGENTS.md   Extension-specific rules
+services/api/AGENTS.md     Backend-specific rules
+services/ai/AGENTS.md      AI-service-specific rules
+contracts/AGENTS.md        contract-specific rules
+
+.agents/rules/             shared rule documents and checklists
+.agents/rules/dev/         detailed Dev 1, Dev 2, Dev 3 role rules
+.agents/playbooks/         repeatable workflows for feature and integration work
+.agents/skills/            repo-specific Codex skills
+.codex/agents/             project-scoped custom Codex agent profiles
+```
+
+Keep root `AGENTS.md` focused on always-loaded repository rules. Put long
+workflow details in `.agents/rules/`, `.agents/playbooks/`, or `.agents/skills/`.
+
+Default task routing:
+
+1. Use `$studylens-vertical-feature` for normal Dev 1, Dev 2, or Dev 3 feature work.
+2. Use `$studylens-contract-first` before changing API contracts, DTOs, or message schemas.
+3. Use `$studylens-integration-captain` only for explicit shared/HOT file integration work.
+
+Project custom agent profiles:
+
+- `.codex/agents/dev1-video-activation.toml`
+- `.codex/agents/dev2-session-quiz.toml`
+- `.codex/agents/dev3-assessment-history.toml`
+- `.codex/agents/integration-captain.toml`
+
+Detailed dev role rules:
+
+- `.agents/rules/dev/dev1-video-activation.md`
+- `.agents/rules/dev/dev2-session-quiz.md`
+- `.agents/rules/dev/dev3-assessment-history.md`
+
+Do not spawn or delegate to multiple agents unless the user explicitly asks for
+parallel agent work or the selected skill requires it.
