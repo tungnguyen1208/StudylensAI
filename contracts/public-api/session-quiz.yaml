@@ -203,11 +203,27 @@ components:
     GenerateQuizRequest:
       type: object
       additionalProperties: false
-      required: [contractVersion, segmentId, idempotencyKey]
+      required: [contractVersion, sessionId, segmentId, youtubeVideoId, questionType, difficulty, cues, idempotencyKey]
       properties:
         contractVersion: { type: string, const: 0.1.0 }
+        sessionId: { type: string, format: uuid }
         segmentId: { type: string, format: uuid }
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        questionType: { $ref: '#/components/schemas/QuestionType' }
+        difficulty: { $ref: '#/components/schemas/Difficulty' }
+        cues:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/TranscriptCue' }
         idempotencyKey: { type: string, minLength: 1 }
+    TranscriptCue:
+      type: object
+      additionalProperties: false
+      required: [startMs, endMs, text]
+      properties:
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 1 }
+        text: { type: string, minLength: 1 }
     SessionSnapshot:
       type: object
       additionalProperties: false

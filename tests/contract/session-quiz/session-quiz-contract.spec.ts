@@ -35,6 +35,11 @@ describe('session quiz contract 0.1.0', () => {
     const fixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/session-quiz/start-session-active.request.json`, 'utf8'));
     expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
   });
+  it('validates the public generate-quiz fixture with transcript evidence', () => {
+    const { validate } = publicValidator('GenerateQuizRequest');
+    const fixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/session-quiz/generate-quiz.request.json`, 'utf8'));
+    expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
+  });
   it('validates public data and rejects an answer key', () => {
     const { validate } = publicValidator('SessionSnapshot');
     const fixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/session-quiz/session-active.response.json`, 'utf8'));

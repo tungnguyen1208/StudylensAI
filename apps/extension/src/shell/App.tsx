@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { httpClient } from '../shared/http/http-client';
 import { initializeFeatureRegistry, RegisteredFeatures } from './feature-registry';
+import { AnswerForm } from '../features/assessment-history';
+import { SessionQuizApi, SESSION_QUIZ_CONTRACT_VERSION, type QuizPublic } from '../features/session-quiz';
 import {
   ActivationStatus,
   ActivationToggle,
@@ -10,6 +12,7 @@ import {
 } from '../features/video-activation';
 import { messageBus } from '../shared/messaging/message-bus';
 import type { ExtensionMessage } from '../shared/messaging/message-types';
+
 interface BackendHealthResponse {
   status: string;
   service: string;
@@ -24,9 +27,13 @@ export const App: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
   const [backendData, setBackendData] = useState<BackendHealthResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [demoStatus, setDemoStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [demoQuiz, setDemoQuiz] = useState<QuizPublic | null>(null);
+  const [demoMessage, setDemoMessage] = useState<string | null>(null);
   const [activationState, setActivationState] = useState<ActivationState>(initialActivationState);
   const [activationCommandStatus, setActivationCommandStatus] = useState<'idle' | 'sending' | 'error'>('idle');
   const [activationCommandError, setActivationCommandError] = useState<string | null>(null);
+
   useEffect(() => {
     const registered = initializeFeatureRegistry();
     setFeatures(registered);
@@ -45,6 +52,7 @@ export const App: React.FC = () => {
     void loadActiveYoutubeContext(onActivationMessage);
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
+
   const checkHealth = async () => {
     setBackendStatus('checking');
     setErrorMessage(null);
@@ -56,6 +64,44 @@ export const App: React.FC = () => {
     } catch (err: unknown) {
       setBackendStatus('error');
       setErrorMessage(err instanceof Error ? err.message : 'Failed to connect to StudyLens API');
+    }
+  };
+
+  const runWeekOneDemo = async () => {
+    setDemoStatus('loading');
+    setDemoMessage(null);
+    setDemoQuiz(null);
+    const api = new SessionQuizApi();
+    const youtubeVideoId = 'dQw4w9WgXcQ';
+
+    try {
+      const session = await api.startSession({
+        contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
+        youtubeVideoId,
+        activationDecision: {
+          decisionId: crypto.randomUUID(),
+          state: 'active',
+          source: 'manual',
+          reasonCode: 'weekOneDemoFixture',
+          preferences: { quizIntervalMinutes: 5, questionType: 'multipleChoice', difficulty: 'easy' },
+        },
+      });
+      const quiz = await api.generateQuiz({
+        contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
+        sessionId: session.sessionId,
+        segmentId: crypto.randomUUID(),
+        youtubeVideoId,
+        questionType: 'multipleChoice',
+        difficulty: 'easy',
+        cues: [{ startMs: 0, endMs: 30_000, text: 'TCP/IP describes how network data is routed between devices.' }],
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setDemoQuiz(quiz);
+      setDemoStatus('ready');
+      setDemoMessage('Quiz công khai đã được tạo từ fake AI qua Backend.');
+    } catch (err: unknown) {
+      setDemoStatus('error');
+      setDemoMessage(err instanceof Error ? err.message : 'Không thể tạo quiz demo.');
     }
   };
 
@@ -76,6 +122,7 @@ export const App: React.FC = () => {
       setActivationCommandError(error instanceof Error ? error.message : 'Unable to update StudyLens.');
     }
   };
+
   return (
     <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       <header style={{ borderBottom: '1px solid #334155', paddingBottom: '12px', marginBottom: '16px' }}>
@@ -155,6 +202,31 @@ export const App: React.FC = () => {
         />
         {activationCommandError && <p role="alert" style={{ fontSize: '12px', color: '#f87171' }}>{activationCommandError}</p>}
       </section>
+
+      <section style={{ marginBottom: '20px', background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
+        <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>Week 1 Integration Demo</h2>
+        <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: 0 }}>
+          Activation fixture → Session API → Backend → deterministic fake AI → public quiz UI.
+        </p>
+        <button
+          onClick={runWeekOneDemo}
+          disabled={demoStatus === 'loading'}
+          style={{ width: '100%', padding: '8px', backgroundColor: '#7c3aed', color: '#ffffff', border: 'none', borderRadius: '6px', cursor: demoStatus === 'loading' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 500 }}
+        >
+          {demoStatus === 'loading' ? 'Generating quiz...' : 'Run Week 1 fake-AI demo'}
+        </button>
+        {demoMessage && <p role="status" style={{ fontSize: '12px', color: demoStatus === 'error' ? '#f87171' : '#94a3b8' }}>{demoMessage}</p>}
+        {demoQuiz?.questions[0] && (
+          <div style={{ marginTop: '12px', padding: '10px', background: '#0f172a', borderRadius: '6px' }}>
+            <div style={{ color: '#34d399', fontSize: '11px', marginBottom: '6px' }}>Quiz {demoQuiz.quizId.slice(0, 8)} — public projection</div>
+            <AnswerForm
+              question={demoQuiz.questions[0]}
+              onSubmit={async () => setDemoMessage('Đáp án được nhận ở UI demo; grading và history là phạm vi tuần sau.')}
+            />
+          </div>
+        )}
+      </section>
+
       <section style={{ background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
         <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>Modular Architecture Slices</h2>
         {features && (

@@ -1,5 +1,7 @@
 # StudyLens AI — System Architecture
 
+> Xem thêm [Sơ đồ chức năng file và thư mục](repository-map.md) để tra cứu cây repo, entry point và trách nhiệm của từng file.
+
 ## 1. Overview
 
 **StudyLens AI** is an active learning companion for YouTube Web. It monitors video playback, extracts normalized transcript segments, and triggers timely AI-generated quizzes to enhance learning comprehension and retention.

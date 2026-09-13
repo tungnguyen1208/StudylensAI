@@ -10,6 +10,8 @@ public static class SessionQuizModule
         IConfiguration configuration)
     {
         services.AddSingleton<StudySessionService>();
+        services.AddSingleton<QuestionGenerationService>();
+        services.AddHttpClient<IQuestionGenerationGateway, QuestionGenerationClient>();
         return services;
     }
 
@@ -18,6 +20,8 @@ public static class SessionQuizModule
     {
         endpoints.MapPost("/api/sessions", StudySessionEndpoints.Start).WithName("StartStudySession").WithTags("Session Quiz");
         endpoints.MapPost("/api/sessions/{sessionId}/complete", StudySessionEndpoints.Complete).WithName("CompleteStudySession").WithTags("Session Quiz");
+        endpoints.MapPost("/api/quizzes/generate", QuizEndpoints.Generate).WithName("GenerateQuiz").WithTags("Session Quiz");
+        endpoints.MapGet("/api/quizzes/{quizId}", QuizEndpoints.Get).WithName("GetQuiz").WithTags("Session Quiz");
         return endpoints;
     }
 }

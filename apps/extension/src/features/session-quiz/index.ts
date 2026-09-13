@@ -26,6 +26,12 @@ export {
   type SessionSnapshot,
   type StartStudySessionRequest,
   type TranscriptSnapshotRef,
+  type TranscriptCue,
+  type QuestionOptionPublic,
+  type QuestionPublic,
+  type QuizPublic,
+  type GenerateQuizRequest,
 } from './models/session-quiz-contracts';
 
 export { StudyTimer, type Clock, type PlayerLifecycleEvent, type StudyTimerSnapshot, type StudyTimerStateStore } from './services/study-timer';
+export { SessionQuizApi } from './api/session-quiz-api';
