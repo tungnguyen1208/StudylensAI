@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { httpClient } from '../shared/http/http-client';
 import { initializeFeatureRegistry, RegisteredFeatures } from './feature-registry';
-
+import {
+  ActivationStatus,
+  ActivationToggle,
+  applyVideoActivationMessage,
+  initialActivationState,
+  type ActivationState,
+} from '../features/video-activation';
+import { messageBus } from '../shared/messaging/message-bus';
+import type { ExtensionMessage } from '../shared/messaging/message-types';
 interface BackendHealthResponse {
   status: string;
   service: string;
@@ -16,13 +24,27 @@ export const App: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
   const [backendData, setBackendData] = useState<BackendHealthResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
+  const [activationState, setActivationState] = useState<ActivationState>(initialActivationState);
+  const [activationCommandStatus, setActivationCommandStatus] = useState<'idle' | 'sending' | 'error'>('idle');
+  const [activationCommandError, setActivationCommandError] = useState<string | null>(null);
   useEffect(() => {
     const registered = initializeFeatureRegistry();
     setFeatures(registered);
     checkHealth();
   }, []);
 
+  useEffect(() => {
+    const onActivationMessage = (message: ExtensionMessage) => {
+      setActivationState((state) => applyVideoActivationMessage(state, message));
+    };
+    const unsubscribers = [
+      messageBus.subscribe('VIDEO_CONTEXT_CHANGED', onActivationMessage),
+      messageBus.subscribe('ACTIVATION_DECIDED', onActivationMessage),
+      messageBus.subscribe('ACTIVATION_STOPPED', onActivationMessage),
+    ];
+    void loadActiveYoutubeContext(onActivationMessage);
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, []);
   const checkHealth = async () => {
     setBackendStatus('checking');
     setErrorMessage(null);
@@ -37,6 +59,23 @@ export const App: React.FC = () => {
     }
   };
 
+  const requestManualActivation = async (requestedState: 'on' | 'off') => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+      setActivationCommandStatus('error');
+      setActivationCommandError('Chrome/Edge extension runtime is unavailable.');
+      return;
+    }
+    setActivationCommandStatus('sending');
+    setActivationCommandError(null);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_MANUAL_TOGGLE', requestedState }) as { ok?: boolean; code?: string };
+      if (!response?.ok) throw new Error(response?.code ?? 'manualActivationUnavailable');
+      setActivationCommandStatus('idle');
+    } catch (error: unknown) {
+      setActivationCommandStatus('error');
+      setActivationCommandError(error instanceof Error ? error.message : 'Unable to update StudyLens.');
+    }
+  };
   return (
     <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       <header style={{ borderBottom: '1px solid #334155', paddingBottom: '12px', marginBottom: '16px' }}>
@@ -101,6 +140,21 @@ export const App: React.FC = () => {
         </button>
       </section>
 
+      <section style={{ marginBottom: '20px', background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
+        <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>Manual StudyLens</h2>
+        {activationState.context ? (
+          <p style={{ fontSize: '12px', color: '#94a3b8' }}>Video: {activationState.context.title}</p>
+        ) : (
+          <p style={{ fontSize: '12px', color: '#fbbf24' }}>Open a supported YouTube watch page first.</p>
+        )}
+        <ActivationStatus state={activationState} />
+        <ActivationToggle
+          active={activationState.status === 'active'}
+          disabled={!activationState.context || activationCommandStatus === 'sending'}
+          onRequest={requestManualActivation}
+        />
+        {activationCommandError && <p role="alert" style={{ fontSize: '12px', color: '#f87171' }}>{activationCommandError}</p>}
+      </section>
       <section style={{ background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
         <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>Modular Architecture Slices</h2>
         {features && (
@@ -123,3 +177,16 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+async function loadActiveYoutubeContext(onMessage: (message: ExtensionMessage) => void): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_CONTEXT' }) as {
+      ok?: boolean;
+      context?: ExtensionMessage;
+    };
+    if (response?.ok && response.context) onMessage(response.context);
+  } catch {
+    // The Side Panel remains usable and explains that no YouTube context is available.
+  }
+}

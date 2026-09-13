@@ -20,6 +20,10 @@ describe('video activation extension message contract 0.1.0', () => {
     'player-playing.json',
     'player-buffering.json',
     'player-seeked.json',
+    'manual-on.json',
+    'manual-off.json',
+    'manual-no-transcript.json',
+    'manual-video-changed.json',
   ])('validates fixture %s', (fixtureName) => {
     const fixture = JSON.parse(
       readFileSync(`${repoRoot}/contracts/examples/video-activation/${fixtureName}`, 'utf8'),

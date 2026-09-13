@@ -5,7 +5,8 @@
   "description": "Active learning companion for YouTube with automated transcript analysis and quiz generation.",
   "permissions": [
     "sidePanel",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",

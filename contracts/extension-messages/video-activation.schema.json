@@ -22,6 +22,7 @@
         "PLAYER_SEEKED",
         "PLAYER_ENDED",
         "VIDEO_CONTEXT_CHANGED",
+        "MANUAL_ACTIVATION_REQUEST",
         "ACTIVATION_DECIDED",
         "ACTIVATION_STOPPED",
         "SEEK_REQUEST",
@@ -53,6 +54,33 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "MANUAL_ACTIVATION_REQUEST" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": { "payload": { "$ref": "#/$defs/manualActivationPayload" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "ACTIVATION_DECIDED" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": { "payload": { "$ref": "#/$defs/activationDecisionPayload" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "ACTIVATION_STOPPED" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": { "payload": { "$ref": "#/$defs/activationStoppedPayload" } }
+      }
+    },
     {
       "if": {
         "properties": { "type": { "const": "VIDEO_CONTEXT_CHANGED" } },
@@ -103,6 +131,54 @@
     }
   ],
   "$defs": {
+    "manualActivationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestedState"],
+      "properties": { "requestedState": { "type": "string", "enum": ["on", "off"] } }
+    },
+    "preferenceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quizIntervalMinutes", "questionType", "difficulty"],
+      "properties": {
+        "quizIntervalMinutes": { "type": "integer", "enum": [5, 10, 15] },
+        "questionType": { "type": "string", "enum": ["multipleChoice", "shortAnswer"] },
+        "difficulty": { "type": "string", "enum": ["easy", "medium", "hard"] }
+      }
+    },
+    "transcriptSnapshotRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transcriptSnapshotId", "youtubeVideoId", "language", "status", "version"],
+      "properties": {
+        "transcriptSnapshotId": { "type": "string", "minLength": 1 },
+        "youtubeVideoId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{11}$" },
+        "language": { "type": "string", "minLength": 2 },
+        "status": { "type": "string", "enum": ["available", "unavailable", "insufficient"] },
+        "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "version": { "const": "0.1.0" }
+      }
+    },
+    "activationDecisionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisionId", "state", "source", "reasonCode", "preferences"],
+      "properties": {
+        "decisionId": { "type": "string", "minLength": 1 },
+        "state": { "const": "active" },
+        "source": { "const": "manual" },
+        "reasonCode": { "const": "userEnabled" },
+        "transcriptSnapshot": { "$ref": "#/$defs/transcriptSnapshotRef" },
+        "preferences": { "$ref": "#/$defs/preferenceSnapshot" }
+      }
+    },
+    "activationStoppedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode"],
+      "properties": { "reasonCode": { "type": "string", "enum": ["userDisabled", "videoChanged"] } }
+    },
     "nonNegativeMilliseconds": {
       "type": "integer",
       "minimum": 0

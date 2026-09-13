@@ -1,0 +1,19 @@
+{
+  "type": "ACTIVATION_DECIDED",
+  "contractVersion": "0.1.0",
+  "correlationId": "manual-no-transcript-correlation",
+  "tabId": 7,
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "occurredAtUtc": "2026-09-13T10:02:00.000Z",
+  "payload": {
+    "decisionId": "manual-decision-no-transcript-001",
+    "state": "active",
+    "source": "manual",
+    "reasonCode": "userEnabled",
+    "preferences": {
+      "quizIntervalMinutes": 10,
+      "questionType": "multipleChoice",
+      "difficulty": "medium"
+    }
+  }
+}
