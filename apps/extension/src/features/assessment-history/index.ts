@@ -18,3 +18,18 @@ export function registerAssessmentHistoryFeature(): AssessmentHistoryFeatureMeta
     owner: 'Dev 3',
   };
 }
+
+export { AnswerForm } from './components/AnswerForm';
+export { MultipleChoiceAnswer } from './components/MultipleChoiceAnswer';
+export { ShortAnswerInput } from './components/ShortAnswerInput';
+export { seedQuiz } from './__fixtures__/seed-quiz';
+export {
+  ASSESSMENT_HISTORY_CONTRACT_VERSION,
+  type AnswerDraft,
+  type LocalAnswerSubmission,
+  type QuestionOptionPublic,
+  type QuestionPublic,
+  type QuestionSourceRef,
+  type QuestionType,
+  type QuizAvailable,
+} from './types/assessment-types';
