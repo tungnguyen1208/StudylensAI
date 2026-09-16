@@ -134,7 +134,10 @@ components:
         language: { type: string, minLength: 2 }
         status: { $ref: '#/components/schemas/TranscriptSnapshotStatus' }
         contentHash: { type: string, pattern: '^[a-f0-9]{64}$' }
-        version: { type: string, const: 0.1.0 }
+        version:
+          type: string
+          minLength: 1
+          description: Snapshot revision published by the Video Activation module, not the contract version.
     PreferenceSnapshot:
       type: object
       additionalProperties: false
@@ -186,6 +189,10 @@ components:
         contractVersion: { type: string, const: 0.1.0 }
         clientSegmentId: { type: string, format: uuid }
         idempotencyKey: { type: string, minLength: 1 }
+        activeStudyMs:
+          type: integer
+          minimum: 0
+          description: Wall-clock active study time of the closed interval. Optional because playback spans cannot express replayed video ranges.
         playbackSpans:
           type: array
           minItems: 1

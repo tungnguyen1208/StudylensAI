@@ -1,0 +1,7 @@
+{
+  "code": "questionGenerationUnavailable",
+  "status": 503,
+  "message": "Dịch vụ sinh câu hỏi không phản hồi kịp. Bạn có thể thử lại.",
+  "traceId": "00-2d7e6f5a4b3c2d1e0f9a8b7c6d5e4f30-0f1e2d3c4b5a6978-00",
+  "retryable": true
+}

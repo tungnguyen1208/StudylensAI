@@ -1,0 +1,17 @@
+{
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "durationMs": 300000,
+  "scenario": "watch 0-60s, forward seek over 60-120s, watch 120-180s, backward seek and replay 120-150s",
+  "activeStudyMs": 150000,
+  "playbackSpans": [
+    { "startMs": 0, "endMs": 60000 },
+    { "startMs": 120000, "endMs": 180000 },
+    { "startMs": 120000, "endMs": 150000 }
+  ],
+  "expectedCueIds": [
+    "aaaaaaa1-0000-4000-8000-000000000001",
+    "aaaaaaa1-0000-4000-8000-000000000002",
+    "aaaaaaa1-0000-4000-8000-000000000005",
+    "aaaaaaa1-0000-4000-8000-000000000006"
+  ]
+}

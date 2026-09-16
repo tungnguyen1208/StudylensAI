@@ -1,0 +1,11 @@
+{
+  "contractVersion": "0.1.0",
+  "clientSegmentId": "44444444-4444-4444-8444-444444444444",
+  "idempotencyKey": "segment:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444",
+  "activeStudyMs": 600000,
+  "playbackSpans": [
+    { "startMs": 0, "endMs": 60000 },
+    { "startMs": 120000, "endMs": 180000 },
+    { "startMs": 120000, "endMs": 150000 }
+  ]
+}

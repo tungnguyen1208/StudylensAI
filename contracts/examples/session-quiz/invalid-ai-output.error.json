@@ -1,0 +1,7 @@
+{
+  "code": "invalidAiOutput",
+  "status": 400,
+  "message": "Kết quả từ AI không đúng schema nên đã bị từ chối trước khi lưu.",
+  "traceId": "00-6a5b4c3d2e1f0918273645546372819a-9a8b7c6d5e4f3021-00",
+  "retryable": false
+}

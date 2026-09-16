@@ -20,6 +20,8 @@ public sealed class StudySessionService
         return StudySessionResult.Success(stored);
     }
 
+    public StudySession? Find(string sessionId) => _byId.TryGetValue(sessionId, out var session) ? session : null;
+
     public StudySessionResult Complete(CompleteStudySessionCommand command)
     {
         if (!_byId.TryGetValue(command.SessionId, out var current)) return StudySessionResult.NotFound();

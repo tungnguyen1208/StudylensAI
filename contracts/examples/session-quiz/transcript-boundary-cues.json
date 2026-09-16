@@ -1,0 +1,20 @@
+{
+  "transcriptSnapshotId": "22222222-2222-4222-8222-222222222223",
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "language": "en",
+  "status": "available",
+  "version": "0.1.0",
+  "contentHash": "5f2b1f4a5c3d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+  "scenario": "overlapping cues, cue touching the span end, and a cue far outside every watched span",
+  "playbackSpans": [{ "startMs": 5000, "endMs": 20000 }],
+  "expectedCueIds": [
+    "bbbbbbb1-0000-4000-8000-000000000001",
+    "bbbbbbb1-0000-4000-8000-000000000002"
+  ],
+  "cues": [
+    { "transcriptCueId": "bbbbbbb1-0000-4000-8000-000000000001", "startMs": 0, "endMs": 10000, "text": "Overlapping cue that starts before the span." },
+    { "transcriptCueId": "bbbbbbb1-0000-4000-8000-000000000002", "startMs": 9000, "endMs": 20000, "text": "Overlapping cue that ends with the span." },
+    { "transcriptCueId": "bbbbbbb1-0000-4000-8000-000000000003", "startMs": 20000, "endMs": 20500, "text": "Cue touching the span end without overlapping it." },
+    { "transcriptCueId": "bbbbbbb1-0000-4000-8000-000000000004", "startMs": 500000, "endMs": 530000, "text": "Cue outside every watched span." }
+  ]
+}

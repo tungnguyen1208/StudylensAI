@@ -16,7 +16,7 @@ export interface TranscriptSnapshotRef {
   language: string;
   status: 'available' | 'unavailable' | 'insufficient';
   contentHash?: string;
-  version: typeof SESSION_QUIZ_CONTRACT_VERSION;
+  version: string;
 }
 
 export interface ActivationDecisionFixture {
@@ -82,3 +82,36 @@ export interface GenerateQuizRequest {
   cues: TranscriptCue[];
   idempotencyKey: string;
 }
+
+// ============================================================
+// segment contracts
+// ============================================================
+
+export interface PlaybackSpanPayload {
+  startMs: number;
+  endMs: number;
+}
+
+export interface CreateStudySegmentRequest {
+  contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
+  clientSegmentId: string;
+  idempotencyKey: string;
+  activeStudyMs?: number;
+  playbackSpans: PlaybackSpanPayload[];
+}
+
+export interface StudySegmentRef {
+  segmentId: string;
+  sessionId: string;
+  youtubeVideoId: string;
+  startMs: number;
+  endMs: number;
+}
+
+export interface CompleteStudySessionRequest {
+  contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
+  clientCompletionId: string;
+  reason: 'activationStopped' | 'videoChanged' | 'videoEnded';
+  activeStudyMs: number;
+}
+
