@@ -1,0 +1,14 @@
+{
+  "answerAttemptId": "fixture-44444444-4444-4444-8444-444444444444",
+  "questionId": "44444444-4444-4444-8444-444444444444",
+  "outcome": "correct",
+  "score": 1,
+  "referenceAnswer": "IP",
+  "explanation": "Câu trả lời phù hợp với nội dung quiz fixture.",
+  "source": {
+    "youtubeVideoId": "dQw4w9WgXcQ",
+    "startMs": 300000,
+    "endMs": 360000
+  },
+  "gradedAtUtc": "2026-09-17T09:00:00Z"
+}

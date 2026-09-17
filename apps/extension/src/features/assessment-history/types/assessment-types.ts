@@ -38,3 +38,33 @@ export type LocalAnswerSubmission =
 export type AnswerDraft =
   | { type: 'multipleChoice'; selectedOptionId: string }
   | { type: 'shortAnswer'; answerText: string };
+
+/** Available only after a learner has submitted an answer. */
+export type GradeOutcome = 'correct' | 'incorrect' | 'partiallyCorrect';
+
+export interface GradeView {
+  answerAttemptId: string;
+  questionId: string;
+  outcome: GradeOutcome;
+  score: number;
+  referenceAnswer: string;
+  explanation: string;
+  source: QuestionSourceRef;
+  gradedAtUtc: string;
+}
+
+/** Read model for local fixture/demo history; persistence is introduced in later work. */
+export interface HistoryEntryReadModel {
+  answerAttemptId: string;
+  youtubeVideoId: string;
+  sessionId: string;
+  questionId: string;
+  questionPrompt: string;
+  questionType: QuestionType;
+  submittedAnswer: string;
+  outcome: GradeOutcome;
+  score: number;
+  explanation: string;
+  timestampMs: number;
+  submittedAtUtc: string;
+}

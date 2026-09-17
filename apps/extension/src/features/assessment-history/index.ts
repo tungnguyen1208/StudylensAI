@@ -20,12 +20,18 @@ export function registerAssessmentHistoryFeature(): AssessmentHistoryFeatureMeta
 }
 
 export { AnswerForm } from './components/AnswerForm';
+export { AssessmentFixturePanel } from './components/AssessmentFixturePanel';
+export { GradeResult } from './components/GradeResult';
+export { HistoryPage } from './components/HistoryPage';
 export { MultipleChoiceAnswer } from './components/MultipleChoiceAnswer';
 export { ShortAnswerInput } from './components/ShortAnswerInput';
 export { seedQuiz } from './__fixtures__/seed-quiz';
 export {
   ASSESSMENT_HISTORY_CONTRACT_VERSION,
   type AnswerDraft,
+  type GradeOutcome,
+  type GradeView,
+  type HistoryEntryReadModel,
   type LocalAnswerSubmission,
   type QuestionOptionPublic,
   type QuestionPublic,
