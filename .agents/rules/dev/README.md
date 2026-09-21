@@ -7,7 +7,7 @@ Use this mapping:
 
 | Developer | Rule file | Custom agent |
 |---|---|---|
-| Dev 1 | `dev1-video-activation.md` | `.codex/agents/dev1-video-activation.toml` |
+| Dev 1 | `dev1-persistent-activation.md` | `.codex/agents/dev1-persistent-activation.toml` |
 | Dev 2 | `dev2-session-quiz.md` | `.codex/agents/dev2-session-quiz.toml` |
 | Dev 3 | `dev3-assessment-history.md` | `.codex/agents/dev3-assessment-history.toml` |
 

@@ -1,4 +1,4 @@
-import type { TranscriptSnapshotRef } from './video-activation.types';
+import type { AvailableTranscriptSnapshotRef, TranscriptSnapshotRef } from './video-activation.types';
 
 export const DEFAULT_MANUAL_PREFERENCES = {
   quizIntervalMinutes: 10,
@@ -18,16 +18,15 @@ export interface PreferenceSnapshot {
   difficulty: 'easy' | 'medium' | 'hard';
 }
 
-export interface ActivationDecisionPayload {
-  decisionId: string;
-  state: 'active';
-  source: 'manual';
-  reasonCode: 'userEnabled';
-  transcriptSnapshot?: TranscriptSnapshotRef;
+export interface ActivationEnabledPayload {
+  activationId: string;
+  source: 'user' | 'storageRestore';
+  videoTitle: string;
+  transcriptSnapshot: AvailableTranscriptSnapshotRef;
   preferences: PreferenceSnapshot;
 }
 
-export type ActivationStoppedReason = 'userDisabled' | 'videoChanged';
+export type ActivationStoppedReason = 'userDisabled';
 
 export interface ActivationState {
   context: ActivationContext | null;

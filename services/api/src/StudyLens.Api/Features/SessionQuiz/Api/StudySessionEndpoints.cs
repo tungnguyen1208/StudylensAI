@@ -8,7 +8,17 @@ internal static class StudySessionEndpoints
 {
     public static IResult Start(StartRequest request, StudySessionService service, HttpContext context)
     {
-        var result = service.Start(new(request.ActivationDecision.DecisionId, request.ActivationDecision.State, request.YoutubeVideoId, request.ActivationDecision.TranscriptSnapshot?.TranscriptSnapshotId, request.ActivationDecision.Preferences.QuizIntervalMinutes, request.ActivationDecision.Preferences.QuestionType, request.ActivationDecision.Preferences.Difficulty));
+        if (request.Activation.TranscriptSnapshot is not { Status: "available", ContentHash: { Length: > 0 } } snapshot ||
+            snapshot.YoutubeVideoId != request.YoutubeVideoId)
+        {
+            return Results.Json(new ErrorEnvelope(
+                "transcriptUnavailable",
+                StatusCodes.Status422UnprocessableEntity,
+                "A valid uploaded transcript is required before a study session can start.",
+                context.TraceIdentifier,
+                false), statusCode: StatusCodes.Status422UnprocessableEntity);
+        }
+        var result = service.Start(new(request.Activation.ActivationId, "active", request.YoutubeVideoId, snapshot.TranscriptSnapshotId, request.Activation.Preferences.QuizIntervalMinutes, request.Activation.Preferences.QuestionType, request.Activation.Preferences.Difficulty));
         return ToResult(result, context);
     }
 
@@ -20,8 +30,8 @@ internal static class StudySessionEndpoints
         : Results.Json(new ErrorEnvelope(result.ErrorCode!, result.StatusCode, result.ErrorMessage!, context.TraceIdentifier, false), statusCode: result.StatusCode);
 }
 
-internal sealed record StartRequest(string ContractVersion, string YoutubeVideoId, ActivationDecisionRequest ActivationDecision);
-internal sealed record ActivationDecisionRequest(string DecisionId, string State, string Source, string ReasonCode, TranscriptSnapshotRequest? TranscriptSnapshot, PreferenceRequest Preferences);
+internal sealed record StartRequest(string ContractVersion, string YoutubeVideoId, ActivationRequest Activation);
+internal sealed record ActivationRequest(string ActivationId, string Source, string VideoTitle, TranscriptSnapshotRequest? TranscriptSnapshot, PreferenceRequest Preferences);
 internal sealed record TranscriptSnapshotRequest(string TranscriptSnapshotId, string YoutubeVideoId, string Language, string Status, string Version, string? ContentHash);
 internal sealed record PreferenceRequest(int QuizIntervalMinutes, string QuestionType, string Difficulty);
 internal sealed record CompleteRequest(string ContractVersion, string ClientCompletionId, string Reason, long ActiveStudyMs);

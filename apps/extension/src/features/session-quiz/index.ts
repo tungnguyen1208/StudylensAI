@@ -14,14 +14,14 @@ export interface SessionQuizFeatureMetadata {
 export function registerSessionQuizFeature(): SessionQuizFeatureMetadata {
   return {
     name: 'session-quiz',
-    version: '0.1.0',
+    version: '0.2.0',
     owner: 'Dev 2',
   };
 }
 
 export {
   SESSION_QUIZ_CONTRACT_VERSION,
-  type ActivationDecisionFixture,
+  type ActivationEnabledPayload,
   type CompleteStudySessionRequest,
   type CreateStudySegmentRequest,
   type PlaybackSpanPayload,

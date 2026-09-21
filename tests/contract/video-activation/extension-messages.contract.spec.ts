@@ -7,45 +7,35 @@ const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const extensionRequire = createRequire(new URL('../../../apps/extension/package.json', import.meta.url));
 const Ajv = extensionRequire('ajv').default as typeof import('ajv').default;
 const addFormats = extensionRequire('ajv-formats').default as typeof import('ajv-formats').default;
-const schema = JSON.parse(
-  readFileSync(`${repoRoot}/contracts/extension-messages/video-activation.schema.json`, 'utf8'),
-);
+const schema = JSON.parse(readFileSync(`${repoRoot}/contracts/extension-messages/video-activation.schema.json`, 'utf8'));
 const ajv = new Ajv({ strict: true });
 addFormats(ajv);
 const validate = ajv.compile(schema);
+const envelope = { contractVersion: '0.2.0', correlationId: 'c-1', tabId: 7, youtubeVideoId: 'dQw4w9WgXcQ', occurredAtUtc: '2026-09-20T10:00:00.000Z' };
 
-describe('video activation extension message contract 0.1.0', () => {
-  it.each([
-    'video-valid.json',
-    'player-playing.json',
-    'player-buffering.json',
-    'player-seeked.json',
-    'manual-on.json',
-    'manual-off.json',
-    'manual-no-transcript.json',
-    'manual-video-changed.json',
-  ])('validates fixture %s', (fixtureName) => {
-    const fixture = JSON.parse(
-      readFileSync(`${repoRoot}/contracts/examples/video-activation/${fixtureName}`, 'utf8'),
-    );
-    expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
+describe('persistent activation extension message contract 0.2.0', () => {
+  it('validates explicit enable and disable envelopes', () => {
+    expect(validate({ ...envelope, type: 'ACTIVATION_ENABLED', payload: {
+      activationId: 'a-1', source: 'user', videoTitle: 'Networking lesson',
+      transcriptSnapshot: { transcriptSnapshotId: 'snapshot-1', youtubeVideoId: 'dQw4w9WgXcQ', language: 'en', status: 'available', contentHash: 'a'.repeat(64), version: '0.2.0' },
+      preferences: { quizIntervalMinutes: 10, questionType: 'multipleChoice', difficulty: 'medium' },
+    } }), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...envelope, type: 'ACTIVATION_DISABLED', payload: { reasonCode: 'userDisabled' } }), JSON.stringify(validate.errors)).toBe(true);
   });
-
-  it('rejects messages without tab and video context', () => {
-    const fixture = JSON.parse(
-      readFileSync(`${repoRoot}/contracts/examples/video-activation/video-valid.json`, 'utf8'),
-    );
-    delete fixture.tabId;
-    delete fixture.youtubeVideoId;
-    expect(validate(fixture)).toBe(false);
+  it('validates normalized player time in integer milliseconds', () => {
+    expect(validate({ ...envelope, type: 'PLAYER_PLAYING', payload: { currentTimeMs: 1000, durationMs: 2000 } })).toBe(true);
+    expect(validate({ ...envelope, type: 'PLAYER_PLAYING', payload: { currentTimeMs: 1.5 } })).toBe(false);
   });
-
-  it('rejects extra fields and invalid timestamp units', () => {
-    const fixture = JSON.parse(
-      readFileSync(`${repoRoot}/contracts/examples/video-activation/player-playing.json`, 'utf8'),
-    );
-    fixture.payload.currentTimeMs = 1.5;
-    fixture.secret = 'must-not-pass';
-    expect(validate(fixture)).toBe(false);
+  it('validates recoverable operation status without exposing implementation details', () => {
+    expect(validate({ ...envelope, type: 'OPERATION_STATUS_CHANGED', payload: {
+      operation: 'transcriptUpload', state: 'failed', code: 'NETWORK_ERROR',
+      message: 'Không thể gửi transcript tới Backend.', retryable: true, traceId: 'trace-1',
+    } }), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...envelope, type: 'OPERATION_STATUS_CHANGED', payload: {
+      operation: 'transcriptUpload', state: 'failed', message: 'Lỗi', retryable: 'yes',
+    } })).toBe(false);
+  });
+  it('rejects an unsupported page-change event', () => {
+    expect(validate({ ...envelope, type: 'UNSUPPORTED_PAGE_CHANGE', payload: {} })).toBe(false);
   });
 });

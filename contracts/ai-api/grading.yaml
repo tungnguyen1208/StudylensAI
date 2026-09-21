@@ -1,8 +1,35 @@
 openapi: 3.0.3
 info:
-  title: StudyLens AI Service — Grading Feature
-  version: 0.1.0
-  description: AI contracts for semantic short answer grading owned by Dev 3.
-paths: {}
+  title: StudyLens AI Service - Deterministic Grading
+  version: 0.2.0
+paths:
+  /api/ai/grading/short-answer:
+    post:
+      operationId: gradeShortAnswer
+      summary: Deterministically grade a short answer for local development without an LLM.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ShortAnswerGradeRequest' } } }
+      responses:
+        '200': { description: Validated grading result, content: { application/json: { schema: { $ref: '#/components/schemas/ShortAnswerGradeResponse' } } } }
+        '422': { description: Invalid request }
 components:
-  schemas: {}
+  schemas:
+    ShortAnswerGradeRequest:
+      type: object
+      additionalProperties: false
+      required: [questionId, prompt, referenceAnswer, answerText]
+      properties:
+        questionId: { type: string, format: uuid }
+        prompt: { type: string, minLength: 1 }
+        referenceAnswer: { type: string, minLength: 1 }
+        answerText: { type: string, minLength: 1 }
+    ShortAnswerGradeResponse:
+      type: object
+      additionalProperties: false
+      required: [outcome, score, referenceAnswer, explanation]
+      properties:
+        outcome: { type: string, enum: [correct, incorrect, partiallyCorrect] }
+        score: { type: number, minimum: 0, maximum: 1 }
+        referenceAnswer: { type: string }
+        explanation: { type: string }

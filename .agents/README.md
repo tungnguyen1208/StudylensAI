@@ -9,8 +9,9 @@ This folder contains repo-local guidance for Codex-driven development.
 │   ├── common-dev-rules.md
 │   ├── api-contract-rules.md
 │   ├── module-boundary-rules.md
+│   ├── persistent-activation-migration.md
 │   └── dev/
-│       ├── dev1-video-activation.md
+│       ├── dev1-persistent-activation.md
 │       ├── dev2-session-quiz.md
 │       └── dev3-assessment-history.md
 ├── playbooks/

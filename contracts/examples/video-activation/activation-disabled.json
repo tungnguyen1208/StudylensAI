@@ -1,0 +1,9 @@
+{
+  "type": "ACTIVATION_DISABLED",
+  "contractVersion": "0.2.0",
+  "correlationId": "0afaf4e4-41b0-4c75-81f6-7de97694d76f",
+  "tabId": 7,
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "occurredAtUtc": "2026-09-20T10:10:00.000Z",
+  "payload": { "reasonCode": "userDisabled" }
+}

@@ -43,8 +43,8 @@ describe('PlaybackSpanTracker open/close rules', () => {
     expect(totalWatchedMs(tracker.peek())).toBe(45000);
   });
 
-  it('closes the open span on buffering, ended, video change and activation stop', () => {
-    for (const event of ['PLAYER_BUFFERING', 'PLAYER_ENDED', 'VIDEO_CONTEXT_CHANGED', 'ACTIVATION_STOPPED'] as const) {
+  it('closes the open span on buffering, ended and activation disable', () => {
+    for (const event of ['PLAYER_BUFFERING', 'PLAYER_ENDED', 'ACTIVATION_DISABLED'] as const) {
       const tracker = new PlaybackSpanTracker();
       tracker.handle(play(1000));
       const closed = tracker.handle(stop(event, 5000));

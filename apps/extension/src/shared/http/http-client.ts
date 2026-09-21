@@ -54,7 +54,7 @@ export class HttpClient {
           status: response.status,
           message: String(envelope.message || response.statusText || 'Request failed'),
           traceId: envelope.traceId ? String(envelope.traceId) : undefined,
-          retryable: response.status >= 500,
+          retryable: typeof envelope.retryable === 'boolean' ? envelope.retryable : response.status >= 500,
         });
       }
 

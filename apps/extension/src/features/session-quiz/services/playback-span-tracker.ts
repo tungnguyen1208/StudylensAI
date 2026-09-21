@@ -28,8 +28,7 @@ const CLOSING_EVENTS: ReadonlySet<PlayerLifecycleEvent> = new Set([
   'PLAYER_BUFFERING',
   'PLAYER_SEEKED',
   'PLAYER_ENDED',
-  'VIDEO_CONTEXT_CHANGED',
-  'ACTIVATION_STOPPED',
+  'ACTIVATION_DISABLED',
 ]);
 
 // ============================================================

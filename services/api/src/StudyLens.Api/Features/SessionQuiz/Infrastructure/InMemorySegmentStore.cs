@@ -18,6 +18,15 @@ public sealed class InMemorySegmentStore : ISegmentRepository
         }
     }
 
+    public StudySegment? FindById(string sessionId, string segmentId)
+    {
+        lock (_gate)
+        {
+            return _segments.Values.FirstOrDefault(segment =>
+                segment.SessionId == sessionId && segment.SegmentId == segmentId);
+        }
+    }
+
     public StudySegment GetOrAdd(string sessionId, string clientSegmentId, Func<int, StudySegment> create)
     {
         lock (_gate)

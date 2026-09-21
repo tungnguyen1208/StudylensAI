@@ -10,7 +10,7 @@ interface AnswerFormProps {
   onSubmit: (submission: LocalAnswerSubmission) => void | Promise<void>;
 }
 
-/** Local-only C02 form. API submission and grading are intentionally deferred to C03+. */
+/** Holds the learner draft locally and delegates the actual submission to the Backend API. */
 export function AnswerForm({ question, isLoading = false, onSubmit }: AnswerFormProps) {
   const [state, dispatch] = useReducer(assessmentReducer, question, createInitialAnswerFormState);
   const submissionInFlight = useRef(false);

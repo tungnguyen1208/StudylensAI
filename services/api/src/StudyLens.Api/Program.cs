@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using StudyLens.Api.BuildingBlocks.Health;
 using StudyLens.Api.BuildingBlocks.Http;
+using StudyLens.Api.BuildingBlocks.Errors;
 using StudyLens.Api.Features.AssessmentHistory;
 using StudyLens.Api.Features.SessionQuiz;
 using StudyLens.Api.Features.VideoActivation;
@@ -48,12 +49,30 @@ builder.Services.AddAssessmentHistoryModule(builder.Configuration);
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService<StudyLensDbContext>().Database.Migrate();
+}
+
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Every unexpected API failure remains safe for the extension to display and retry.
+// Exception details are intentionally never serialized to the Browser Extension.
+app.UseExceptionHandler(handler => handler.Run(async context =>
+{
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    await context.Response.WriteAsJsonAsync(new ErrorEnvelope(
+        "internalServerError",
+        StatusCodes.Status500InternalServerError,
+        "The Backend could not complete this request. Please try again.",
+        context.TraceIdentifier,
+        true));
+}));
 
 app.UseCors("AllowLocalAndExtension");
 

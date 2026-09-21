@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AssessmentHistoryMessageEnvelope",
+  "description": "Optional Extension-internal status envelope. Answer and history data travel through the Assessment HTTP API; private grading data never crosses this boundary.",
   "type": "object",
   "required": [
     "type",
@@ -11,12 +12,12 @@
   ],
   "properties": {
     "type": {
-      "type": "string",
-      "description": "Event type identifier"
+      "enum": ["OPERATION_STATUS_CHANGED"],
+      "description": "The only Assessment-related extension message is an operation status update."
     },
     "contractVersion": {
       "type": "string",
-      "default": "0.1.0"
+      "default": "0.2.0"
     },
     "correlationId": {
       "type": "string"
@@ -32,7 +33,18 @@
       "format": "date-time"
     },
     "payload": {
-      "type": "object"
+      "type": "object",
+      "required": ["operation", "state", "message", "retryable"],
+      "properties": {
+        "operation": { "enum": ["answerSubmit", "historyLoad"] },
+        "state": { "enum": ["pending", "succeeded", "failed"] },
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "traceId": { "type": "string" }
+      },
+      "additionalProperties": false
     }
-  }
+  },
+  "additionalProperties": false
 }

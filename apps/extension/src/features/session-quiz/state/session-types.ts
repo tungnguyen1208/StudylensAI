@@ -1,4 +1,4 @@
-import type { ActivationDecisionFixture, SessionSnapshot, StudySegmentRef } from '../models/session-quiz-contracts';
+import type { ActivationEnabledPayload, SessionSnapshot, StudySegmentRef } from '../models/session-quiz-contracts';
 
 // ============================================================
 // state
@@ -37,6 +37,6 @@ export type SessionAction =
 // ============================================================
 
 export interface SessionApiPort {
-  start(request: { youtubeVideoId: string; activationDecision: ActivationDecisionFixture }): Promise<SessionSnapshot>;
-  complete(sessionId: string, request: { clientCompletionId: string; reason: 'activationStopped' | 'videoChanged' | 'videoEnded'; activeStudyMs: number }): Promise<SessionSnapshot>;
+  start(request: { youtubeVideoId: string; activation: ActivationEnabledPayload }): Promise<SessionSnapshot>;
+  complete(sessionId: string, request: { clientCompletionId: string; reason: 'activationDisabled' | 'videoEnded'; activeStudyMs: number }): Promise<SessionSnapshot>;
 }

@@ -2,7 +2,7 @@ namespace StudyLens.Api.Features.SessionQuiz.Domain;
 
 public sealed record StudySession(
     string SessionId,
-    string DecisionId,
+    string ActivationId,
     string YoutubeVideoId,
     string? TranscriptSnapshotId,
     int QuizIntervalMinutes,

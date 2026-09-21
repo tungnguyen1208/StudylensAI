@@ -5,17 +5,17 @@ namespace StudyLens.Api.Features.SessionQuiz.Application;
 
 public sealed class StudySessionService
 {
-    private readonly ConcurrentDictionary<string, StudySession> _byDecision = new();
+    private readonly ConcurrentDictionary<string, StudySession> _byActivation = new();
     private readonly ConcurrentDictionary<string, StudySession> _byId = new();
 
     public StudySessionResult Start(StartStudySessionCommand command)
     {
-        if (command.State != "active") return StudySessionResult.Invalid("activationInactive", "Only an active activation decision can start a session.");
-        if (string.IsNullOrWhiteSpace(command.DecisionId) || string.IsNullOrWhiteSpace(command.YoutubeVideoId)) return StudySessionResult.Invalid("invalidSession", "Decision and YouTube video identifiers are required.");
+        if (command.State != "active") return StudySessionResult.Invalid("activationInactive", "Only an active activation can start a session.");
+        if (string.IsNullOrWhiteSpace(command.ActivationId) || string.IsNullOrWhiteSpace(command.YoutubeVideoId)) return StudySessionResult.Invalid("invalidSession", "Activation and YouTube video identifiers are required.");
         if (command.QuizIntervalMinutes is not (5 or 10 or 15)) return StudySessionResult.Invalid("invalidPreferences", "Quiz interval must be 5, 10, or 15 minutes.");
-        var candidate = new StudySession(Guid.NewGuid().ToString(), command.DecisionId, command.YoutubeVideoId, command.TranscriptSnapshotId, command.QuizIntervalMinutes, command.QuestionType, command.Difficulty, "active", 0, DateTimeOffset.UtcNow, null, null, null);
-        var stored = _byDecision.GetOrAdd(command.DecisionId, candidate);
-        if (stored.YoutubeVideoId != command.YoutubeVideoId) return StudySessionResult.Conflict("decisionConflict", "The activation decision was already used for another video.");
+        var candidate = new StudySession(Guid.NewGuid().ToString(), command.ActivationId, command.YoutubeVideoId, command.TranscriptSnapshotId, command.QuizIntervalMinutes, command.QuestionType, command.Difficulty, "active", 0, DateTimeOffset.UtcNow, null, null, null);
+        var stored = _byActivation.GetOrAdd(command.ActivationId, candidate);
+        if (stored.YoutubeVideoId != command.YoutubeVideoId) return StudySessionResult.Conflict("activationConflict", "The activation was already used for another video.");
         _byId.TryAdd(stored.SessionId, stored);
         return StudySessionResult.Success(stored);
     }
@@ -29,12 +29,12 @@ public sealed class StudySessionService
         if (current.Status == "completed") return current.CompletionId == command.ClientCompletionId ? StudySessionResult.Success(current) : StudySessionResult.Conflict("completionConflict", "The session was already completed by another request.");
         var completed = current with { Status = "completed", ActiveStudyMs = command.ActiveStudyMs, CompletedAtUtc = DateTimeOffset.UtcNow, CompletionId = command.ClientCompletionId, CompletionReason = command.Reason };
         _byId[command.SessionId] = completed;
-        _byDecision[completed.DecisionId] = completed;
+        _byActivation[completed.ActivationId] = completed;
         return StudySessionResult.Success(completed);
     }
 }
 
-public sealed record StartStudySessionCommand(string DecisionId, string State, string YoutubeVideoId, string? TranscriptSnapshotId, int QuizIntervalMinutes, string QuestionType, string Difficulty);
+public sealed record StartStudySessionCommand(string ActivationId, string State, string YoutubeVideoId, string? TranscriptSnapshotId, int QuizIntervalMinutes, string QuestionType, string Difficulty);
 public sealed record CompleteStudySessionCommand(string SessionId, string ClientCompletionId, string Reason, long ActiveStudyMs);
 public sealed record StudySessionResult(StudySession? Session, string? ErrorCode, string? ErrorMessage, int StatusCode)
 {

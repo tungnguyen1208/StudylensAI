@@ -1,5 +1,6 @@
 import type { ExtensionMessage } from '../../../shared/messaging/message-types';
-import type { ActivationDecisionFixture, PreferenceSnapshot } from '../models/session-quiz-contracts';
+import { operationFailure, type OperationStatusPayload, type StudyLensOperation } from '../../../shared/messaging/operation-status';
+import { SESSION_QUIZ_CONTRACT_VERSION, type ActivationEnabledPayload, type GenerateQuizRequest, type PreferenceSnapshot, type QuizPublic } from '../models/session-quiz-contracts';
 import { SessionStore } from '../state/session-store';
 import type { SessionApiPort } from '../state/session-types';
 import { PlaybackSpanTracker } from './playback-span-tracker';
@@ -15,9 +16,17 @@ export interface MessageSubscriberPort {
   subscribe(type: string, handler: (message: ExtensionMessage) => void): () => void;
 }
 
+export interface MessagePublisherPort {
+  publish(message: ExtensionMessage): Promise<void>;
+}
+
+export interface QuizApiPort {
+  generateQuiz(request: GenerateQuizRequest): Promise<QuizPublic>;
+}
+
 export interface SessionQuizRuntimeOptions {
-  api: SessionApiPort & SegmentApiPort;
-  bus: MessageSubscriberPort;
+  api: SessionApiPort & SegmentApiPort & QuizApiPort;
+  bus: MessageSubscriberPort & Partial<MessagePublisherPort>;
   clock?: Clock;
   store?: SessionStore;
   timerStore?: StudyTimerStateStore;
@@ -45,6 +54,10 @@ export class SessionQuizRuntime {
   private timer: StudyTimer | null = null;
   private segments: SegmentManager | null = null;
   private youtubeVideoId: string | null = null;
+  private preferences: PreferenceSnapshot | null = null;
+  private messageContext: Pick<ExtensionMessage, 'correlationId' | 'tabId'> | null = null;
+  private lastQuizSegment: { segmentId: string; sessionId: string; youtubeVideoId: string } | null = null;
+  private lastActivationMessage: ExtensionMessage | null = null;
 
   public constructor(private readonly options: SessionQuizRuntimeOptions) {
     this.store = options.store ?? new SessionStore();
@@ -58,9 +71,9 @@ export class SessionQuizRuntime {
 
   public start(): () => void {
     const unsubscribers = [
-      this.options.bus.subscribe('ACTIVATION_DECIDED', (message) => void this.onActivationDecided(message)),
-      this.options.bus.subscribe('ACTIVATION_STOPPED', () => void this.finish('activationStopped')),
-      this.options.bus.subscribe('VIDEO_CONTEXT_CHANGED', (message) => void this.onVideoContextChanged(message)),
+      this.options.bus.subscribe('ACTIVATION_ENABLED', (message) => void this.onActivationEnabled(message)),
+      this.options.bus.subscribe('ACTIVATION_DISABLED', () => void this.finish('activationDisabled')),
+      this.options.bus.subscribe('OPERATION_RETRY_REQUEST', (message) => void this.retryOperation(message)),
       ...PLAYER_EVENTS.map((type) => this.options.bus.subscribe(type, (message) => void this.onPlayerEvent(type, message))),
     ];
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
@@ -70,34 +83,38 @@ export class SessionQuizRuntime {
   // activation
   // ============================================================
 
-  private async onActivationDecided(message: ExtensionMessage): Promise<void> {
-    const decision = message.payload as ActivationDecisionFixture | undefined;
-    if (!decision || decision.state !== 'active') return;
+  private async onActivationEnabled(message: ExtensionMessage): Promise<void> {
+    const activation = message.payload as ActivationEnabledPayload | undefined;
+    if (!activation || !activation.activationId) return;
     if (this.store.getState().status === 'active') return;
 
-    await this.sessions.activate(message.youtubeVideoId, decision);
-    const session = this.store.getState().session;
-    if (!session) return;
-
+    this.lastActivationMessage = message;
     this.youtubeVideoId = message.youtubeVideoId;
+    this.messageContext = { correlationId: message.correlationId, tabId: message.tabId };
+    await this.publishStatus({ operation: 'sessionStart', state: 'pending', message: 'Đang tạo phiên học.', retryable: false });
+    await this.sessions.activate(message.youtubeVideoId, activation);
+    const session = this.store.getState().session;
+    if (!session) {
+      const failure = operationFailure(this.sessions.getLastError(), 'sessionStartFailed', 'Không thể tạo phiên học.');
+      await this.publishStatus({ operation: 'sessionStart', state: 'failed', ...failure });
+      return;
+    }
+
+    this.preferences = activation.preferences;
     this.tracker = new PlaybackSpanTracker();
     this.timer = new StudyTimer(this.clock, this.options.timerStore);
     const restored = await this.timer.hydrate(session.sessionId);
     if (!restored) this.timer.startSession(session.sessionId);
     this.segments = new SegmentManager({
       sessionId: session.sessionId,
-      intervalMinutes: intervalOf(decision.preferences),
+      intervalMinutes: intervalOf(activation.preferences),
       api: this.options.api,
       tracker: this.tracker,
       store: this.options.pendingSegmentStore,
       clock: this.clock,
     });
     await this.segments.hydrate();
-  }
-
-  private async onVideoContextChanged(message: ExtensionMessage): Promise<void> {
-    if (!this.youtubeVideoId || message.youtubeVideoId === this.youtubeVideoId) return;
-    await this.finish('videoChanged');
+    await this.publishStatus({ operation: 'sessionStart', state: 'succeeded', message: 'Phiên học đã sẵn sàng.', retryable: false });
   }
 
   // ============================================================
@@ -128,17 +145,28 @@ export class SessionQuizRuntime {
     if (!this.segments.getPending() && activeStudyMs < this.segments.nextThresholdMs) return;
 
     if (!this.segments.getPending()) this.store.dispatch({ type: 'segmentRequested' });
+    await this.publishStatus({ operation: 'segmentCreate', state: 'pending', message: 'Đang tạo phân đoạn học.', retryable: false });
     const attempt = await this.segments.onActiveStudyMs(activeStudyMs, currentTimeMs);
-    if (attempt.status === 'created') this.store.dispatch({ type: 'segmentCreated', segment: attempt.segment });
-    if (attempt.status === 'retryable') this.store.dispatch({ type: 'segmentRetryable', error: attempt.error });
-    if (attempt.status === 'blocked') this.store.dispatch({ type: 'segmentBlocked', code: attempt.code });
+    if (attempt.status === 'created') {
+      this.store.dispatch({ type: 'segmentCreated', segment: attempt.segment });
+      await this.publishStatus({ operation: 'segmentCreate', state: 'succeeded', message: 'Đã tạo phân đoạn học.', retryable: false });
+      await this.generateQuiz(attempt.segment);
+    }
+    if (attempt.status === 'retryable') {
+      this.store.dispatch({ type: 'segmentRetryable', error: attempt.error });
+      await this.publishStatus({ operation: 'segmentCreate', state: 'failed', code: attempt.error, message: 'Chưa thể tạo phân đoạn học.', retryable: true });
+    }
+    if (attempt.status === 'blocked') {
+      this.store.dispatch({ type: 'segmentBlocked', code: attempt.code });
+      await this.publishStatus({ operation: 'segmentCreate', state: 'failed', code: attempt.code, message: 'Transcript không đủ để tạo phân đoạn học.', retryable: false });
+    }
   }
 
   // ============================================================
   // completion
   // ============================================================
 
-  private async finish(reason: 'activationStopped' | 'videoChanged' | 'videoEnded'): Promise<void> {
+  private async finish(reason: 'activationDisabled' | 'videoEnded'): Promise<void> {
     if (this.store.getState().status !== 'active' || !this.timer) return;
 
     this.tracker?.closeOpenSpan();
@@ -150,6 +178,84 @@ export class SessionQuizRuntime {
     this.tracker = null;
     this.segments = null;
     this.youtubeVideoId = null;
+    this.preferences = null;
+    this.messageContext = null;
+    this.lastQuizSegment = null;
+    this.lastActivationMessage = null;
+  }
+
+  private async generateQuiz(segment: { segmentId: string; sessionId: string; youtubeVideoId: string }): Promise<void> {
+    if (!this.preferences || !this.messageContext) return;
+    this.lastQuizSegment = segment;
+    await this.publishStatus({ operation: 'quizGenerate', state: 'pending', message: 'Đang tạo bài kiểm tra.', retryable: false });
+    try {
+      const quiz = await this.options.api.generateQuiz({
+        contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
+        sessionId: segment.sessionId,
+        segmentId: segment.segmentId,
+        youtubeVideoId: segment.youtubeVideoId,
+        questionType: this.preferences.questionType,
+        difficulty: this.preferences.difficulty,
+        idempotencyKey: `quiz:${segment.sessionId}:${segment.segmentId}`,
+      });
+      if (quiz.status !== 'available' || quiz.questions.length === 0) {
+        await this.publishStatus({
+          operation: 'quizGenerate',
+          state: 'failed',
+          code: 'quizUnavailable',
+          message: 'Chưa thể tạo bài kiểm tra từ transcript hiện tại.',
+          retryable: true,
+        });
+        return;
+      }
+      if (!this.options.bus.publish) return;
+      const { status: _status, ...payload } = quiz;
+      await this.options.bus.publish({
+        type: 'QUIZ_AVAILABLE',
+        contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
+        correlationId: this.messageContext.correlationId,
+        tabId: this.messageContext.tabId,
+        youtubeVideoId: segment.youtubeVideoId,
+        occurredAtUtc: new Date().toISOString(),
+        payload,
+      });
+      await this.publishStatus({ operation: 'quizGenerate', state: 'succeeded', message: 'Bài kiểm tra đã sẵn sàng.', retryable: false });
+    } catch (error: unknown) {
+      const failure = operationFailure(error, 'quizGenerationFailed', 'Không thể tạo bài kiểm tra.');
+      await this.publishStatus({ operation: 'quizGenerate', state: 'failed', ...failure });
+    }
+  }
+
+  private async retryOperation(message: ExtensionMessage): Promise<void> {
+    const operation = (message.payload as { operation?: StudyLensOperation } | undefined)?.operation;
+    if (operation === 'sessionStart' && this.lastActivationMessage) {
+      await this.onActivationEnabled(this.lastActivationMessage);
+      return;
+    }
+    if (operation === 'segmentCreate' && this.segments) {
+      const attempt = await this.segments.retryPending();
+      if (attempt.status === 'created') {
+        this.store.dispatch({ type: 'segmentCreated', segment: attempt.segment });
+        await this.publishStatus({ operation: 'segmentCreate', state: 'succeeded', message: 'Đã tạo phân đoạn học.', retryable: false });
+        await this.generateQuiz(attempt.segment);
+      } else if (attempt.status === 'retryable') {
+        await this.publishStatus({ operation: 'segmentCreate', state: 'failed', code: attempt.error, message: 'Chưa thể tạo phân đoạn học.', retryable: true });
+      }
+    }
+    if (operation === 'quizGenerate' && this.lastQuizSegment) await this.generateQuiz(this.lastQuizSegment);
+  }
+
+  private async publishStatus(payload: OperationStatusPayload): Promise<void> {
+    if (!this.options.bus.publish || !this.messageContext || !this.youtubeVideoId) return;
+    await this.options.bus.publish({
+      type: 'OPERATION_STATUS_CHANGED',
+      contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
+      correlationId: this.messageContext.correlationId,
+      tabId: this.messageContext.tabId,
+      youtubeVideoId: this.youtubeVideoId,
+      occurredAtUtc: new Date().toISOString(),
+      payload,
+    });
   }
 }
 

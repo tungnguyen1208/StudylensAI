@@ -3,12 +3,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { FakeAssessmentWorkflow } from '../__fixtures__/fake-assessment-workflow';
 import { seedQuiz } from '../__fixtures__/seed-quiz';
-import { AssessmentFixturePanel } from '../components/AssessmentFixturePanel';
+import { AssessmentPanel } from '../components/AssessmentFixturePanel';
 import { GradeResult } from '../components/GradeResult';
 import { HistoryPage } from '../components/HistoryPage';
 import { assessmentHistoryReducer, initialAssessmentHistoryState } from '../state/assessment-history-reducer';
 
-describe('fixture assessment workflow', () => {
+describe('assessment view-model workflow', () => {
   it('produces a post-submit result and history entry for a MCQ fixture answer', async () => {
     const workflow = new FakeAssessmentWorkflow();
     const question = seedQuiz.questions[0];
@@ -47,7 +47,7 @@ describe('fixture assessment workflow', () => {
     expect(state.entries).toEqual([entry]);
   });
 
-  it('renders fixture answer, result, and empty history states without accessing YouTube DOM', async () => {
+  it('renders public answer, result, and empty history states without accessing YouTube DOM', async () => {
     const workflow = new FakeAssessmentWorkflow();
     const grade = await workflow.submit(seedQuiz, seedQuiz.questions[0], {
       questionId: seedQuiz.questions[0].questionId,
@@ -56,14 +56,14 @@ describe('fixture assessment workflow', () => {
     });
     const resultMarkup = renderToStaticMarkup(createElement(GradeResult, { grade }));
     const historyMarkup = renderToStaticMarkup(createElement(HistoryPage, { entries: workflow.getHistory().slice() }));
-    const panelMarkup = renderToStaticMarkup(createElement(AssessmentFixturePanel, {
+    const panelMarkup = renderToStaticMarkup(createElement(AssessmentPanel, {
       quiz: seedQuiz,
       submitAnswer: async () => grade,
     }));
 
     expect(resultMarkup).toContain('Đáp án tham khảo: IP');
     expect(historyMarkup).toContain('Lịch sử trả lời');
-    expect(panelMarkup).toContain('Quiz fixture assessment');
+    expect(panelMarkup).toContain('Đánh giá bài kiểm tra');
     expect(panelMarkup).not.toContain('youtube-player');
   });
 });

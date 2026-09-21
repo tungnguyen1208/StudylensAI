@@ -6,7 +6,24 @@ This repository is structured as a **Modular Monorepo Framework** enabling 3 dev
 
 ---
 
-## 1. System Architecture
+## 1. MVP Product Scope
+
+StudyLens turns a supported YouTube Web video into an active-learning session:
+
+1. The learner controls a single global ON/OFF switch. The value is stored in `chrome.storage.local`, defaults to OFF only on first installation, and is restored after browser restart.
+2. On ON, the content script captures the current supported YouTube watch page once and starts the learning flow for that explicit learner choice. This one-time capture does not observe navigation or follow later page changes.
+3. On OFF, the active learning flow stops. If the learner changes video, they explicitly turn StudyLens OFF then ON again to start a flow for the new page.
+4. Track only actual playback time; paused time never counts toward the selected 5, 10, or 15-minute interval.
+5. Preserve transcript timestamps, create an evidence-backed segment, then generate a multiple-choice or short-answer quiz.
+6. Show the quiz, result, explanation, and valid timestamp reference in the Side Panel, then retain the learning history.
+
+The MVP supports **YouTube Web only** on Chrome and Microsoft Edge with Manifest V3. It does not classify videos as educational or non-educational, and does not support Udemy, Coursera, a standalone video platform, flashcard export, or advanced personalization.
+
+If a transcript is unavailable or insufficient, the product must not invent content or generate an unsupported quiz. Backend, AI, network, and invalid-output failures must remain non-blocking for YouTube playback and must surface a clear retryable status where appropriate.
+
+---
+
+## 2. System Architecture
 
 ```text
 YouTube Web
@@ -35,7 +52,7 @@ LLM Provider (Abstracted: fake / vLLM / Cloud)
 
 ---
 
-## 2. Repository Structure
+## 3. Repository Structure
 
 ```text
 studylens/
@@ -71,11 +88,11 @@ studylens/
 │       ├── app/
 │       │   ├── main.py                # App factory & router registration (HOT)
 │       │   ├── platform/              # Config, health, LLM provider abstractions
-│       │   └── features/              # classification, question_generation, grading
+│       │   └── features/              # question_generation, grading
 │       ├── requirements.txt
 │       └── pyproject.toml
 │
-├── contracts/                         # Source of truth for API contracts (Baseline 0.1.0)
+├── contracts/                         # Source of truth for API contracts (Baseline 0.2.0)
 │   ├── public-api/                    # Extension ↔ Backend OpenAPI contracts
 │   ├── ai-api/                        # Backend ↔ FastAPI OpenAPI contracts
 │   ├── extension-messages/            # Browser internal JSON schema message envelopes
@@ -93,11 +110,11 @@ studylens/
 
 ---
 
-## 3. Module Ownership Matrix
+## 4. Module Ownership Matrix
 
 | Feature Module | Developer Owner | Extension Feature | Backend Feature | AI Feature | Contracts |
 |---|---|---|---|---|---|
-| **Video Activation** | **Dev 1** | `features/video-activation/`<br>`platform/youtube/` | `Features/VideoActivation/` | `features/classification/` | `video-activation.yaml`<br>`classification.yaml` |
+| **Persistent Activation** | **Dev 1** | `features/persistent-activation/`<br>`platform/youtube/` | `Features/ActivationSettings/` | — | `persistent-activation.yaml` |
 | **Session & Quiz** | **Dev 2** | `features/session-quiz/` | `Features/SessionQuiz/` | `features/question_generation/` | `session-quiz.yaml`<br>`question-generation.yaml` |
 | **Assessment & History** | **Dev 3** | `features/assessment-history/` | `Features/AssessmentHistory/` | `features/grading/` | `assessment-history.yaml`<br>`grading.yaml` |
 
@@ -111,7 +128,7 @@ Developers 1, 2, and 3 must not modify shared HOT files in daily feature tasks. 
 
 ---
 
-## 4. Environment Prerequisites
+## 5. Environment Prerequisites
 
 - **Node.js**: v18+ (tested with v22.18.0) and `npm`
 - **.NET SDK**: .NET 8.0 SDK (tested with 10.0.101 supporting .NET 8)
@@ -119,9 +136,9 @@ Developers 1, 2, and 3 must not modify shared HOT files in daily feature tasks. 
 
 ---
 
-## 5. Local Development Commands
+## 6. Local Development Commands
 
-### 5.1 Browser Extension
+### 6.1 Browser Extension
 
 ```powershell
 cd apps/extension
@@ -135,7 +152,7 @@ To load unpacked in Chrome or Edge:
 3. Click **Load unpacked** and select `apps/extension/dist`.
 4. Open any YouTube video and click the StudyLens side panel icon.
 
-### 5.2 ASP.NET Core Backend
+### 6.2 ASP.NET Core Backend
 
 ```powershell
 # Build API
@@ -157,7 +174,7 @@ dotnet test services/api/tests/SessionQuiz.Tests/SessionQuiz.Tests.csproj
 dotnet test services/api/tests/AssessmentHistory.Tests/AssessmentHistory.Tests.csproj
 ```
 
-### 5.3 FastAPI AI Service
+### 6.3 FastAPI AI Service
 
 ```powershell
 cd services/ai
@@ -174,17 +191,25 @@ uvicorn app.main:app --reload --port 8000
 
 ---
 
-## 6. Verification Status
+## 7. Persistent Activation Contract Migration
 
-The walking skeleton verifies the complete end-to-end communication path:
+The v1.2 architecture uses contract baseline **0.2.0**. It introduces `ExtensionActivationState`, removes video classification and automatic page-change handling. On every explicit ON or restored page load, Dev 1 publishes one `ACTIVATION_ENABLED` handoff whose envelope carries the captured YouTube ID; `TranscriptSnapshotRef` plus `PreferenceSnapshot` remain the Dev 1 → Dev 2 handoff.
+
+Existing `0.1.0` artifacts must be migrated in one explicit Integration Captain task. Do not mix `0.1.0` and `0.2.0` message envelopes or API DTOs in one runtime path. The migration must update contracts, fixtures, producers, consumers, tests, and the corresponding ADR before merge.
+
+## 8. Verification Status
+
+The current checks verify the walking-skeleton communication path:
 - Extension builds cleanly and connects to Backend via typed `HttpClient`.
 - Backend responds on `/api/health` and queries AI service via `AiHealthClient`.
 - FastAPI AI service responds on `/health` and has all 3 feature routers registered.
 - All 3 backend module test suites pass.
 
+This is not, by itself, acceptance evidence for every MVP requirement. Product acceptance additionally requires persistent ON/OFF restore, valid/invalid transcript handling, actual watched-time tracking, quiz generation, answer/grading, timestamp review, history, and Chrome/Edge smoke testing.
+
 ---
 
-## 7. Codex Vibecode Layout
+## 9. Codex Vibecode Layout
 
 Repo guidance for Codex is organized by purpose:
 
@@ -213,6 +238,6 @@ Recommended Codex skills:
 
 Detailed role files:
 
-- `.agents/rules/dev/dev1-video-activation.md`
+- `.agents/rules/dev/dev1-persistent-activation.md`
 - `.agents/rules/dev/dev2-session-quiz.md`
 - `.agents/rules/dev/dev3-assessment-history.md`

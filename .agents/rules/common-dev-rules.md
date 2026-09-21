@@ -10,7 +10,8 @@ the daily checklist for Dev 1, Dev 2, Dev 3, and their Codex sessions.
 3. `.agents/rules/common-dev-rules.md`.
 4. The assigned role file in `.agents/rules/dev/`.
 5. Related contracts in `contracts/`.
-6. Existing code inside the owned module.
+6. `.agents/rules/persistent-activation-migration.md` when working on the v1.2 migration.
+7. Existing code inside the owned module.
 
 ## System Boundary
 
@@ -33,7 +34,11 @@ Rules:
 
 ## Contract Baseline
 
-Current contract version: `0.1.0`.
+Current architecture baseline: `0.2.0`.
+
+`0.1.0` remains a legacy implementation baseline only until the explicit
+Persistent Activation migration is merged. Do not mix `0.1.0` and `0.2.0`
+envelopes, DTOs, or fixtures inside one runtime flow.
 
 Shared API rules:
 
@@ -43,6 +48,9 @@ Shared API rules:
 - System timestamps use ISO-8601 UTC.
 - Public Extension responses must not expose correct answers or grading rubrics before answer submit.
 - Mutations that can be retried need an idempotency key such as `clientRequestId`, `clientSegmentId`, or `clientAttemptId`.
+- Persistent activation is `extensionEnabled` in `chrome.storage.local`: first install is OFF, then the learner's setting is restored after browser restart.
+- The MVP does not classify videos as educational or non-educational and has no automatic page detector. ON captures only the current supported watch page for one learning flow.
+- A video ID change does not close or start a session automatically and must not silently persist OFF. The learner explicitly uses OFF then ON for the new page.
 
 ## HOT Files
 

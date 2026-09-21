@@ -11,13 +11,15 @@ export class VideoActivationApiError extends Error {
   public readonly code: string;
   public readonly status: number;
   public readonly retryable: boolean;
+  public readonly traceId?: string;
 
-  public constructor(code: string, status: number, message: string, retryable: boolean) {
+  public constructor(code: string, status: number, message: string, retryable: boolean, traceId?: string) {
     super(message);
     this.name = 'VideoActivationApiError';
     this.code = code;
     this.status = status;
     this.retryable = retryable;
+    this.traceId = traceId;
   }
 }
 
@@ -46,6 +48,7 @@ class FetchVideoActivationHttpClient implements VideoActivationHttpClient {
           response.status,
           error.message,
           error.retryable,
+          error.traceId,
         );
       }
 
@@ -88,6 +91,7 @@ async function readError(response: Response): Promise<{
   code: string;
   message: string;
   retryable: boolean;
+  traceId?: string;
 }> {
   try {
     const value = (await response.json()) as Record<string, unknown>;
@@ -95,6 +99,7 @@ async function readError(response: Response): Promise<{
       code: typeof value.code === 'string' ? value.code : 'httpError',
       message: typeof value.message === 'string' ? value.message : 'Transcript upload failed.',
       retryable: typeof value.retryable === 'boolean' ? value.retryable : response.status >= 500,
+      ...(typeof value.traceId === 'string' ? { traceId: value.traceId } : {}),
     };
   } catch {
     return {

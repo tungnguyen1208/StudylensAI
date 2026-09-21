@@ -1,8 +1,107 @@
 openapi: 3.0.3
 info:
-  title: StudyLens Public API — Assessment & History Module
-  version: 0.1.0
-  description: API contracts for answer submissions, grading results, and history queries owned by Dev 3.
-paths: {}
+  title: StudyLens Public API - Assessment and History
+  version: 0.2.0
+  description: Extension-to-Backend answer, deterministic grading, and persistent history contracts.
+paths:
+  /api/quizzes/{quizId}/answer:
+    post:
+      operationId: submitQuizAnswer
+      parameters: [{ $ref: '#/components/parameters/QuizId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitAnswerRequest' }
+      responses:
+        '200': { description: Grade result, content: { application/json: { schema: { $ref: '#/components/schemas/GradeView' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/history:
+    get:
+      operationId: getLearningHistory
+      parameters: [{ name: videoId, in: query, required: false, schema: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' } }]
+      responses:
+        '200': { description: Persistent answer history, content: { application/json: { schema: { $ref: '#/components/schemas/HistoryResponse' } } } }
+  /api/history/videos/{videoId}:
+    get:
+      operationId: getVideoLearningHistory
+      parameters: [{ name: videoId, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' } }]
+      responses:
+        '200': { description: Persistent answer history for one video, content: { application/json: { schema: { $ref: '#/components/schemas/HistoryResponse' } } } }
 components:
-  schemas: {}
+  parameters:
+    QuizId: { name: quizId, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Error:
+      description: Safe actionable error without internal stack traces.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+  schemas:
+    SubmitAnswerRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, clientAttemptId, questionId]
+      properties:
+        contractVersion: { const: '0.2.0' }
+        clientAttemptId: { type: string, format: uuid }
+        questionId: { type: string, format: uuid }
+        selectedOptionId: { type: string, minLength: 1 }
+        answerText: { type: string, minLength: 1 }
+      oneOf:
+        - required: [selectedOptionId]
+        - required: [answerText]
+    SourceRef:
+      type: object
+      additionalProperties: false
+      required: [youtubeVideoId, startMs, endMs]
+      properties:
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 1 }
+    GradeView:
+      type: object
+      additionalProperties: false
+      required: [answerAttemptId, questionId, outcome, score, referenceAnswer, explanation, source, gradedAtUtc]
+      properties:
+        answerAttemptId: { type: string, format: uuid }
+        questionId: { type: string, format: uuid }
+        outcome: { type: string, enum: [correct, incorrect, partiallyCorrect] }
+        score: { type: number, minimum: 0, maximum: 1 }
+        referenceAnswer: { type: string }
+        explanation: { type: string }
+        source: { $ref: '#/components/schemas/SourceRef' }
+        gradedAtUtc: { type: string, format: date-time }
+    HistoryItem:
+      type: object
+      additionalProperties: false
+      required: [answerAttemptId, youtubeVideoId, sessionId, questionId, questionPrompt, questionType, submittedAnswer, outcome, score, explanation, timestampMs, submittedAtUtc]
+      properties:
+        answerAttemptId: { type: string, format: uuid }
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        sessionId: { type: string, format: uuid }
+        questionId: { type: string, format: uuid }
+        questionPrompt: { type: string }
+        questionType: { type: string, enum: [multipleChoice, shortAnswer] }
+        submittedAnswer: { type: string }
+        outcome: { type: string, enum: [correct, incorrect, partiallyCorrect] }
+        score: { type: number, minimum: 0, maximum: 1 }
+        explanation: { type: string }
+        timestampMs: { type: integer, minimum: 0 }
+        submittedAtUtc: { type: string, format: date-time }
+    HistoryResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/HistoryItem' } } }
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [code, status, message, retryable]
+      properties:
+        code: { type: string }
+        status: { type: integer }
+        message: { type: string }
+        traceId: { type: string }
+        retryable: { type: boolean }

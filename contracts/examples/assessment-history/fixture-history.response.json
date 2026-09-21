@@ -1,7 +1,7 @@
 {
   "items": [
     {
-      "answerAttemptId": "fixture-44444444-4444-4444-8444-444444444444",
+      "answerAttemptId": "33333333-3333-4333-8333-333333333333",
       "youtubeVideoId": "dQw4w9WgXcQ",
       "sessionId": "22222222-2222-4222-8222-222222222222",
       "questionId": "44444444-4444-4444-8444-444444444444",
@@ -10,7 +10,7 @@
       "submittedAnswer": "IP",
       "outcome": "correct",
       "score": 1,
-      "explanation": "Câu trả lời phù hợp với nội dung quiz fixture.",
+      "explanation": "Câu trả lời phù hợp với nội dung transcript đã dùng để tạo bài kiểm tra.",
       "timestampMs": 300000,
       "submittedAtUtc": "2026-09-17T09:00:00Z"
     }

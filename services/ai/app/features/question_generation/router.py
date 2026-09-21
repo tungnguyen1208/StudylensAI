@@ -28,7 +28,7 @@ class QuestionGenerationRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_versions_and_range(self):
-        if self.contractVersion != "0.1.0" or self.promptVersion != "0.1.0":
+        if self.contractVersion != "0.2.0" or self.promptVersion != "0.2.0":
             raise ValueError("unsupported contract or prompt version")
         if self.endMs <= self.startMs:
             raise ValueError("endMs must be greater than startMs")
@@ -55,8 +55,8 @@ class GeneratedQuestion(BaseModel):
 
 
 class QuestionGenerationResponse(BaseModel):
-    contractVersion: str = "0.1.0"
-    promptVersion: str = "0.1.0"
+    contractVersion: str = "0.2.0"
+    promptVersion: str = "0.2.0"
     questions: list[GeneratedQuestion]
 
 

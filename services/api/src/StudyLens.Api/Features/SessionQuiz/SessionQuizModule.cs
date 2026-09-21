@@ -13,7 +13,9 @@ public static class SessionQuizModule
         IConfiguration configuration)
     {
         services.AddSingleton<StudySessionService>();
-        services.AddSingleton<QuestionGenerationService>();
+        services.AddScoped<IQuestionAssessmentStore, SqliteQuestionAssessmentStore>();
+        services.AddScoped<IQuestionAssessmentReader>(provider => provider.GetRequiredService<IQuestionAssessmentStore>());
+        services.AddScoped<QuestionGenerationService>();
         services.AddSingleton<ISegmentRepository, InMemorySegmentStore>();
         services.AddSingleton<CreateSegmentHandler>();
         services.AddHttpClient<IQuestionGenerationGateway, QuestionGenerationClient>();

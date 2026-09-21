@@ -3,24 +3,24 @@
 StudyLens is developed as vertical feature modules, not as separate frontend,
 backend, and AI teams.
 
-## Dev 1 - Video Activation
+## Dev 1 - Persistent Activation
 
 ```text
 apps/extension/src/platform/youtube/**
-apps/extension/src/features/video-activation/**
-services/api/src/StudyLens.Api/Features/VideoActivation/**
+apps/extension/src/features/persistent-activation/**
+services/api/src/StudyLens.Api/Features/ActivationSettings/**
 services/api/tests/VideoActivation.Tests/**
-services/ai/app/features/classification/**
-contracts/public-api/video-activation.yaml
-contracts/ai-api/classification.yaml
-contracts/extension-messages/video-activation.schema.json
-contracts/examples/video-activation/**
-tests/contract/video-activation/**
-tests/e2e/video-activation/**
+contracts/public-api/persistent-activation.yaml
+contracts/extension-messages/persistent-activation.schema.json
+contracts/examples/persistent-activation/**
+tests/contract/persistent-activation/**
+tests/e2e/persistent-activation/**
 ```
 
-Dev 1 owns YouTube detection, player adapter, transcript acquisition, activation
-policy, and classification handoff.
+Dev 1 owns global persistent ON/OFF, one-time current-page capture at enable,
+player adapter, transcript acquisition, preferences, and the
+`ExtensionActivationState` / `ACTIVATION_ENABLED` handoff. Dev 1 does not own
+AI classification or an automatic page detector.
 
 ## Dev 2 - Session Quiz
 
@@ -62,7 +62,7 @@ history read models.
 
 Use published contracts or ports:
 
-- Dev 1 -> Dev 2: `ActivationDecision`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, `ITranscriptSnapshotReader`.
+- Dev 1 -> Dev 2: `ExtensionActivationState`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, `ITranscriptSnapshotReader`.
 - Dev 2 -> Dev 3: `QuizAvailable`, `QuestionPublic`, `QuestionSourceRef`, `SessionSnapshot`, `QuestionForAssessment`, `IQuestionAssessmentReader`.
 - Dev 3 -> Dev 1: `SEEK_REQUEST` with `{ "timestampMs": number }`.
 

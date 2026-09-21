@@ -4,7 +4,9 @@
 
 ## 1. Overview
 
-**StudyLens AI** is an active learning companion for YouTube Web. It monitors video playback, extracts normalized transcript segments, and triggers timely AI-generated quizzes to enhance learning comprehension and retention.
+**StudyLens AI** is an active learning companion for YouTube Web. A learner's persistent ON/OFF choice is the only activation gate. ON starts one flow for the YouTube watch page captured at enable time; OFF stops that flow. Player events, normalized transcript segments, and AI-generated quizzes are processed only while a flow is active.
+
+The current implementation decision is recorded in [v1.2 specification and source alignment](spec-source-alignment-v1.2.md). It resolves an ambiguity in the supplied v1.2 SRS/SDS: this repository does not continuously monitor pages, observe SPA navigation, or automatically switch a session when the learner changes video.
 
 ---
 
@@ -16,7 +18,7 @@ flowchart TD
     EXT -->|HTTP REST / Public API| API[ASP.NET Core 8 Web API<br/>Modular Monolith]
     API -->|EF Core / SQLite| DB[(SQLite Database<br/>studylens.db)]
     API -->|Internal HTTP REST| AI[FastAPI AI Service<br/>Python 3.12+]
-    AI -->|Provider Protocol| LLM[LLM Layer<br/>Fake / vLLM / Cloud]
+    AI -->|Deterministic local logic| FAKE[Fake question and grading]
 ```
 
 ### Architectural Principles
@@ -32,7 +34,7 @@ flowchart TD
 
 3. **Stateless AI Service**:
    - FastAPI is strictly stateless. It does not store user sessions or database state.
-   - The AI service accepts structured payloads, constructs prompts, calls the LLM provider abstraction, validates outputs, and returns structured responses.
+   - The AI service accepts structured payloads and returns validated deterministic fake results in the current baseline; it stores no session or application data and uses no API key.
 
 4. **Independent Vertical Ownership**:
    - The monorepo is divided into 3 vertical business modules (`Dev 1`, `Dev 2`, `Dev 3`).
@@ -44,11 +46,11 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph Dev1["Dev 1: Video Activation"]
+    subgraph Dev1["Dev 1: Persistent Activation"]
         direction TB
-        E1[apps/extension/.../video-activation]
-        B1[services/api/.../Features/VideoActivation]
-        A1[services/ai/.../features/classification]
+        E1[apps/extension/.../persistent-activation]
+        B1[services/api/.../Features/ActivationSettings]
+        A1[No classification AI feature]
     end
 
     subgraph Dev2["Dev 2: Session & Quiz"]
@@ -65,19 +67,19 @@ flowchart LR
         A3[services/ai/.../features/grading]
     end
 
-    Dev1 -->|ACTIVATION_DECIDED| Dev2
+    Dev1 -->|ACTIVATION_ENABLED + transcript ref| Dev2
     Dev2 -->|QUIZ_AVAILABLE| Dev3
     Dev3 -->|SEEK_REQUEST| Dev1
 ```
 
-- **Dev 1 (Video Activation)**: YouTube detection, PlayerPort, transcript acquisition, Manual ON/OFF, and Auto classification.
+- **Dev 1 (Persistent Activation)**: persistent ON/OFF, one-time current-page capture at ON, PlayerPort, and passive transcript acquisition. There is no automatic page detection, video classification, or automatic session switch.
 - **Dev 2 (Session & Quiz)**: StudySession lifecycle, active watch time tracking, transcript segmentation, and quiz generation orchestration.
-- **Dev 3 (Assessment & History)**: Answer submission, MCQ/Short Answer grading, timestamp review, and learning history queries.
+- **Dev 3 (Assessment & History)**: Answer submission through the Backend API, MCQ/short-answer grading, timestamp review, and SQLite-backed learning history queries.
 
 ---
 
 ## 4. Cross-Module Seams
 
-- **Dev 1 → Dev 2**: `ACTIVATION_DECIDED` event and `TranscriptSnapshotForSession`. Dev 2 does not read YouTube DOM or raw transcript sources directly.
-- **Dev 2 → Dev 3**: `QUIZ_AVAILABLE` event and `QuestionForAssessment`. Dev 3 receives public questions to display and grade against.
+- **Dev 1 → Dev 2**: `ExtensionActivationState`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, and normalized player events. The enable envelope carries the one-time captured YouTube ID. Dev 2 does not read YouTube DOM or raw transcript sources directly.
+- **Dev 2 → Dev 3**: `QUIZ_AVAILABLE` carries `QuestionPublic` to the Extension. The Backend separately reads the server-only `QuestionForAssessment` port to grade an answer; private answer keys and reference answers never cross to the Extension.
 - **Dev 3 → Dev 1**: `SEEK_REQUEST` event. Dev 3 dispatches seek requests; only Dev 1's player adapter interacts with the YouTube player.

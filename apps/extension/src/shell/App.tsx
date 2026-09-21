@@ -1,8 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { httpClient } from '../shared/http/http-client';
-import { initializeFeatureRegistry, RegisteredFeatures } from './feature-registry';
-import { AnswerForm } from '../features/assessment-history';
-import { SessionQuizApi, SESSION_QUIZ_CONTRACT_VERSION, type QuizPublic } from '../features/session-quiz';
+import React, { useEffect, useState } from 'react';
+import { AssessmentPanel, AssessmentHistoryApi, type GradeView, type LocalAnswerSubmission, type QuizAvailable } from '../features/assessment-history';
 import {
   ActivationStatus,
   ActivationToggle,
@@ -10,8 +7,11 @@ import {
   initialActivationState,
   type ActivationState,
 } from '../features/video-activation';
+import { httpClient } from '../shared/http/http-client';
 import { messageBus } from '../shared/messaging/message-bus';
 import type { ExtensionMessage } from '../shared/messaging/message-types';
+import { isOperationStatusMessage, type OperationStatusPayload, type StudyLensOperation } from '../shared/messaging/operation-status';
+import { initializeFeatureRegistry, type RegisteredFeatures } from './feature-registry';
 
 interface BackendHealthResponse {
   status: string;
@@ -22,34 +22,62 @@ interface BackendHealthResponse {
   };
 }
 
+type BackendStatus = 'idle' | 'checking' | 'connected' | 'error';
+type ThemeMode = 'light' | 'dark';
+
+const THEME_STORAGE_KEY = 'studylensTheme';
+const assessmentHistoryApi = new AssessmentHistoryApi();
+
 export const App: React.FC = () => {
   const [features, setFeatures] = useState<RegisteredFeatures | null>(null);
-  const [backendStatus, setBackendStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>('idle');
   const [backendData, setBackendData] = useState<BackendHealthResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [demoStatus, setDemoStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [demoQuiz, setDemoQuiz] = useState<QuizPublic | null>(null);
-  const [demoMessage, setDemoMessage] = useState<string | null>(null);
+  const [quiz, setQuiz] = useState<QuizAvailable | null>(null);
   const [activationState, setActivationState] = useState<ActivationState>(initialActivationState);
   const [activationCommandStatus, setActivationCommandStatus] = useState<'idle' | 'sending' | 'error'>('idle');
   const [activationCommandError, setActivationCommandError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ThemeMode>('dark');
+  const [operationStatuses, setOperationStatuses] = useState<Partial<Record<StudyLensOperation, OperationStatusPayload>>>({});
 
   useEffect(() => {
-    const registered = initializeFeatureRegistry();
-    setFeatures(registered);
-    checkHealth();
+    setFeatures(initializeFeatureRegistry());
+    void checkHealth();
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void loadThemePreference().then((preference) => {
+      if (mounted) setTheme(preference);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     const onActivationMessage = (message: ExtensionMessage) => {
       setActivationState((state) => applyVideoActivationMessage(state, message));
     };
     const unsubscribers = [
-      messageBus.subscribe('VIDEO_CONTEXT_CHANGED', onActivationMessage),
-      messageBus.subscribe('ACTIVATION_DECIDED', onActivationMessage),
-      messageBus.subscribe('ACTIVATION_STOPPED', onActivationMessage),
+      messageBus.subscribe('ACTIVATION_ENABLED', onActivationMessage),
+      messageBus.subscribe('ACTIVATION_DISABLED', onActivationMessage),
+      messageBus.subscribe('QUIZ_AVAILABLE', (message) => {
+        const payload = message.payload as QuizAvailable;
+        if (Array.isArray(payload?.questions) && payload.questions.length > 0) setQuiz(payload);
+      }),
+      messageBus.subscribe('OPERATION_STATUS_CHANGED', (message) => {
+        if (!isOperationStatusMessage(message)) return;
+        setOperationStatuses((statuses) => ({ ...statuses, [message.payload.operation]: message.payload }));
+      }),
     ];
-    void loadActiveYoutubeContext(onActivationMessage);
+    void loadPersistentActivationState().then((enabled) => {
+      if (enabled) setActivationState((state) => ({ ...state, status: 'active', errorCode: null }));
+    });
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
@@ -57,208 +85,236 @@ export const App: React.FC = () => {
     setBackendStatus('checking');
     setErrorMessage(null);
     try {
-      // Call Backend health proxy endpoint
       const result = await httpClient.get<BackendHealthResponse>('api/health');
       setBackendData(result);
       setBackendStatus('connected');
     } catch (err: unknown) {
       setBackendStatus('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to connect to StudyLens API');
+      setErrorMessage(err instanceof Error ? err.message : 'Không thể kết nối tới StudyLens API.');
     }
   };
 
-  const runWeekOneDemo = async () => {
-    setDemoStatus('loading');
-    setDemoMessage(null);
-    setDemoQuiz(null);
-    const api = new SessionQuizApi();
-    const youtubeVideoId = 'dQw4w9WgXcQ';
+  const submitAssessmentAnswer = async (submission: LocalAnswerSubmission, clientAttemptId: string): Promise<GradeView> => {
+    if (!quiz) throw new Error('quizQuestionUnavailable');
+    return assessmentHistoryApi.submitAnswer(quiz, submission, clientAttemptId);
+  };
 
-    try {
-      const session = await api.startSession({
-        contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
-        youtubeVideoId,
-        activationDecision: {
-          decisionId: crypto.randomUUID(),
-          state: 'active',
-          source: 'manual',
-          reasonCode: 'weekOneDemoFixture',
-          preferences: { quizIntervalMinutes: 5, questionType: 'multipleChoice', difficulty: 'easy' },
-        },
-      });
-      const quiz = await api.generateQuiz({
-        contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
-        sessionId: session.sessionId,
-        segmentId: crypto.randomUUID(),
-        youtubeVideoId,
-        questionType: 'multipleChoice',
-        difficulty: 'easy',
-        cues: [{ startMs: 0, endMs: 30_000, text: 'TCP/IP describes how network data is routed between devices.' }],
-        idempotencyKey: crypto.randomUUID(),
-      });
-      setDemoQuiz(quiz);
-      setDemoStatus('ready');
-      setDemoMessage('Quiz công khai đã được tạo từ fake AI qua Backend.');
-    } catch (err: unknown) {
-      setDemoStatus('error');
-      setDemoMessage(err instanceof Error ? err.message : 'Không thể tạo quiz demo.');
-    }
+  const loadAssessmentHistory = async () => {
+    const videoId = quiz?.questions[0]?.source.youtubeVideoId;
+    return assessmentHistoryApi.getHistory(videoId);
+  };
+
+  const recordOperationStatus = (status: OperationStatusPayload) => {
+    setOperationStatuses((statuses) => ({ ...statuses, [status.operation]: status }));
+  };
+
+  const retryContentOperation = async (operation: StudyLensOperation) => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+    await chrome.runtime.sendMessage({ type: 'STUDYLENS_RETRY_OPERATION', operation });
   };
 
   const requestManualActivation = async (requestedState: 'on' | 'off') => {
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
       setActivationCommandStatus('error');
-      setActivationCommandError('Chrome/Edge extension runtime is unavailable.');
+      setActivationCommandError('Không thể kết nối tới Chrome hoặc Edge Extension Runtime.');
       return;
     }
     setActivationCommandStatus('sending');
     setActivationCommandError(null);
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_MANUAL_TOGGLE', requestedState }) as { ok?: boolean; code?: string };
+      const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_MANUAL_TOGGLE', requestedState }) as {
+        ok?: boolean; code?: string; state?: { enabled?: boolean };
+      };
       if (!response?.ok) throw new Error(response?.code ?? 'manualActivationUnavailable');
+      setActivationState((state) => requestedState === 'on'
+        ? { ...state, status: 'active', errorCode: null }
+        : { ...state, status: 'off', errorCode: null });
       setActivationCommandStatus('idle');
     } catch (error: unknown) {
       setActivationCommandStatus('error');
-      setActivationCommandError(error instanceof Error ? error.message : 'Unable to update StudyLens.');
+      setActivationCommandError(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái StudyLens.');
     }
   };
 
+  const toggleTheme = () => {
+    const nextTheme: ThemeMode = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    void saveThemePreference(nextTheme);
+  };
+
   return (
-    <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <header style={{ borderBottom: '1px solid #334155', paddingBottom: '12px', marginBottom: '16px' }}>
-        <h1 style={{ fontSize: '20px', margin: 0, color: '#38bdf8' }}>StudyLens AI</h1>
-        <p style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0 0 0' }}>
-          Walking Skeleton Framework (v0.1.0)
-        </p>
+    <main className="studylens-app">
+      <header className="app-header">
+        <div>
+          <h1 className="app-title">StudyLens AI</h1>
+          <p className="app-subtitle">Khung ứng dụng học tập (v0.2.0)</p>
+        </div>
+        <button
+          type="button"
+          className="theme-toggle"
+          aria-pressed={theme === 'light'}
+          onClick={toggleTheme}
+        >
+          Chế độ {theme === 'dark' ? 'sáng' : 'tối'}
+        </button>
       </header>
 
-      <section style={{ marginBottom: '20px', background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
-        <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>System Health</h2>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-          <span style={{ fontSize: '13px', color: '#cbd5e1' }}>ASP.NET Core Backend:</span>
-          <span
-            style={{
-              padding: '2px 8px',
-              borderRadius: '4px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              backgroundColor:
-                backendStatus === 'connected' ? '#065f46' : backendStatus === 'checking' ? '#854d0e' : '#881337',
-              color:
-                backendStatus === 'connected' ? '#34d399' : backendStatus === 'checking' ? '#fde047' : '#fda4af',
-            }}
-          >
-            {backendStatus.toUpperCase()}
-          </span>
+      <section className="panel-section" aria-labelledby="health-heading">
+        <h2 id="health-heading" className="section-heading">Trạng thái hệ thống</h2>
+        <div className="health-row">
+          <span className="health-label">ASP.NET Core Backend</span>
+          <span className={`health-badge health-badge--${backendStatus}`}>{healthStatusLabel(backendStatus)}</span>
         </div>
 
         {backendData && (
-          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '6px' }}>
-            <div>Service: {backendData.service}</div>
+          <div className="health-service">
+            <div>Dịch vụ: {backendData.service}</div>
             {backendData.aiService && (
               <div>FastAPI AI: {backendData.aiService.status} ({backendData.aiService.service})</div>
             )}
           </div>
         )}
 
-        {errorMessage && (
-          <div style={{ fontSize: '12px', color: '#f87171', marginTop: '8px' }}>
-            Error: {errorMessage}
-          </div>
-        )}
+        {errorMessage && <div className="health-error">Lỗi: {errorMessage}</div>}
 
         <button
-          onClick={checkHealth}
+          type="button"
+          className="primary-button"
+          onClick={() => void checkHealth()}
           disabled={backendStatus === 'checking'}
-          style={{
-            marginTop: '12px',
-            width: '100%',
-            padding: '8px',
-            backgroundColor: '#0284c7',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: backendStatus === 'checking' ? 'not-allowed' : 'pointer',
-            fontSize: '12px',
-            fontWeight: 500,
-          }}
         >
-          {backendStatus === 'checking' ? 'Checking...' : 'Check Backend Health'}
+          {backendStatus === 'checking' ? 'Đang kiểm tra...' : 'Kiểm tra Backend'}
         </button>
       </section>
 
-      <section style={{ marginBottom: '20px', background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
-        <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>Manual StudyLens</h2>
+      <section className="panel-section" aria-labelledby="activation-heading">
+        <h2 id="activation-heading" className="section-heading">Điều khiển StudyLens</h2>
         {activationState.context ? (
-          <p style={{ fontSize: '12px', color: '#94a3b8' }}>Video: {activationState.context.title}</p>
+          <p className="section-copy">Video: {activationState.context.title}</p>
         ) : (
-          <p style={{ fontSize: '12px', color: '#fbbf24' }}>Open a supported YouTube watch page first.</p>
+          <p className="section-copy section-copy--warning">Bật StudyLens khi bạn đang mở một trang xem video YouTube.</p>
         )}
         <ActivationStatus state={activationState} />
         <ActivationToggle
           active={activationState.status === 'active'}
-          disabled={!activationState.context || activationCommandStatus === 'sending'}
+          disabled={activationCommandStatus === 'sending'}
           onRequest={requestManualActivation}
         />
-        {activationCommandError && <p role="alert" style={{ fontSize: '12px', color: '#f87171' }}>{activationCommandError}</p>}
+        {activationCommandError && <p role="alert" className="health-error">Lỗi: {activationCommandError}</p>}
       </section>
 
-      <section style={{ marginBottom: '20px', background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
-        <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>Week 1 Integration Demo</h2>
-        <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: 0 }}>
-          Activation fixture → Session API → Backend → deterministic fake AI → public quiz UI.
-        </p>
-        <button
-          onClick={runWeekOneDemo}
-          disabled={demoStatus === 'loading'}
-          style={{ width: '100%', padding: '8px', backgroundColor: '#7c3aed', color: '#ffffff', border: 'none', borderRadius: '6px', cursor: demoStatus === 'loading' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 500 }}
-        >
-          {demoStatus === 'loading' ? 'Generating quiz...' : 'Run Week 1 fake-AI demo'}
-        </button>
-        {demoMessage && <p role="status" style={{ fontSize: '12px', color: demoStatus === 'error' ? '#f87171' : '#94a3b8' }}>{demoMessage}</p>}
-        {demoQuiz?.questions[0] && (
-          <div style={{ marginTop: '12px', padding: '10px', background: '#0f172a', borderRadius: '6px' }}>
-            <div style={{ color: '#34d399', fontSize: '11px', marginBottom: '6px' }}>Quiz {demoQuiz.quizId.slice(0, 8)} — public projection</div>
-            <AnswerForm
-              question={demoQuiz.questions[0]}
-              onSubmit={async () => setDemoMessage('Đáp án được nhận ở UI demo; grading và history là phạm vi tuần sau.')}
+      <section className="panel-section" aria-labelledby="study-flow-heading">
+        <h2 id="study-flow-heading" className="section-heading">Luồng học tập</h2>
+        <p className="flow-copy">Bật thủ công → phiên học và bộ đếm → phân đoạn transcript → Backend → AI → bài kiểm tra.</p>
+        {!quiz && <p className="section-copy" role="status">Bật StudyLens, xem đủ một chu kỳ và bài kiểm tra sẽ xuất hiện tại đây.</p>}
+        {quiz && (
+          <div className="quiz-panel">
+            <div className="quiz-panel__title">Bài kiểm tra {quiz.quizId.slice(0, 8)} — dữ liệu công khai</div>
+            <AssessmentPanel
+              quiz={quiz}
+              submitAnswer={submitAssessmentAnswer}
+              loadHistory={loadAssessmentHistory}
+              onOperationStatus={recordOperationStatus}
             />
           </div>
         )}
       </section>
 
-      <section style={{ background: '#1e293b', padding: '14px', borderRadius: '8px' }}>
-        <h2 style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#f1f5f9' }}>Modular Architecture Slices</h2>
+      <section className="panel-section" aria-labelledby="operations-heading">
+        <h2 id="operations-heading" className="section-heading">Trạng thái xử lý</h2>
+        <OperationStatusList statuses={operationStatuses} onRetry={retryContentOperation} />
+      </section>
+
+      <section className="panel-section" aria-labelledby="modules-heading">
+        <h2 id="modules-heading" className="section-heading">Các mô-đun hệ thống</h2>
         {features && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '12px', background: '#0f172a', padding: '8px', borderRadius: '4px' }}>
-              <div style={{ fontWeight: 600, color: '#38bdf8' }}>Dev 1: Video Activation</div>
-              <div style={{ color: '#64748b' }}>Module: {features.videoActivation.name} (v{features.videoActivation.version})</div>
-            </div>
-            <div style={{ fontSize: '12px', background: '#0f172a', padding: '8px', borderRadius: '4px' }}>
-              <div style={{ fontWeight: 600, color: '#a855f7' }}>Dev 2: Session & Quiz</div>
-              <div style={{ color: '#64748b' }}>Module: {features.sessionQuiz.name} (v{features.sessionQuiz.version})</div>
-            </div>
-            <div style={{ fontSize: '12px', background: '#0f172a', padding: '8px', borderRadius: '4px' }}>
-              <div style={{ fontWeight: 600, color: '#34d399' }}>Dev 3: Assessment & History</div>
-              <div style={{ color: '#64748b' }}>Module: {features.assessmentHistory.name} (v{features.assessmentHistory.version})</div>
-            </div>
+          <div className="module-list">
+            <ModuleCard className="module-card__title--dev1" title="Dev 1: Kích hoạt & thu nhận nội dung" module={features.videoActivation} />
+            <ModuleCard className="module-card__title--dev2" title="Dev 2: Phiên học & bài kiểm tra" module={features.sessionQuiz} />
+            <ModuleCard className="module-card__title--dev3" title="Dev 3: Đánh giá & lịch sử" module={features.assessmentHistory} />
           </div>
         )}
       </section>
-    </div>
+    </main>
   );
 };
 
-async function loadActiveYoutubeContext(onMessage: (message: ExtensionMessage) => void): Promise<void> {
-  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+function ModuleCard({ className, title, module }: {
+  className: string;
+  title: string;
+  module: { name: string; version: string };
+}) {
+  return (
+    <div className="module-card">
+      <div className={`module-card__title ${className}`}>{title}</div>
+      <div className="module-card__meta">Mô-đun: {module.name} (v{module.version})</div>
+    </div>
+  );
+}
+
+function OperationStatusList({ statuses, onRetry }: {
+  statuses: Partial<Record<StudyLensOperation, OperationStatusPayload>>;
+  onRetry: (operation: StudyLensOperation) => Promise<void>;
+}) {
+  const values = Object.values(statuses);
+  if (values.length === 0) return <p className="section-copy">Chưa có thao tác cần theo dõi.</p>;
+  return (
+    <div className="operation-status-list">
+      {values.map((status) => status && (
+        <div className={`operation-status operation-status--${status.state}`} key={status.operation}>
+          <strong>{operationLabel(status.operation)}</strong>
+          <span>{status.message}</span>
+          {status.code && <small>Mã: {status.code}{status.traceId ? ` · Trace: ${status.traceId}` : ''}</small>}
+          {status.state === 'failed' && status.retryable && ['transcriptUpload', 'sessionStart', 'segmentCreate', 'quizGenerate'].includes(status.operation) && (
+            <button type="button" className="operation-status__retry" onClick={() => void onRetry(status.operation)}>Thử lại</button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function operationLabel(operation: StudyLensOperation): string {
+  return {
+    transcriptUpload: 'Transcript', sessionStart: 'Phiên học', segmentCreate: 'Phân đoạn',
+    quizGenerate: 'Bài kiểm tra', answerSubmit: 'Câu trả lời', historyLoad: 'Lịch sử',
+  }[operation];
+}
+
+function healthStatusLabel(status: BackendStatus): string {
+  return {
+    idle: 'CHƯA KIỂM TRA',
+    checking: 'ĐANG KIỂM TRA',
+    connected: 'ĐÃ KẾT NỐI',
+    error: 'LỖI',
+  }[status];
+}
+
+async function loadPersistentActivationState(): Promise<boolean> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return false;
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_CONTEXT' }) as {
-      ok?: boolean;
-      context?: ExtensionMessage;
-    };
-    if (response?.ok && response.context) onMessage(response.context);
+    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVATION_STATE' }) as { enabled?: boolean };
+    return response?.enabled === true;
   } catch {
-    // The Side Panel remains usable and explains that no YouTube context is available.
+    return false;
+  }
+}
+
+async function loadThemePreference(): Promise<ThemeMode> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return 'dark';
+  try {
+    const stored = await chrome.storage.local.get(THEME_STORAGE_KEY) as Record<string, unknown>;
+    return stored[THEME_STORAGE_KEY] === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+async function saveThemePreference(theme: ThemeMode): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+  try {
+    await chrome.storage.local.set({ [THEME_STORAGE_KEY]: theme });
+  } catch {
+    // A visual preference must never block activation or the rest of the panel.
   }
 }

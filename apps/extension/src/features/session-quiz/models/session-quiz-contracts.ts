@@ -1,4 +1,4 @@
-export const SESSION_QUIZ_CONTRACT_VERSION = '0.1.0' as const;
+export const SESSION_QUIZ_CONTRACT_VERSION = '0.2.0' as const;
 
 export type QuizIntervalMinutes = 5 | 10 | 15;
 export type QuestionType = 'multipleChoice' | 'shortAnswer';
@@ -19,12 +19,16 @@ export interface TranscriptSnapshotRef {
   version: string;
 }
 
-export interface ActivationDecisionFixture {
-  decisionId: string;
-  state: 'active' | 'inactive';
-  source: 'auto' | 'manual';
-  reasonCode: string;
-  transcriptSnapshot?: TranscriptSnapshotRef;
+export type AvailableTranscriptSnapshotRef = TranscriptSnapshotRef & {
+  status: 'available';
+  contentHash: string;
+};
+
+export interface ActivationEnabledPayload {
+  activationId: string;
+  source: 'user' | 'storageRestore';
+  videoTitle: string;
+  transcriptSnapshot: AvailableTranscriptSnapshotRef;
   preferences: PreferenceSnapshot;
 }
 
@@ -40,7 +44,7 @@ export interface SessionSnapshot {
 export interface StartStudySessionRequest {
   contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
   youtubeVideoId: string;
-  activationDecision: ActivationDecisionFixture;
+  activation: ActivationEnabledPayload;
 }
 
 export interface TranscriptCue {
@@ -79,7 +83,6 @@ export interface GenerateQuizRequest {
   youtubeVideoId: string;
   questionType: QuestionType;
   difficulty: Difficulty;
-  cues: TranscriptCue[];
   idempotencyKey: string;
 }
 
@@ -111,7 +114,7 @@ export interface StudySegmentRef {
 export interface CompleteStudySessionRequest {
   contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
   clientCompletionId: string;
-  reason: 'activationStopped' | 'videoChanged' | 'videoEnded';
+  reason: 'activationDisabled' | 'videoEnded';
   activeStudyMs: number;
 }
 

@@ -24,3 +24,9 @@ export interface TranscriptSnapshotRef {
   contentHash?: string;
   version: string;
 }
+
+/** A session may begin only from uploaded, usable transcript evidence. */
+export type AvailableTranscriptSnapshotRef = TranscriptSnapshotRef & {
+  status: 'available';
+  contentHash: string;
+};

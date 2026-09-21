@@ -6,8 +6,7 @@ export type PlayerLifecycleEvent =
   | 'PLAYER_BUFFERING'
   | 'PLAYER_SEEKED'
   | 'PLAYER_ENDED'
-  | 'VIDEO_CONTEXT_CHANGED'
-  | 'ACTIVATION_STOPPED';
+  | 'ACTIVATION_DISABLED';
 
 export interface StudyTimerSnapshot {
   activeStudyMs: number;
@@ -61,7 +60,7 @@ export class StudyTimer {
     this.flush();
     if (!this.sessionActive) return this.activeStudyMs;
     this.playingSinceMs = event === 'PLAYER_PLAYING' ? this.clock.nowMs() : null;
-    if (event === 'VIDEO_CONTEXT_CHANGED' || event === 'ACTIVATION_STOPPED' || event === 'PLAYER_ENDED') {
+    if (event === 'ACTIVATION_DISABLED' || event === 'PLAYER_ENDED') {
       this.sessionActive = false;
     }
     this.persist();

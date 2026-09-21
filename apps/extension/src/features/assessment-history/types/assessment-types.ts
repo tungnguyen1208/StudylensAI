@@ -1,5 +1,5 @@
-/** Public quiz data consumed from Dev 2's SessionQuiz contract (v0.1.0). */
-export const ASSESSMENT_HISTORY_CONTRACT_VERSION = '0.1.0' as const;
+/** Public quiz data consumed from Dev 2's SessionQuiz contract (v0.2.0). */
+export const ASSESSMENT_HISTORY_CONTRACT_VERSION = '0.2.0' as const;
 
 export type QuestionType = 'multipleChoice' | 'shortAnswer';
 
@@ -53,7 +53,7 @@ export interface GradeView {
   gradedAtUtc: string;
 }
 
-/** Read model for local fixture/demo history; persistence is introduced in later work. */
+/** Persistent Backend read model. It deliberately never includes private grading material. */
 export interface HistoryEntryReadModel {
   answerAttemptId: string;
   youtubeVideoId: string;

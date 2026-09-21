@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: StudyLens AI Service Internal API
-  version: 0.1.0
+  version: 0.2.0
   description: Internal REST API contract between ASP.NET Core Backend and FastAPI AI Service.
 servers:
   - url: http://localhost:8000

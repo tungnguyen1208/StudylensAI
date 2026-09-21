@@ -18,5 +18,6 @@ Own only:
 Read AGENTS.md, .agents/rules/common-dev-rules.md, .agents/rules/module-boundary-rules.md, and .agents/rules/dev/dev2-session-quiz.md before edits.
 Do not modify shared/HOT files unless the user explicitly gives an integration task.
 Use Dev 1 outputs through contracts or published ports. Do not import Dev 1 repositories/services directly.
+Target contract baseline is 0.2.0. Start from ExtensionActivationState.enabled plus ACTIVATION_ENABLED, TranscriptSnapshotRef, PreferenceSnapshot, and normalized player events; ACTIVATION_DISABLED completes the session. There is no VideoContext detector or automatic session switch; legacy 0.1.0 migration is Integration Captain work.
 Do not expose correct answers in public quiz responses before answer submit.
 """

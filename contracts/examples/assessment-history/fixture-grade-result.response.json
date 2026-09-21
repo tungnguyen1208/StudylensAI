@@ -1,10 +1,10 @@
 {
-  "answerAttemptId": "fixture-44444444-4444-4444-8444-444444444444",
+  "answerAttemptId": "33333333-3333-4333-8333-333333333333",
   "questionId": "44444444-4444-4444-8444-444444444444",
   "outcome": "correct",
   "score": 1,
   "referenceAnswer": "IP",
-  "explanation": "Câu trả lời phù hợp với nội dung quiz fixture.",
+  "explanation": "Câu trả lời phù hợp với nội dung transcript đã dùng để tạo bài kiểm tra.",
   "source": {
     "youtubeVideoId": "dQw4w9WgXcQ",
     "startMs": 300000,

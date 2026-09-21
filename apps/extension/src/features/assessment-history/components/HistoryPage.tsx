@@ -4,7 +4,7 @@ interface HistoryPageProps {
   entries: HistoryEntryReadModel[];
 }
 
-/** Fixture-only history presentation. Server-side pagination arrives with persistence work. */
+/** Renders persistent answer history returned by the Backend API. */
 export function HistoryPage({ entries }: HistoryPageProps) {
   if (entries.length === 0) {
     return <p role="status">Chưa có lịch sử trả lời.</p>;

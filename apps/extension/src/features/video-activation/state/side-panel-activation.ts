@@ -2,26 +2,25 @@ import type { ExtensionMessage } from '../../../shared/messaging/message-types';
 import type { ActivationState } from '../models/activation.types';
 import { activationReducer } from './activation-reducer';
 
-/** Maps only public VideoActivation event envelopes into Side Panel display state. */
+/** Maps only public activation event envelopes into Side Panel display state. */
 export function applyVideoActivationMessage(
   state: ActivationState,
   message: ExtensionMessage,
 ): ActivationState {
-  if (message.type === 'VIDEO_CONTEXT_CHANGED' && isContextPayload(message.payload)) {
-    return activationReducer(state, {
+  if (message.type === 'ACTIVATION_ENABLED') {
+    const title = getVideoTitle(message.payload);
+    let next = activationReducer(state, {
       type: 'contextChanged',
-      context: { tabId: message.tabId, youtubeVideoId: message.youtubeVideoId, title: message.payload.title },
+      context: { tabId: message.tabId, youtubeVideoId: message.youtubeVideoId, title },
     });
-  }
-  if (message.type === 'ACTIVATION_DECIDED') {
-    let next = activationReducer(state, { type: 'manualOn' });
+    next = activationReducer(next, { type: 'manualOn' });
     const transcriptSnapshot = getTranscriptSnapshot(message.payload);
     if (transcriptSnapshot) {
       next = activationReducer(next, { type: 'transcriptUpdated', transcriptSnapshot });
     }
     return next;
   }
-  if (message.type === 'ACTIVATION_STOPPED') {
+  if (message.type === 'ACTIVATION_DISABLED') {
     return activationReducer(state, { type: 'manualOff' });
   }
   return state;
@@ -48,7 +47,8 @@ function getTranscriptSnapshot(payload: unknown) {
   };
 }
 
-function isContextPayload(payload: unknown): payload is { title: string } {
-  return Boolean(payload) && typeof payload === 'object' &&
-    typeof (payload as { title?: unknown }).title === 'string';
+function getVideoTitle(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return 'YouTube video';
+  const title = (payload as { videoTitle?: unknown }).videoTitle;
+  return typeof title === 'string' && title.trim() ? title : 'YouTube video';
 }

@@ -9,7 +9,7 @@ Public Extension -> Backend contracts:
 
 ```text
 contracts/public-api/root.yaml
-contracts/public-api/video-activation.yaml
+contracts/public-api/persistent-activation.yaml
 contracts/public-api/session-quiz.yaml
 contracts/public-api/assessment-history.yaml
 ```
@@ -18,7 +18,6 @@ Internal Backend -> AI contracts:
 
 ```text
 contracts/ai-api/root.yaml
-contracts/ai-api/classification.yaml
 contracts/ai-api/question-generation.yaml
 contracts/ai-api/grading.yaml
 ```
@@ -26,12 +25,16 @@ contracts/ai-api/grading.yaml
 Extension message schemas:
 
 ```text
-contracts/extension-messages/video-activation.schema.json
+contracts/extension-messages/persistent-activation.schema.json
 contracts/extension-messages/session-quiz.schema.json
 contracts/extension-messages/assessment-history.schema.json
 ```
 
 ## Change Rule
+
+The target baseline is `0.2.0`. Migrating from `0.1.0` is an Integration
+Captain task and must update every producer and consumer atomically; no bridge
+may emit both versions into the same feature flow without an ADR.
 
 Any API change must update all affected artifacts in the same task:
 

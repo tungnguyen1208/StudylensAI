@@ -9,7 +9,7 @@ The MVP flow is:
 ```text
 YouTube Video
     ↓
-Extension detects video + reads transcript
+Learner turns StudyLens ON + reads transcript
     ↓
 Study Session starts
     ↓
@@ -44,19 +44,10 @@ Do not add support for Udemy, Coursera, or other platforms unless explicitly req
 
 Core MVP capabilities:
 
-1. Detect the current YouTube video.
-2. Collect video metadata:
-   - videoId
-   - URL
-   - title
-   - duration
-   - current timestamp
-   - play/pause state
-3. Support Activation Mode:
-   - Auto
-   - Manual
-4. In Auto mode, classify whether the video is educational.
-5. Allow user ON/OFF override at all times.
+1. Provide one global Persistent Activation ON/OFF state through `chrome.storage.local`.
+2. Restore that state after browser restart; only first installation defaults to OFF.
+3. On an explicit ON or restored watch-page load, capture the current supported YouTube page once for the learning flow. There is no automatic page monitoring, navigation observer, or video-change event.
+4. While ON, process that captured page without classifying the video as educational or non-educational.
 6. Read an available valid transcript/subtitle.
 7. Preserve transcript timestamps.
 8. Track actual watched time.
@@ -79,7 +70,7 @@ Core MVP capabilities:
     - questions
     - answers
     - learning results/history
-18. Support basic settings.
+18. Support activation and learning-preference settings.
 19. Handle Backend/AI failures without breaking YouTube.
 
 ---
@@ -170,7 +161,6 @@ The ASP.NET Core Backend is responsible for:
 
 FastAPI AI Service is responsible for:
 
-- video classification
 - transcript processing
 - prompt construction
 - question generation
@@ -243,7 +233,7 @@ The codebase may contain technical layers, but development tasks should be organ
 Primary feature modules:
 
 ```text
-M1 — Video & Activation
+M1 — Persistent Activation
 M2 — Learning Session
 M3 — Quiz Generation
 M4 — Answer & Review
@@ -251,15 +241,13 @@ M5 — History
 M6 — Settings & Reliability
 ```
 
-### M1 — Video & Activation
+### M1 — Persistent Activation
 
 Responsibilities:
 
-- YouTube detection
-- video metadata
-- Auto/Manual mode
-- video classification
-- ON/OFF override
+- global ON/OFF state persisted in `chrome.storage.local`
+- one-time current-page capture only when the learner enables the Extension or a restored ON state initializes on a watch page
+- player adapter, transcript acquisition, and learning preferences
 
 ### M2 — Learning Session
 
@@ -332,16 +320,21 @@ currentTime
 isPlaying
 ```
 
-### ClassificationResult
+### Persistent activation handoff
 
 ```text
-classification:
-  educational
-  non_educational
-  unknown
+ExtensionActivationState
+  enabled
+  source: user | storageRestore
+  persistedAtUtc
 
-confidence
+ActivationEnabled
+  envelope.youtubeVideoId (captured once at enable time)
+  preferences
+  transcriptSnapshot?
 ```
+
+Dev 1 publishes persistent activation state, `ACTIVATION_ENABLED` / `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, and `PreferenceSnapshot`. Dev 2 consumes those public contracts and must not access YouTube DOM directly.
 
 ### StudySession
 
@@ -410,8 +403,6 @@ in the same feature change.
 Initial API surface:
 
 ```text
-POST /api/videos/classify
-
 POST /api/sessions
 GET  /api/sessions/{id}
 POST /api/sessions/{id}/segments
@@ -440,7 +431,7 @@ Recommended structure:
 ```text
 apps/extension/src/
 ├── content/
-│   ├── youtube-detector.ts
+│   ├── learning-target-capture.ts
 │   ├── transcript-reader.ts
 │   └── player-controller.ts
 │
@@ -448,7 +439,7 @@ apps/extension/src/
 │   └── service-worker.ts
 │
 ├── features/
-│   ├── activation/
+│   ├── persistent-activation/
 │   ├── session/
 │   ├── quiz/
 │   ├── history/
@@ -530,7 +521,6 @@ services/ai-service/app/
 ├── main.py
 │
 ├── api/
-│   ├── classification.py
 │   ├── questions.py
 │   └── grading.py
 │
@@ -541,12 +531,10 @@ services/ai-service/app/
 │   └── grader.py
 │
 ├── schemas/
-│   ├── classification.py
 │   ├── question.py
 │   └── grading.py
 │
 ├── prompts/
-│   ├── classification.txt
 │   ├── question_generation.txt
 │   └── grading.txt
 │
@@ -626,36 +614,18 @@ Speech-to-Text is not required for the current MVP unless explicitly added later
 
 ## 13. Activation Rules
 
-### Auto mode
+### Persistent activation
 
-```text
-classification == educational
-AND
-confidence >= configured threshold
-        ↓
-may auto-activate
-```
+- `extensionEnabled` is a global learner choice stored in `chrome.storage.local`.
+- The first installation defaults to OFF; later browser launches restore the saved value with source `storageRestore`.
+- There is no video-classification gate or automatic page detector in the MVP. ON starts work only for the YouTube page captured at enable time.
+- Only an explicit user OFF persists OFF and stops the current business flow. Leaving a watch page must not silently change the global setting.
+- Changing video does not start, complete, or switch a session automatically. The learner turns StudyLens OFF then ON again for a new page.
 
-If:
+### Side Panel acceptance constraints
 
-- `non_educational`
-- `unknown`
-- AI timeout
-- low confidence
-
-then do not auto-activate.
-
-The user may still manually turn StudyLens ON.
-
-### Manual mode
-
-Do not auto-activate based on AI classification.
-
-The user controls ON/OFF.
-
-### Override
-
-Explicit user ON/OFF always overrides the current automated decision.
+- The Side Panel must make activation, captured-page status, learning progress, quiz/result state, and recoverable transcript/Backend/AI failures understandable without leaving YouTube.
+- Transcript, Backend, or AI failure must not interrupt the YouTube player or erase a learner answer awaiting retry.
 
 ---
 
@@ -717,6 +687,8 @@ Expected UX:
 - safe failure
 - retry when appropriate
 - preserve YouTube player operation
+- keep Extension interactions asynchronous so waiting for Backend or AI never freezes the Side Panel or player
+- never treat an AI timeout or invalid output as an incorrect learner answer
 
 ---
 
@@ -726,13 +698,13 @@ Minimum test scopes:
 
 ### Extension
 
-- YouTube detection
-- video change
+- one-time page capture on ON and on restored ON page load
 - timer
 - pause/resume
 - segment trigger
 - player seek
-- Auto/Manual state
+- persistent ON/OFF storage restore and first-install OFF
+- changing video does not start a second session until explicit OFF then ON
 
 ### ASP.NET Backend
 
@@ -746,7 +718,6 @@ Minimum test scopes:
 
 ### FastAPI
 
-- classification schema
 - transcript normalization
 - question-generation output validation
 - grading output validation
@@ -799,13 +770,15 @@ Before Frontend and Backend implementations diverge, define:
 - error response
 - sample JSON
 
-Store API contracts in:
+Store executable API and message contracts in:
 
 ```text
-docs/api-contracts/
+contracts/
 ```
 
-The contract is the integration boundary.
+The Persistent Activation architecture uses contract version `0.2.0`. Existing `0.1.0` contracts must migrate in one Integration Captain task; never mix envelope versions in the same runtime flow. A migration updates schemas, fixtures, providers, consumers, tests, and an ADR together.
+
+Use `docs/api-contracts/` only for supplementary human-facing API explanation when it is needed. The versioned files under `contracts/` are the integration boundary and source of truth.
 
 Both developers and Codex instances must follow it.
 
@@ -846,7 +819,7 @@ Recommended implementation order:
 ```text
 M0 Foundation / Walking Skeleton
         ↓
-M1 Video & Activation
+M1 Persistent Activation
         ↓
 M2 Session + Transcript + Segment
         ↓
@@ -894,14 +867,14 @@ Default task routing:
 
 Project custom agent profiles:
 
-- `.codex/agents/dev1-video-activation.toml`
+- `.codex/agents/dev1-persistent-activation.toml`
 - `.codex/agents/dev2-session-quiz.toml`
 - `.codex/agents/dev3-assessment-history.toml`
 - `.codex/agents/integration-captain.toml`
 
 Detailed dev role rules:
 
-- `.agents/rules/dev/dev1-video-activation.md`
+- `.agents/rules/dev/dev1-persistent-activation.md`
 - `.agents/rules/dev/dev2-session-quiz.md`
 - `.agents/rules/dev/dev3-assessment-history.md`
 
