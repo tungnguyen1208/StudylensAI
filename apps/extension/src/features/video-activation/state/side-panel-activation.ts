@@ -23,6 +23,19 @@ export function applyVideoActivationMessage(
   if (message.type === 'ACTIVATION_DISABLED') {
     return activationReducer(state, { type: 'manualOff' });
   }
+  if (message.type === 'VIDEO_CONTEXT_CHANGED') {
+    const title = getVideoTitle(message.payload);
+    const next = activationReducer(state, {
+      type: 'contextChanged',
+      context: { tabId: message.tabId, youtubeVideoId: message.youtubeVideoId, title },
+    });
+    // The persistent global gate remains ON while the new transcript is captured.
+    return activationReducer(next, { type: 'manualOn' });
+  }
+  if (message.type === 'VIDEO_CONTEXT_UNAVAILABLE') {
+    // This is not a learner OFF. Keep the UI ON but explain that page flow waits.
+    return { ...state, context: null, transcriptSnapshot: null, status: 'active', errorCode: 'unsupportedWatchPage' };
+  }
   return state;
 }
 

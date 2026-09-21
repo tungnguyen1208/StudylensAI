@@ -8,35 +8,26 @@ function copyManifestPlugin() {
     name: 'copy-manifest',
     closeBundle() {
       const outDir = resolve(__dirname, 'dist');
-      if (!existsSync(outDir)) {
-        mkdirSync(outDir, { recursive: true });
-      }
-      copyFileSync(
-        resolve(__dirname, 'manifest.json'),
-        resolve(outDir, 'manifest.json')
-      );
+      if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+      copyFileSync(resolve(__dirname, 'manifest.json'), resolve(outDir, 'manifest.json'));
     },
   };
 }
 
+/** Content script is built first as an IIFE by scripts/build-content-script.mjs. */
 export default defineConfig({
   plugins: [react(), copyManifestPlugin()],
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
+    emptyOutDir: false,
     rollupOptions: {
       input: {
         sidepanel: resolve(__dirname, 'sidepanel.html'),
         'service-worker': resolve(__dirname, 'src/shell/service-worker.ts'),
-        'content-script': resolve(__dirname, 'src/shell/content-script.ts'),
       },
       output: {
-        entryFileNames: (chunkInfo) => {
-          if (chunkInfo.name === 'service-worker' || chunkInfo.name === 'content-script') {
-            return '[name].js';
-          }
-          return 'assets/[name]-[hash].js';
-        },
+        entryFileNames: (chunkInfo) =>
+          chunkInfo.name === 'service-worker' ? '[name].js' : 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
       },

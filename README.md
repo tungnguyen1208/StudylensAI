@@ -11,8 +11,8 @@ This repository is structured as a **Modular Monorepo Framework** enabling 3 dev
 StudyLens turns a supported YouTube Web video into an active-learning session:
 
 1. The learner controls a single global ON/OFF switch. The value is stored in `chrome.storage.local`, defaults to OFF only on first installation, and is restored after browser restart.
-2. On ON, the content script captures the current supported YouTube watch page once and starts the learning flow for that explicit learner choice. This one-time capture does not observe navigation or follow later page changes.
-3. On OFF, the active learning flow stops. If the learner changes video, they explicitly turn StudyLens OFF then ON again to start a flow for the new page.
+2. On ON, the content script captures the current supported YouTube watch page and starts a learning flow for that explicit learner choice. While ON, a supported YouTube SPA video change closes the old flow and captures the replacement page without changing the persisted ON/OFF setting. If navigation leaves a supported watch page, global ON waits for a later supported page rather than silently turning OFF.
+3. On explicit OFF, the active learning flow stops and the persisted setting becomes OFF. Transcript, Backend, player, or navigation failures never silently turn the global setting OFF.
 4. Track only actual playback time; paused time never counts toward the selected 5, 10, or 15-minute interval.
 5. Preserve transcript timestamps, create an evidence-backed segment, then generate a multiple-choice or short-answer quiz.
 6. Show the quiz, result, explanation, and valid timestamp reference in the Side Panel, then retain the learning history.
@@ -114,7 +114,7 @@ studylens/
 
 | Feature Module | Developer Owner | Extension Feature | Backend Feature | AI Feature | Contracts |
 |---|---|---|---|---|---|
-| **Persistent Activation** | **Dev 1** | `features/persistent-activation/`<br>`platform/youtube/` | `Features/ActivationSettings/` | — | `persistent-activation.yaml` |
+| **Persistent Activation** | **Dev 1** | `features/video-activation/`<br>`platform/youtube/` | — | — | `video-activation.schema.json`<br>`video-activation.yaml` |
 | **Session & Quiz** | **Dev 2** | `features/session-quiz/` | `Features/SessionQuiz/` | `features/question_generation/` | `session-quiz.yaml`<br>`question-generation.yaml` |
 | **Assessment & History** | **Dev 3** | `features/assessment-history/` | `Features/AssessmentHistory/` | `features/grading/` | `assessment-history.yaml`<br>`grading.yaml` |
 
@@ -142,8 +142,8 @@ Developers 1, 2, and 3 must not modify shared HOT files in daily feature tasks. 
 
 ```powershell
 cd apps/extension
-npm install
-npm run build
+npm.cmd install
+npm.cmd run build
 ```
 
 To load unpacked in Chrome or Edge:
@@ -151,6 +151,11 @@ To load unpacked in Chrome or Edge:
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select `apps/extension/dist`.
 4. Open any YouTube video and click the StudyLens side panel icon.
+
+After every source update, run `npm.cmd run build`, then click the reload
+button for StudyLens on the Extensions page before refreshing the YouTube tab.
+The build verifies that `content-script.js` is a self-contained classic bundle,
+which Chrome/Edge can load through the Manifest V3 `content_scripts` entry.
 
 ### 6.2 ASP.NET Core Backend
 
@@ -193,7 +198,7 @@ uvicorn app.main:app --reload --port 8000
 
 ## 7. Persistent Activation Contract Migration
 
-The v1.2 architecture uses contract baseline **0.2.0**. It introduces `ExtensionActivationState`, removes video classification and automatic page-change handling. On every explicit ON or restored page load, Dev 1 publishes one `ACTIVATION_ENABLED` handoff whose envelope carries the captured YouTube ID; `TranscriptSnapshotRef` plus `PreferenceSnapshot` remain the Dev 1 → Dev 2 handoff.
+The v1.2 architecture uses contract baseline **0.2.0**. It introduces `ExtensionActivationState`, removes video classification, and uses the explicit `VIDEO_CONTEXT_CHANGED` seam when a supported YouTube SPA page changes while StudyLens remains ON. Dev 1 publishes the transition before capturing the replacement page. `TranscriptSnapshotRef` plus `PreferenceSnapshot` remain the Dev 1 → Dev 2 handoff; a replacement `ACTIVATION_ENABLED` is published only after its transcript is available.
 
 Existing `0.1.0` artifacts must be migrated in one explicit Integration Captain task. Do not mix `0.1.0` and `0.2.0` message envelopes or API DTOs in one runtime path. The migration must update contracts, fixtures, producers, consumers, tests, and the corresponding ADR before merge.
 

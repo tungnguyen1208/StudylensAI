@@ -1,19 +1,30 @@
 /** StudyLens Manifest V3 service worker. */
 
+import {
+  LearningPreferencesValidationError,
+  loadLearningPreferences,
+  saveLearningPreferences,
+  type LearningPreferences,
+  type LocalStoragePort,
+} from '../features/video-activation/models/learning-preferences';
+
 const ACTIVATION_STORAGE_KEY = 'extensionEnabled';
 
 type StoredActivationState = { enabled: boolean; persistedAtUtc: string };
 type SidePanelToggleRequest = { type: 'STUDYLENS_MANUAL_TOGGLE'; requestedState: 'on' | 'off' };
 type SidePanelStateRequest = { type: 'STUDYLENS_GET_ACTIVATION_STATE' };
 type SidePanelRetryRequest = { type: 'STUDYLENS_RETRY_OPERATION'; operation: string };
+type LearningPreferencesGetRequest = { type: 'STUDYLENS_GET_LEARNING_PREFERENCES' };
+type LearningPreferencesSaveRequest = { type: 'STUDYLENS_SAVE_LEARNING_PREFERENCES'; preferences: unknown };
 
 const relayableContentMessageTypes = new Set([
   'PLAYER_PLAYING', 'PLAYER_PAUSED', 'PLAYER_BUFFERING', 'PLAYER_SEEKED', 'PLAYER_ENDED',
-  'ACTIVATION_ENABLED', 'ACTIVATION_DISABLED', 'QUIZ_AVAILABLE', 'OPERATION_STATUS_CHANGED',
+  'ACTIVATION_ENABLED', 'ACTIVATION_DISABLED', 'VIDEO_CONTEXT_CHANGED', 'VIDEO_CONTEXT_UNAVAILABLE',
+  'QUIZ_AVAILABLE', 'OPERATION_STATUS_CHANGED',
 ]);
 
 chrome.runtime.onInstalled.addListener(() => {
-  void ensureActivationDefault();
+  void Promise.all([ensureActivationDefault(), readLearningPreferences()]);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -27,6 +38,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (isSidePanelToggleRequest(message)) {
     void toggleForActiveTab(message.requestedState).then(sendResponse);
+    return true;
+  }
+  if (isLearningPreferencesGetRequest(message)) {
+    void readLearningPreferences().then(
+      (preferences) => sendResponse({ ok: true, preferences }),
+      () => sendResponse({ ok: false, code: 'learningPreferencesUnavailable' }),
+    );
+    return true;
+  }
+  if (isLearningPreferencesSaveRequest(message)) {
+    void writeLearningPreferences(message.preferences).then(
+      (preferences) => sendResponse({ ok: true, preferences }),
+      (error: unknown) => sendResponse({
+        ok: false,
+        code: error instanceof LearningPreferencesValidationError
+          ? 'invalidLearningPreferences'
+          : 'learningPreferencesUnavailable',
+      }),
+    );
     return true;
   }
   if (isSidePanelRetryRequest(message)) {
@@ -51,6 +81,18 @@ async function ensureActivationDefault(): Promise<StoredActivationState> {
 
 async function readActivationState(): Promise<StoredActivationState> {
   return ensureActivationDefault();
+}
+
+function extensionLocalStorage(): LocalStoragePort {
+  return chrome.storage.local as unknown as LocalStoragePort;
+}
+
+async function readLearningPreferences(): Promise<LearningPreferences> {
+  return loadLearningPreferences(extensionLocalStorage());
+}
+
+async function writeLearningPreferences(value: unknown): Promise<LearningPreferences> {
+  return saveLearningPreferences(extensionLocalStorage(), value);
 }
 
 async function toggleForActiveTab(requestedState: 'on' | 'off') {
@@ -109,6 +151,16 @@ function isSidePanelRetryRequest(value: unknown): value is SidePanelRetryRequest
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<SidePanelRetryRequest>;
   return candidate.type === 'STUDYLENS_RETRY_OPERATION' && typeof candidate.operation === 'string';
+}
+
+function isLearningPreferencesGetRequest(value: unknown): value is LearningPreferencesGetRequest {
+  return Boolean(value) && typeof value === 'object' &&
+    (value as Partial<LearningPreferencesGetRequest>).type === 'STUDYLENS_GET_LEARNING_PREFERENCES';
+}
+
+function isLearningPreferencesSaveRequest(value: unknown): value is LearningPreferencesSaveRequest {
+  return Boolean(value) && typeof value === 'object' &&
+    (value as Partial<LearningPreferencesSaveRequest>).type === 'STUDYLENS_SAVE_LEARNING_PREFERENCES';
 }
 
 function isStoredActivationState(value: unknown): value is StoredActivationState {

@@ -114,7 +114,7 @@ export interface StudySegmentRef {
 export interface CompleteStudySessionRequest {
   contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
   clientCompletionId: string;
-  reason: 'activationDisabled' | 'videoEnded';
+  reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged';
   activeStudyMs: number;
 }
 

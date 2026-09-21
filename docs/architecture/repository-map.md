@@ -6,11 +6,12 @@
 
 ## 1. Luồng nghiệp vụ hiện tại
 
-StudyLens dùng lựa chọn ON/OFF bền vững của người học làm cổng duy nhất.
-Khi ON trên một trang YouTube watch hợp lệ, content script chụp trang đó đúng
-một lần, đọc transcript DOM thụ động, và chỉ bắt đầu phiên học sau khi Backend
-đã nhận transcript `available`. OFF dừng flow hiện tại; muốn học trang khác,
-người dùng chủ động OFF rồi ON lại.
+StudyLens uses the learner's persisted ON/OFF choice as its global gate. ON
+captures the current supported YouTube watch page, reads passive transcript DOM
+data, and starts a session only after Backend has an `available` transcript.
+While ON, a supported YouTube SPA A-to-B change emits `VIDEO_CONTEXT_CHANGED`,
+closes A through Dev 2, then captures B. Explicit OFF is the only action that
+persists OFF.
 
 ```mermaid
 sequenceDiagram
@@ -104,21 +105,29 @@ shared/
     └── operation-status.ts            # Operation state/code/message/retryable/traceId
 
 platform/youtube/
-├── learning-target-capture.ts         # One-time URL/title capture when learner enables
+├── learning-target-capture.ts         # URL/title capture for ON and supported replacement pages
 ├── youtube-player-adapter.ts          # Only PlayerPort owner of HTMLVideoElement
 └── youtube-transcript-adapter.ts      # Passive rendered-transcript DOM reader
 ```
 
 ### Dev 1 — `features/video-activation/`
 
-- `content-script-entry.ts`: coordinator for manual lifecycle, passive
-  transcript upload, player event forwarding, and transcript retry.
-- `services/activation-manager.ts`: emits one `ACTIVATION_ENABLED` only after
-  a valid snapshot; emits `ACTIVATION_DISABLED` on OFF.
+- `content-script-entry.ts`: coordinator for persistent lifecycle, supported
+  video transitions, passive transcript upload, player event forwarding, and retry.
+- `services/activation-manager.ts`: holds the page-local activation state,
+  snapshots preferences, emits `ACTIVATION_ENABLED` only after a valid
+  snapshot, and emits `ACTIVATION_DISABLED` on explicit OFF.
+- `services/youtube-spa-transition-observer.ts`: debounces YouTube navigation
+  while global ON is active; the content-script coordinator publishes
+  `VIDEO_CONTEXT_CHANGED` or `VIDEO_CONTEXT_UNAVAILABLE` before binding
+  replacement page resources.
 - `services/transcript-service.ts`: normalization/hash/idempotency request and
   typed snapshot client.
 - `components/ActivationToggle.tsx` / `ActivationStatus.tsx`: pure Side Panel
   presentation.
+- `models/learning-preferences.ts` / `components/LearningPreferencesForm.tsx`:
+  browser-local validated preferences and Side Panel controls; a saved change
+  applies to the next activation snapshot.
 - `DEV2_HANDOFF_WEEK2.md`: current Dev 1 → Dev 2 seam and retry order.
 
 ### Dev 2 — `features/session-quiz/`
@@ -207,7 +216,7 @@ contracts/
 │   ├── question-generation.yaml        # deterministic fake question generation
 │   └── grading.yaml                    # deterministic fake short-answer grading
 ├── extension-messages/
-│   ├── video-activation.schema.json    # activation, player, OPERATION_STATUS_CHANGED
+│   ├── video-activation.schema.json    # activation, transition, player, OPERATION_STATUS_CHANGED
 │   ├── session-quiz.schema.json        # QUIZ_AVAILABLE public payload
 │   └── assessment-history.schema.json  # answer/history operation-status shape
 └── examples/
@@ -245,4 +254,10 @@ py -m pytest app -q
 `apps/extension/dist/` is rebuilt by `npm.cmd run build`; load that directory
 as unpacked Chrome/Edge extension after every source change. Automated tests do
 not replace manual browser smoke for upload retry, persistent answer/history,
-Backend/FastAPI outage, OFF/ON and non-interference with YouTube playback.
+Backend/FastAPI outage, A-to-B transition while ON, explicit OFF, and
+non-interference with YouTube playback.
+
+The build first emits `content-script.js` as one IIFE because Manifest V3
+content scripts are loaded as classic scripts. The build verification fails if
+that output contains an ESM `import`; reload the unpacked extension after a
+successful rebuild before manual browser smoke.

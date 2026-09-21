@@ -121,7 +121,7 @@ components:
     QuizIntervalMinutes: { type: integer, enum: [5, 10, 15] }
     QuestionType: { type: string, enum: [multipleChoice, shortAnswer] }
     Difficulty: { type: string, enum: [easy, medium, hard] }
-    CompletionReason: { type: string, enum: [activationDisabled, videoEnded] }
+    CompletionReason: { type: string, enum: [activationDisabled, videoEnded, videoContextChanged] }
     SessionStatus: { type: string, enum: [active, completed] }
     QuizStatus: { type: string, enum: [generating, available, failed] }
     TranscriptSnapshotRef:

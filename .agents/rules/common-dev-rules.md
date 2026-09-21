@@ -49,8 +49,9 @@ Shared API rules:
 - Public Extension responses must not expose correct answers or grading rubrics before answer submit.
 - Mutations that can be retried need an idempotency key such as `clientRequestId`, `clientSegmentId`, or `clientAttemptId`.
 - Persistent activation is `extensionEnabled` in `chrome.storage.local`: first install is OFF, then the learner's setting is restored after browser restart.
-- The MVP does not classify videos as educational or non-educational and has no automatic page detector. ON captures only the current supported watch page for one learning flow.
-- A video ID change does not close or start a session automatically and must not silently persist OFF. The learner explicitly uses OFF then ON for the new page.
+- The MVP does not classify videos as educational or non-educational. While `extensionEnabled` is ON, Dev 1 uses a controlled YouTube SPA transition coordinator for supported video-ID changes; it is not a classification gate.
+- A supported video-ID change publishes `VIDEO_CONTEXT_CHANGED`, lets Dev 2 complete the old session idempotently, then permits a replacement `ACTIVATION_ENABLED` only after the new transcript is available. It must never silently persist OFF.
+- Leaving a supported watch page while ON publishes `VIDEO_CONTEXT_UNAVAILABLE` so Dev 2 can close only the old session; global ON remains active and waits for a later supported page.
 
 ## HOT Files
 

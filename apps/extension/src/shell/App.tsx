@@ -1,11 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { AssessmentPanel, AssessmentHistoryApi, type GradeView, type LocalAnswerSubmission, type QuizAvailable } from '../features/assessment-history';
+import {
+  AssessmentPanel,
+  AssessmentHistoryApi,
+  GradeResult,
+  HistoryPage,
+  type GradeView,
+  type HistoryEntryReadModel,
+  type LocalAnswerSubmission,
+  type QuizAvailable,
+} from '../features/assessment-history';
 import {
   ActivationStatus,
   ActivationToggle,
+  DEFAULT_LEARNING_PREFERENCES,
+  LearningPreferencesForm,
   applyVideoActivationMessage,
   initialActivationState,
+  isLearningPreferences,
   type ActivationState,
+  type LearningPreferences,
 } from '../features/video-activation';
 import { httpClient } from '../shared/http/http-client';
 import { messageBus } from '../shared/messaging/message-bus';
@@ -24,6 +37,7 @@ interface BackendHealthResponse {
 
 type BackendStatus = 'idle' | 'checking' | 'connected' | 'error';
 type ThemeMode = 'light' | 'dark';
+type SidePanelTab = 'study' | 'history' | 'settings';
 
 const THEME_STORAGE_KEY = 'studylensTheme';
 const assessmentHistoryApi = new AssessmentHistoryApi();
@@ -38,11 +52,36 @@ export const App: React.FC = () => {
   const [activationCommandStatus, setActivationCommandStatus] = useState<'idle' | 'sending' | 'error'>('idle');
   const [activationCommandError, setActivationCommandError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>('dark');
+  const [activeTab, setActiveTab] = useState<SidePanelTab>('study');
+  const [latestGrade, setLatestGrade] = useState<GradeView | null>(null);
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntryReadModel[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [operationStatuses, setOperationStatuses] = useState<Partial<Record<StudyLensOperation, OperationStatusPayload>>>({});
+  const [learningPreferences, setLearningPreferences] = useState<LearningPreferences>(DEFAULT_LEARNING_PREFERENCES);
+  const [preferencesStatus, setPreferencesStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
+  const [preferencesError, setPreferencesError] = useState<string | null>(null);
 
   useEffect(() => {
     setFeatures(initializeFeatureRegistry());
     void checkHealth();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void getLearningPreferences().then(
+      (preferences) => {
+        if (!mounted) return;
+        setLearningPreferences(preferences);
+        setPreferencesStatus('ready');
+      },
+      (error: unknown) => {
+        if (!mounted) return;
+        setPreferencesStatus('error');
+        setPreferencesError(error instanceof Error ? error.message : 'Không thể tải tùy chọn học tập.');
+      },
+    );
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
@@ -66,6 +105,8 @@ export const App: React.FC = () => {
     const unsubscribers = [
       messageBus.subscribe('ACTIVATION_ENABLED', onActivationMessage),
       messageBus.subscribe('ACTIVATION_DISABLED', onActivationMessage),
+      messageBus.subscribe('VIDEO_CONTEXT_CHANGED', onActivationMessage),
+      messageBus.subscribe('VIDEO_CONTEXT_UNAVAILABLE', onActivationMessage),
       messageBus.subscribe('QUIZ_AVAILABLE', (message) => {
         const payload = message.payload as QuizAvailable;
         if (Array.isArray(payload?.questions) && payload.questions.length > 0) setQuiz(payload);
@@ -102,6 +143,24 @@ export const App: React.FC = () => {
   const loadAssessmentHistory = async () => {
     const videoId = quiz?.questions[0]?.source.youtubeVideoId;
     return assessmentHistoryApi.getHistory(videoId);
+  };
+
+  const refreshHistoryTab = async () => {
+    setHistoryStatus('loading');
+    setHistoryError(null);
+    try {
+      setHistoryEntries(await assessmentHistoryApi.getHistory());
+      setHistoryStatus('ready');
+    } catch (error: unknown) {
+      setHistoryStatus('error');
+      setHistoryError(error instanceof Error ? error.message : 'Không thể tải lịch sử học tập.');
+    }
+  };
+
+  const handleGradeReceived = (grade: GradeView) => {
+    setLatestGrade(grade);
+    setActiveTab('history');
+    void refreshHistoryTab();
   };
 
   const recordOperationStatus = (status: OperationStatusPayload) => {
@@ -142,6 +201,19 @@ export const App: React.FC = () => {
     void saveThemePreference(nextTheme);
   };
 
+  const saveLearningPreferences = async (preferences: LearningPreferences): Promise<void> => {
+    setPreferencesStatus('saving');
+    setPreferencesError(null);
+    try {
+      const saved = await persistLearningPreferences(preferences);
+      setLearningPreferences(saved);
+      setPreferencesStatus('ready');
+    } catch (error: unknown) {
+      setPreferencesStatus('error');
+      setPreferencesError(error instanceof Error ? error.message : 'Không thể lưu tùy chọn học tập.');
+    }
+  };
+
   return (
     <main className="studylens-app">
       <header className="app-header">
@@ -149,16 +221,52 @@ export const App: React.FC = () => {
           <h1 className="app-title">StudyLens AI</h1>
           <p className="app-subtitle">Khung ứng dụng học tập (v0.2.0)</p>
         </div>
-        <button
-          type="button"
-          className="theme-toggle"
-          aria-pressed={theme === 'light'}
-          onClick={toggleTheme}
-        >
-          Chế độ {theme === 'dark' ? 'sáng' : 'tối'}
-        </button>
+        <nav className="panel-tabs" aria-label="Điều hướng StudyLens" role="tablist">
+          <button
+            id="study-tab"
+            type="button"
+            className={`panel-tab ${activeTab === 'study' ? 'panel-tab--active' : ''}`}
+            role="tab"
+            aria-selected={activeTab === 'study'}
+            aria-controls="study-panel"
+            onClick={() => setActiveTab('study')}
+          >
+            Học tập
+          </button>
+          <button
+            id="history-tab"
+            type="button"
+            className={`panel-tab ${activeTab === 'history' ? 'panel-tab--active' : ''}`}
+            role="tab"
+            aria-selected={activeTab === 'history'}
+            aria-controls="history-panel"
+            onClick={() => {
+              setActiveTab('history');
+              void refreshHistoryTab();
+            }}
+          >
+            Lịch sử
+          </button>
+          <button
+            id="settings-tab"
+            type="button"
+            className={`panel-tab panel-tab--settings ${activeTab === 'settings' ? 'panel-tab--active' : ''}`}
+            role="tab"
+            aria-selected={activeTab === 'settings'}
+            aria-controls="settings-panel"
+            aria-label="Cài đặt"
+            title="Cài đặt"
+            onClick={() => setActiveTab('settings')}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M9.67 3.31a1 1 0 0 1 .98-.8h2.7a1 1 0 0 1 .98.8l.4 1.88c.47.2.91.45 1.31.76l1.83-.6a1 1 0 0 1 1.18.43l1.35 2.34a1 1 0 0 1-.2 1.24l-1.43 1.3a6.8 6.8 0 0 1 0 1.52l1.43 1.3a1 1 0 0 1 .2 1.24l-1.35 2.34a1 1 0 0 1-1.18.43l-1.83-.6c-.4.31-.84.56-1.31.76l-.4 1.88a1 1 0 0 1-.98.8h-2.7a1 1 0 0 1-.98-.8l-.4-1.88a6.3 6.3 0 0 1-1.31-.76l-1.83.6a1 1 0 0 1-1.18-.43L4.3 15.72a1 1 0 0 1 .2-1.24l1.43-1.3a6.8 6.8 0 0 1 0-1.52L4.5 10.36a1 1 0 0 1-.2-1.24l1.35-2.34a1 1 0 0 1 1.18-.43l1.83.6c.4-.31.84-.56 1.31-.76l.4-1.88ZM12 9a3.42 3.42 0 1 0 0 6.84A3.42 3.42 0 0 0 12 9Z" />
+            </svg>
+          </button>
+        </nav>
       </header>
 
+      {activeTab === 'study' ? (
+        <div id="study-panel" role="tabpanel" aria-labelledby="study-tab">
       <section className="panel-section" aria-labelledby="health-heading">
         <h2 id="health-heading" className="section-heading">Trạng thái hệ thống</h2>
         <div className="health-row">
@@ -215,6 +323,9 @@ export const App: React.FC = () => {
               submitAnswer={submitAssessmentAnswer}
               loadHistory={loadAssessmentHistory}
               onOperationStatus={recordOperationStatus}
+              onGrade={handleGradeReceived}
+              showGrade={false}
+              showHistory={false}
             />
           </div>
         )}
@@ -235,6 +346,63 @@ export const App: React.FC = () => {
           </div>
         )}
       </section>
+        </div>
+      ) : activeTab === 'history' ? (
+        <div id="history-panel" role="tabpanel" aria-labelledby="history-tab" className="history-view">
+          <section className="panel-section" aria-labelledby="latest-grade-heading">
+            <h2 id="latest-grade-heading" className="section-heading">Kết quả gần nhất</h2>
+            {latestGrade ? (
+              <GradeResult grade={latestGrade} />
+            ) : (
+              <p className="section-copy" role="status">Chưa có kết quả chấm điểm. Kết quả sẽ xuất hiện sau khi bạn nộp đáp án.</p>
+            )}
+          </section>
+
+          <section className="panel-section" aria-labelledby="history-heading">
+            <div className="section-heading-row">
+              <h2 id="history-heading" className="section-heading">Lịch sử học tập</h2>
+              <button type="button" className="secondary-button" disabled={historyStatus === 'loading'} onClick={() => void refreshHistoryTab()}>
+                {historyStatus === 'loading' ? 'Đang tải...' : 'Làm mới'}
+              </button>
+            </div>
+            {historyError && <p className="health-error" role="alert">Lỗi: {historyError}</p>}
+            {historyStatus === 'loading' && historyEntries.length === 0 ? (
+              <p className="section-copy" role="status">Đang tải lịch sử học tập...</p>
+            ) : (
+              <HistoryPage entries={historyEntries} />
+            )}
+          </section>
+        </div>
+      ) : (
+        <div id="settings-panel" role="tabpanel" aria-labelledby="settings-tab" className="settings-view">
+          <section className="panel-section" aria-labelledby="appearance-heading">
+            <h2 id="appearance-heading" className="section-heading">Giao diện</h2>
+            <p className="section-copy">Chọn chế độ hiển thị phù hợp với môi trường học tập của bạn.</p>
+            <button
+              type="button"
+              className="theme-toggle"
+              aria-pressed={theme === 'light'}
+              onClick={toggleTheme}
+            >
+              Chuyển sang chế độ {theme === 'dark' ? 'sáng' : 'tối'}
+            </button>
+          </section>
+
+          <section className="panel-section" aria-labelledby="preferences-heading">
+            <h2 id="preferences-heading" className="section-heading">Tùy chọn học tập</h2>
+            {preferencesStatus === 'loading' ? (
+              <p className="section-copy" role="status">Đang tải tùy chọn học tập...</p>
+            ) : (
+              <LearningPreferencesForm
+                preferences={learningPreferences}
+                saving={preferencesStatus === 'saving'}
+                error={preferencesError}
+                onSave={saveLearningPreferences}
+              />
+            )}
+          </section>
+        </div>
+      )}
     </main>
   );
 };
@@ -298,6 +466,27 @@ async function loadPersistentActivationState(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function getLearningPreferences(): Promise<LearningPreferences> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return { ...DEFAULT_LEARNING_PREFERENCES };
+  const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_LEARNING_PREFERENCES' }) as {
+    ok?: boolean;
+    preferences?: unknown;
+    code?: string;
+  } | undefined;
+  if (response?.ok && isLearningPreferences(response.preferences)) return { ...response.preferences };
+  throw new Error(response?.code ?? 'learningPreferencesUnavailable');
+}
+
+async function persistLearningPreferences(preferences: LearningPreferences): Promise<LearningPreferences> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) throw new Error('extensionRuntimeUnavailable');
+  const response = await chrome.runtime.sendMessage({
+    type: 'STUDYLENS_SAVE_LEARNING_PREFERENCES',
+    preferences,
+  }) as { ok?: boolean; preferences?: unknown; code?: string } | undefined;
+  if (response?.ok && isLearningPreferences(response.preferences)) return { ...response.preferences };
+  throw new Error(response?.code ?? 'learningPreferencesUnavailable');
 }
 
 async function loadThemePreference(): Promise<ThemeMode> {

@@ -4,9 +4,9 @@
 
 ## 1. Overview
 
-**StudyLens AI** is an active learning companion for YouTube Web. A learner's persistent ON/OFF choice is the only activation gate. ON starts one flow for the YouTube watch page captured at enable time; OFF stops that flow. Player events, normalized transcript segments, and AI-generated quizzes are processed only while a flow is active.
+**StudyLens AI** is an active learning companion for YouTube Web. A learner's persistent ON/OFF choice is the activation gate. ON starts a flow for the current YouTube watch page; while ON, a supported SPA video transition closes the old flow and captures the replacement page. Player events, normalized transcript segments, and AI-generated quizzes are processed only while a flow is active.
 
-The current implementation decision is recorded in [v1.2 specification and source alignment](spec-source-alignment-v1.2.md). It resolves an ambiguity in the supplied v1.2 SRS/SDS: this repository does not continuously monitor pages, observe SPA navigation, or automatically switch a session when the learner changes video.
+The current implementation decision is recorded in [v1.2 specification and source alignment](spec-source-alignment-v1.2.md). The controlled transition coordinator observes supported YouTube SPA video-ID changes only while StudyLens is ON. It does not classify videos and never changes the persisted ON/OFF setting by itself.
 
 ---
 
@@ -48,8 +48,8 @@ flowchart TD
 flowchart LR
     subgraph Dev1["Dev 1: Persistent Activation"]
         direction TB
-        E1[apps/extension/.../persistent-activation]
-        B1[services/api/.../Features/ActivationSettings]
+        E1[apps/extension/.../video-activation]
+        B1[Extension local activation and learning preferences]
         A1[No classification AI feature]
     end
 
@@ -67,12 +67,15 @@ flowchart LR
         A3[services/ai/.../features/grading]
     end
 
-    Dev1 -->|ACTIVATION_ENABLED + transcript ref| Dev2
+    Dev1 -->|VIDEO_CONTEXT_CHANGED then ACTIVATION_ENABLED + transcript ref| Dev2
     Dev2 -->|QUIZ_AVAILABLE| Dev3
     Dev3 -->|SEEK_REQUEST| Dev1
 ```
 
-- **Dev 1 (Persistent Activation)**: persistent ON/OFF, one-time current-page capture at ON, PlayerPort, and passive transcript acquisition. There is no automatic page detection, video classification, or automatic session switch.
+- **Dev 1 (Persistent Activation)**: persistent ON/OFF, local learning preferences, controlled supported-video transitions while ON, PlayerPort, and passive transcript acquisition. There is no video classification.
+- **Unsupported-page behavior**: `VIDEO_CONTEXT_UNAVAILABLE` closes only the
+  prior page flow when ON navigation leaves `/watch`; global ON waits for a
+  later supported capture and is never silently persisted OFF.
 - **Dev 2 (Session & Quiz)**: StudySession lifecycle, active watch time tracking, transcript segmentation, and quiz generation orchestration.
 - **Dev 3 (Assessment & History)**: Answer submission through the Backend API, MCQ/short-answer grading, timestamp review, and SQLite-backed learning history queries.
 
@@ -80,6 +83,6 @@ flowchart LR
 
 ## 4. Cross-Module Seams
 
-- **Dev 1 → Dev 2**: `ExtensionActivationState`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, and normalized player events. The enable envelope carries the one-time captured YouTube ID. Dev 2 does not read YouTube DOM or raw transcript sources directly.
+- **Dev 1 → Dev 2**: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, and normalized player events. The transition identifies the prior activation; the enable envelope carries the replacement YouTube ID only after valid transcript evidence. Dev 2 does not read YouTube DOM or raw transcript sources directly.
 - **Dev 2 → Dev 3**: `QUIZ_AVAILABLE` carries `QuestionPublic` to the Extension. The Backend separately reads the server-only `QuestionForAssessment` port to grade an answer; private answer keys and reference answers never cross to the Extension.
 - **Dev 3 → Dev 1**: `SEEK_REQUEST` event. Dev 3 dispatches seek requests; only Dev 1's player adapter interacts with the YouTube player.

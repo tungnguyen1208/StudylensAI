@@ -20,25 +20,45 @@ export interface ManualActivationManagerOptions {
 /** Business coordinator for Manual mode. It never reads or controls YouTube DOM. */
 export class ManualActivationManager {
   private state: ActivationState = initialActivationState;
-  private readonly preferences: PreferenceSnapshot;
+  private preferences: PreferenceSnapshot;
   private readonly createActivationId: () => string;
   private pendingActivation: { correlationId: string; activationId: string; source: 'user' | 'storageRestore' } | null = null;
+  private currentActivationId: string | null = null;
 
   public constructor(private readonly options: ManualActivationManagerOptions) {
-    this.preferences = options.preferences ?? DEFAULT_MANUAL_PREFERENCES;
+    this.preferences = { ...(options.preferences ?? DEFAULT_MANUAL_PREFERENCES) };
     this.createActivationId = options.createActivationId ?? (() => crypto.randomUUID());
   }
 
   public getState(): ActivationState { return this.state; }
 
+  /** Identifies the running or transcript-pending flow for a transition seam. */
+  public getCurrentActivationId(): string | null {
+    return this.currentActivationId ?? this.pendingActivation?.activationId ?? null;
+  }
+
+  /** Applies only before the next activation snapshot is created. */
+  public setPreferences(preferences: PreferenceSnapshot): void {
+    if (this.state.status === 'active') return;
+    this.preferences = { ...preferences };
+  }
+
   public async setContext(context: ActivationContext, _correlationId: string): Promise<void> {
     this.state = activationReducer(this.state, { type: 'contextChanged', context });
     this.pendingActivation = null;
+    this.currentActivationId = null;
   }
 
   public setTranscriptSnapshot(transcriptSnapshot: TranscriptSnapshotRef): void {
     this.state = activationReducer(this.state, { type: 'transcriptUpdated', transcriptSnapshot });
     void this.publishPendingActivation();
+  }
+
+  /** Stops local page work without persisting or publishing a user OFF action. */
+  public clearUnavailableContext(code = 'unsupportedWatchPage'): void {
+    this.pendingActivation = null;
+    this.currentActivationId = null;
+    this.state = activationReducer(this.state, { type: 'contextUnavailable', code });
   }
 
   public async request(
@@ -56,6 +76,7 @@ export class ManualActivationManager {
     if (requestedState === 'off') {
       if (this.state.status === 'active') await this.publishStopped(context, correlationId, 'userDisabled');
       this.state = activationReducer(this.state, { type: 'manualOff' });
+      this.currentActivationId = null;
       return true;
     }
 
@@ -73,11 +94,12 @@ export class ManualActivationManager {
     if (this.state.status !== 'active' || !context || !transcriptSnapshot || transcriptSnapshot.status !== 'available' || !transcriptSnapshot.contentHash || !pending) return;
 
     this.pendingActivation = null;
+    this.currentActivationId = pending.activationId;
     const payload: ActivationEnabledPayload = {
       activationId: pending.activationId,
       source: pending.source,
       videoTitle: context.title,
-      preferences: this.preferences,
+      preferences: { ...this.preferences },
       transcriptSnapshot: transcriptSnapshot as AvailableTranscriptSnapshotRef,
     };
     await this.options.publish(createVideoActivationMessage('ACTIVATION_ENABLED', payload, {

@@ -1,0 +1,14 @@
+{
+  "type": "VIDEO_CONTEXT_UNAVAILABLE",
+  "contractVersion": "0.2.0",
+  "correlationId": "transition-a-away-001",
+  "tabId": 7,
+  "youtubeVideoId": "dQw4w9WgXcQ",
+  "occurredAtUtc": "2026-09-21T10:00:00.000Z",
+  "payload": {
+    "transitionId": "transition-a-away-001",
+    "previousActivationId": "activation-a-001",
+    "previousYoutubeVideoId": "dQw4w9WgXcQ",
+    "reasonCode": "unsupportedWatchPage"
+  }
+}

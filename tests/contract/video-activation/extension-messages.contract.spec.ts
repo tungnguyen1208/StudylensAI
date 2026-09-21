@@ -8,6 +8,8 @@ const extensionRequire = createRequire(new URL('../../../apps/extension/package.
 const Ajv = extensionRequire('ajv').default as typeof import('ajv').default;
 const addFormats = extensionRequire('ajv-formats').default as typeof import('ajv-formats').default;
 const schema = JSON.parse(readFileSync(`${repoRoot}/contracts/extension-messages/video-activation.schema.json`, 'utf8'));
+const videoContextChangedFixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/video-context-changed.json`, 'utf8'));
+const videoContextUnavailableFixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/video-context-unavailable.json`, 'utf8'));
 const ajv = new Ajv({ strict: true });
 addFormats(ajv);
 const validate = ajv.compile(schema);
@@ -33,6 +35,24 @@ describe('persistent activation extension message contract 0.2.0', () => {
     } }), JSON.stringify(validate.errors)).toBe(true);
     expect(validate({ ...envelope, type: 'OPERATION_STATUS_CHANGED', payload: {
       operation: 'transcriptUpload', state: 'failed', message: 'Lỗi', retryable: 'yes',
+    } })).toBe(false);
+  });
+  it('validates a context transition without exposing transcript or grading data', () => {
+    expect(validate(videoContextChangedFixture), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...videoContextChangedFixture, payload: {
+      ...videoContextChangedFixture.payload,
+      previousYoutubeVideoId: 'not-a-youtube-id',
+    } })).toBe(false);
+    expect(validate({ ...videoContextChangedFixture, payload: {
+      ...videoContextChangedFixture.payload,
+      transcriptSnapshot: { contentHash: 'a'.repeat(64) },
+    } })).toBe(false);
+  });
+  it('validates an unsupported page transition that closes only the old flow', () => {
+    expect(validate(videoContextUnavailableFixture), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...videoContextUnavailableFixture, payload: {
+      ...videoContextUnavailableFixture.payload,
+      reasonCode: 'other',
     } })).toBe(false);
   });
   it('rejects an unsupported page-change event', () => {

@@ -18,4 +18,34 @@ describe('Side Panel activation state', () => {
     expect(active.status).toBe('active');
     expect(stopped.status).toBe('off');
   });
+
+  it('keeps the global toggle on while the next page waits for transcript evidence', () => {
+    const transitioned = applyVideoActivationMessage(initialActivationState, {
+      type: 'VIDEO_CONTEXT_CHANGED', contractVersion: '0.2.0', correlationId: 'transition', tabId: 7,
+      youtubeVideoId: '9bZkp7q19f0', occurredAtUtc: '2026-09-21T10:00:00.000Z',
+      payload: {
+        transitionId: 'transition-1', previousActivationId: 'activation-1',
+        previousYoutubeVideoId: 'dQw4w9WgXcQ', videoTitle: 'Video B',
+      },
+    });
+
+    expect(transitioned).toMatchObject({
+      status: 'active',
+      context: { youtubeVideoId: '9bZkp7q19f0', title: 'Video B' },
+      transcriptSnapshot: null,
+    });
+  });
+
+  it('keeps the global toggle on when navigation leaves a supported watch page', () => {
+    const waiting = applyVideoActivationMessage(initialActivationState, {
+      type: 'VIDEO_CONTEXT_UNAVAILABLE', contractVersion: '0.2.0', correlationId: 'away', tabId: 7,
+      youtubeVideoId: 'dQw4w9WgXcQ', occurredAtUtc: '2026-09-21T10:00:00.000Z',
+      payload: {
+        transitionId: 'transition-away', previousActivationId: 'activation-1',
+        previousYoutubeVideoId: 'dQw4w9WgXcQ', reasonCode: 'unsupportedWatchPage',
+      },
+    });
+
+    expect(waiting).toMatchObject({ status: 'active', context: null, errorCode: 'unsupportedWatchPage' });
+  });
 });

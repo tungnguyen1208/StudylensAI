@@ -2,17 +2,17 @@
 
 ## Role and outcome
 
-Dev 2 owns the study-session lifecycle and quiz creation. It consumes Dev 1's persistent activation and one-time enabled-page/transcript handoff; it never accesses YouTube DOM directly.
+Dev 2 owns the study-session lifecycle and quiz creation. It consumes Dev 1's persistent activation, video-transition, and enabled-page/transcript handoffs; it never accesses YouTube DOM directly.
 
 ```text
-ExtensionActivationState enabled + ACTIVATION_ENABLED + TranscriptSnapshotRef
+ExtensionActivationState enabled + VIDEO_CONTEXT_CHANGED + ACTIVATION_ENABLED + TranscriptSnapshotRef
   -> StudySession and activeStudyMs
   -> PlaybackSpan and StudySegment
   -> Backend to FastAPI question generation
   -> QuizAvailable and QuestionPublic for Dev 3
 ```
 
-`ACTIVATION_DISABLED` completes the current session idempotently. Dev 2 does not react to browser navigation or start a replacement session; the learner uses OFF then ON, producing a new `ACTIVATION_ENABLED`, for video B.
+`ACTIVATION_DISABLED` completes the current session idempotently. `VIDEO_CONTEXT_CHANGED` and `VIDEO_CONTEXT_UNAVAILABLE` complete only the matching old session idempotently; Dev 2 starts video B only when Dev 1 later publishes a valid `ACTIVATION_ENABLED` for B.
 
 ## Allowed paths
 
@@ -32,7 +32,7 @@ tests/e2e/session-quiz/**
 ## Rules
 
 - Contract baseline is `0.2.0`; migrate legacy `0.1.0` artifacts only through an Integration Captain task.
-- Start only when `ExtensionActivationState.enabled` is true and an `ACTIVATION_ENABLED` handoff has a valid captured YouTube ID.
+- Start only when `ExtensionActivationState.enabled` is true and an `ACTIVATION_ENABLED` handoff has a valid captured YouTube ID; close only the matching session on `VIDEO_CONTEXT_CHANGED` or `VIDEO_CONTEXT_UNAVAILABLE`.
 - Persist an immutable transcript/preference snapshot with the session. Read evidence only through Dev 1's `ITranscriptSnapshotReader`, never through YouTube DOM or Dev 1 internals.
 - Count active study time only while enabled and the player is actually playing. Pause, buffering, seek, ended, stale events, and unobserved service-worker downtime do not add time.
 - A 5/10/15-minute threshold creates exactly one idempotent segment and one idempotent quiz request.

@@ -1,10 +1,10 @@
 import type { AvailableTranscriptSnapshotRef, TranscriptSnapshotRef } from './video-activation.types';
+import {
+  DEFAULT_LEARNING_PREFERENCES,
+  type LearningPreferences,
+} from './learning-preferences';
 
-export const DEFAULT_MANUAL_PREFERENCES = {
-  quizIntervalMinutes: 10,
-  questionType: 'multipleChoice',
-  difficulty: 'medium',
-} as const;
+export const DEFAULT_MANUAL_PREFERENCES = DEFAULT_LEARNING_PREFERENCES;
 
 export interface ActivationContext {
   tabId: number;
@@ -12,11 +12,7 @@ export interface ActivationContext {
   title: string;
 }
 
-export interface PreferenceSnapshot {
-  quizIntervalMinutes: 5 | 10 | 15;
-  questionType: 'multipleChoice' | 'shortAnswer';
-  difficulty: 'easy' | 'medium' | 'hard';
-}
+export type PreferenceSnapshot = LearningPreferences;
 
 export interface ActivationEnabledPayload {
   activationId: string;

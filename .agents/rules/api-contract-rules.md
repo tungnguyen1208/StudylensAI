@@ -9,7 +9,7 @@ Public Extension -> Backend contracts:
 
 ```text
 contracts/public-api/root.yaml
-contracts/public-api/persistent-activation.yaml
+contracts/public-api/video-activation.yaml
 contracts/public-api/session-quiz.yaml
 contracts/public-api/assessment-history.yaml
 ```
@@ -25,7 +25,7 @@ contracts/ai-api/grading.yaml
 Extension message schemas:
 
 ```text
-contracts/extension-messages/persistent-activation.schema.json
+contracts/extension-messages/video-activation.schema.json
 contracts/extension-messages/session-quiz.schema.json
 contracts/extension-messages/assessment-history.schema.json
 ```
@@ -63,8 +63,10 @@ Feature APIs should use a predictable error shape:
 ```json
 {
   "code": "string",
+  "status": 400,
   "message": "string",
-  "correlationId": "string"
+  "traceId": "string",
+  "retryable": false
 }
 ```
 

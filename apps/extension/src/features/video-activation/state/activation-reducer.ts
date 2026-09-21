@@ -6,6 +6,7 @@ export type ActivationAction =
   | { type: 'transcriptUpdated'; transcriptSnapshot: TranscriptSnapshotRef }
   | { type: 'manualOn' }
   | { type: 'manualOff' }
+  | { type: 'contextUnavailable'; code: string }
   | { type: 'requestRejected'; code: string };
 
 export const initialActivationState: ActivationState = {
@@ -32,6 +33,8 @@ export function activationReducer(state: ActivationState, action: ActivationActi
       return state.context ? { ...state, status: 'active', errorCode: null } : state;
     case 'manualOff':
       return { ...state, status: 'off', errorCode: null };
+    case 'contextUnavailable':
+      return { context: null, status: 'off', transcriptSnapshot: null, errorCode: action.code };
     case 'requestRejected':
       return { ...state, errorCode: action.code };
   }

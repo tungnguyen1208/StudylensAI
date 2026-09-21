@@ -102,6 +102,54 @@ button {
   font-size: 12px;
 }
 
+.panel-tabs {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.panel-tab {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.panel-tab:hover {
+  color: var(--primary);
+}
+
+.panel-tab--active {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: var(--shadow);
+}
+
+.panel-tab--settings {
+  width: 32px;
+  padding: 6px;
+}
+
+.panel-tab--settings svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
 .theme-toggle {
   flex: 0 0 auto;
   min-height: 32px;
@@ -138,6 +186,18 @@ button {
   color: var(--text);
   font-size: 14px;
   font-weight: 720;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.section-heading-row .section-heading {
+  margin-bottom: 0;
 }
 
 .section-copy,
@@ -208,6 +268,30 @@ button {
   transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 
+.secondary-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .primary-button,
 .activation-toggle {
   background: var(--primary);
@@ -228,7 +312,10 @@ button {
 
 .primary-button:focus-visible,
 .activation-toggle:focus-visible,
-.theme-toggle:focus-visible {
+.panel-tab:focus-visible,
+.theme-toggle:focus-visible,
+.secondary-button:focus-visible,
+.learning-preferences select:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--primary) 45%, transparent);
   outline-offset: 2px;
 }
@@ -264,6 +351,73 @@ button {
   width: 100%;
   margin-top: 2px;
   color: var(--error-text);
+}
+
+.learning-preferences {
+  display: grid;
+  gap: 10px;
+}
+
+.learning-preferences label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.learning-preferences select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.learning-preferences__hint {
+  margin: 0;
+  color: var(--subtle-text);
+  font-size: 11px;
+}
+
+.history-view .panel-section {
+  overflow: hidden;
+}
+
+.history-view h3 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.history-view p {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.history-view ol {
+  display: grid;
+  gap: 9px;
+  margin: 10px 0 0;
+  padding-left: 22px;
+}
+
+.history-view li {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.history-view li p {
+  margin: 0 0 4px;
+}
+
+.history-view li p:last-child {
+  margin-bottom: 0;
 }
 
 .flow-copy {

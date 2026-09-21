@@ -7,20 +7,20 @@ backend, and AI teams.
 
 ```text
 apps/extension/src/platform/youtube/**
-apps/extension/src/features/persistent-activation/**
-services/api/src/StudyLens.Api/Features/ActivationSettings/**
+apps/extension/src/features/video-activation/**
 services/api/tests/VideoActivation.Tests/**
-contracts/public-api/persistent-activation.yaml
-contracts/extension-messages/persistent-activation.schema.json
-contracts/examples/persistent-activation/**
-tests/contract/persistent-activation/**
-tests/e2e/persistent-activation/**
+contracts/public-api/video-activation.yaml
+contracts/extension-messages/video-activation.schema.json
+contracts/examples/video-activation/**
+tests/contract/video-activation/**
+tests/e2e/video-activation/**
 ```
 
-Dev 1 owns global persistent ON/OFF, one-time current-page capture at enable,
-player adapter, transcript acquisition, preferences, and the
-`ExtensionActivationState` / `ACTIVATION_ENABLED` handoff. Dev 1 does not own
-AI classification or an automatic page detector.
+Dev 1 owns global persistent ON/OFF, current-page capture, a controlled
+supported-video transition coordinator while ON, player adapter, transcript
+acquisition, preferences, and the `ExtensionActivationState` /
+`VIDEO_CONTEXT_CHANGED` / `VIDEO_CONTEXT_UNAVAILABLE` / `ACTIVATION_ENABLED` handoff. Dev 1 does not own AI
+classification.
 
 ## Dev 2 - Session Quiz
 
@@ -62,7 +62,7 @@ history read models.
 
 Use published contracts or ports:
 
-- Dev 1 -> Dev 2: `ExtensionActivationState`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, `ITranscriptSnapshotReader`.
+- Dev 1 -> Dev 2: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `VIDEO_CONTEXT_UNAVAILABLE`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, `ITranscriptSnapshotReader`.
 - Dev 2 -> Dev 3: `QuizAvailable`, `QuestionPublic`, `QuestionSourceRef`, `SessionSnapshot`, `QuestionForAssessment`, `IQuestionAssessmentReader`.
 - Dev 3 -> Dev 1: `SEEK_REQUEST` with `{ "timestampMs": number }`.
 

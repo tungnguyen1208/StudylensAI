@@ -26,6 +26,7 @@ public sealed class StudySessionService
     {
         if (!_byId.TryGetValue(command.SessionId, out var current)) return StudySessionResult.NotFound();
         if (command.ActiveStudyMs < 0 || string.IsNullOrWhiteSpace(command.ClientCompletionId)) return StudySessionResult.Invalid("invalidCompletion", "Completion ID and non-negative active study time are required.");
+        if (command.Reason is not ("activationDisabled" or "videoEnded" or "videoContextChanged")) return StudySessionResult.Invalid("invalidCompletionReason", "Completion reason is not supported.");
         if (current.Status == "completed") return current.CompletionId == command.ClientCompletionId ? StudySessionResult.Success(current) : StudySessionResult.Conflict("completionConflict", "The session was already completed by another request.");
         var completed = current with { Status = "completed", ActiveStudyMs = command.ActiveStudyMs, CompletedAtUtc = DateTimeOffset.UtcNow, CompletionId = command.ClientCompletionId, CompletionReason = command.Reason };
         _byId[command.SessionId] = completed;

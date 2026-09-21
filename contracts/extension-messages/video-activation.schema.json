@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["type", "contractVersion", "correlationId", "tabId", "youtubeVideoId", "occurredAtUtc", "payload"],
   "properties": {
-    "type": { "type": "string", "enum": ["PLAYER_PLAYING", "PLAYER_PAUSED", "PLAYER_BUFFERING", "PLAYER_SEEKED", "PLAYER_ENDED", "ACTIVATION_ENABLED", "ACTIVATION_DISABLED", "OPERATION_STATUS_CHANGED", "SEEK_REQUEST", "SEEK_COMPLETED", "SEEK_REJECTED"] },
+    "type": { "type": "string", "enum": ["PLAYER_PLAYING", "PLAYER_PAUSED", "PLAYER_BUFFERING", "PLAYER_SEEKED", "PLAYER_ENDED", "ACTIVATION_ENABLED", "ACTIVATION_DISABLED", "VIDEO_CONTEXT_CHANGED", "VIDEO_CONTEXT_UNAVAILABLE", "OPERATION_STATUS_CHANGED", "SEEK_REQUEST", "SEEK_COMPLETED", "SEEK_REJECTED"] },
     "contractVersion": { "const": "0.2.0" },
     "correlationId": { "type": "string", "minLength": 1 },
     "tabId": { "type": "integer", "minimum": 0 },
@@ -16,6 +16,8 @@
   "allOf": [
     { "if": { "properties": { "type": { "const": "ACTIVATION_ENABLED" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/activationEnabledPayload" } } } },
     { "if": { "properties": { "type": { "const": "ACTIVATION_DISABLED" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/activationDisabledPayload" } } } },
+    { "if": { "properties": { "type": { "const": "VIDEO_CONTEXT_CHANGED" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/videoContextChangedPayload" } } } },
+    { "if": { "properties": { "type": { "const": "VIDEO_CONTEXT_UNAVAILABLE" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/videoContextUnavailablePayload" } } } },
     { "if": { "properties": { "type": { "const": "OPERATION_STATUS_CHANGED" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/operationStatusPayload" } } } },
     { "if": { "properties": { "type": { "enum": ["PLAYER_PLAYING", "PLAYER_PAUSED", "PLAYER_ENDED"] } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/playerPayload" } } } },
     { "if": { "properties": { "type": { "const": "PLAYER_BUFFERING" } }, "required": ["type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/bufferingPayload" } } } },
@@ -26,6 +28,8 @@
     "transcriptSnapshotRef": { "type": "object", "additionalProperties": false, "required": ["transcriptSnapshotId", "youtubeVideoId", "language", "status", "contentHash", "version"], "properties": { "transcriptSnapshotId": { "type": "string", "minLength": 1 }, "youtubeVideoId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{11}$" }, "language": { "type": "string", "minLength": 2 }, "status": { "const": "available" }, "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "version": { "type": "string", "minLength": 1 } } },
     "activationEnabledPayload": { "type": "object", "additionalProperties": false, "required": ["activationId", "source", "videoTitle", "transcriptSnapshot", "preferences"], "properties": { "activationId": { "type": "string", "minLength": 1 }, "source": { "type": "string", "enum": ["user", "storageRestore"] }, "videoTitle": { "type": "string", "minLength": 1 }, "transcriptSnapshot": { "$ref": "#/$defs/transcriptSnapshotRef" }, "preferences": { "$ref": "#/$defs/preferenceSnapshot" } } },
     "activationDisabledPayload": { "type": "object", "additionalProperties": false, "required": ["reasonCode"], "properties": { "reasonCode": { "const": "userDisabled" } } },
+    "videoContextChangedPayload": { "type": "object", "additionalProperties": false, "required": ["transitionId", "previousActivationId", "previousYoutubeVideoId", "videoTitle"], "properties": { "transitionId": { "type": "string", "minLength": 1 }, "previousActivationId": { "type": "string", "minLength": 1 }, "previousYoutubeVideoId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{11}$" }, "videoTitle": { "type": "string", "minLength": 1 } } },
+    "videoContextUnavailablePayload": { "type": "object", "additionalProperties": false, "required": ["transitionId", "previousActivationId", "previousYoutubeVideoId", "reasonCode"], "properties": { "transitionId": { "type": "string", "minLength": 1 }, "previousActivationId": { "type": "string", "minLength": 1 }, "previousYoutubeVideoId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{11}$" }, "reasonCode": { "const": "unsupportedWatchPage" } } },
     "operationStatusPayload": { "type": "object", "additionalProperties": false, "required": ["operation", "state", "message", "retryable"], "properties": { "operation": { "type": "string", "enum": ["transcriptUpload", "sessionStart", "segmentCreate", "quizGenerate", "answerSubmit", "historyLoad"] }, "state": { "type": "string", "enum": ["pending", "succeeded", "failed"] }, "code": { "type": "string", "minLength": 1 }, "message": { "type": "string", "minLength": 1 }, "retryable": { "type": "boolean" }, "traceId": { "type": "string", "minLength": 1 } } },
     "nonNegativeMilliseconds": { "type": "integer", "minimum": 0 },
     "playerPayload": { "type": "object", "additionalProperties": false, "required": ["currentTimeMs"], "properties": { "currentTimeMs": { "$ref": "#/$defs/nonNegativeMilliseconds" }, "durationMs": { "$ref": "#/$defs/nonNegativeMilliseconds" } } },

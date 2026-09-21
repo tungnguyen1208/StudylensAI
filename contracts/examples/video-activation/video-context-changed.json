@@ -1,0 +1,14 @@
+{
+  "type": "VIDEO_CONTEXT_CHANGED",
+  "contractVersion": "0.2.0",
+  "correlationId": "transition-a-to-b-001",
+  "tabId": 7,
+  "youtubeVideoId": "9bZkp7q19f0",
+  "occurredAtUtc": "2026-09-21T10:00:00.000Z",
+  "payload": {
+    "transitionId": "transition-a-to-b-001",
+    "previousActivationId": "activation-a-001",
+    "previousYoutubeVideoId": "dQw4w9WgXcQ",
+    "videoTitle": "Video B"
+  }
+}

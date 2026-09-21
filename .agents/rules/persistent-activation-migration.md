@@ -14,15 +14,16 @@ shared contracts, message routing, shell wiring, and multiple module seams.
 ```text
 chrome.storage.local extensionEnabled
   -> ExtensionActivationState enabled
-  -> one `ACTIVATION_ENABLED` event for the page captured at enable time
+  -> `VIDEO_CONTEXT_CHANGED` before each supported replacement page
+  -> one `ACTIVATION_ENABLED` event after each captured page has valid transcript evidence
   -> TranscriptSnapshotRef + PreferenceSnapshot
   -> Dev 2 session and quiz flow
 ```
 
 - First installation defaults to OFF.
 - A saved choice is restored at browser startup.
-- ON is global and survives browser restart. It starts a flow only when the current watch page is explicitly captured at ON or during restored-page initialization.
-- There is no automatic page detector, navigation observer, or automatic session switch. The learner uses OFF then ON after changing video.
+- ON is global and survives browser restart. It starts a flow when the current watch page is captured at ON or during restored-page initialization.
+- While ON, a controlled YouTube SPA transition coordinator observes supported video-ID changes, publishes `VIDEO_CONTEXT_CHANGED`, and creates a replacement flow only after transcript evidence is available. It never silently persists OFF.
 - Explicit user OFF is the only event that persists OFF.
 - Video classification, confidence thresholds, Auto/Manual mode, and the
   classification AI route are removed from the MVP.
@@ -33,7 +34,7 @@ chrome.storage.local extensionEnabled
    Extension-message schemas, and JSON examples.
 2. Replace `ActivationDecision` as the Dev 1 to Dev 2 entry seam with
    `ExtensionActivationState` and `ACTIVATION_ENABLED` / `ACTIVATION_DISABLED`.
-3. Publish `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, and
+3. Publish `VIDEO_CONTEXT_CHANGED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, and
    `ITranscriptSnapshotReader` through versioned public ports.
 4. Update every Extension producer and consumer: content script, service
    worker relay, Side Panel, SessionQuiz runtime, and AssessmentHistory

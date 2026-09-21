@@ -66,4 +66,19 @@ describe('ManualActivationManager', () => {
 
     expect(messages.map((message) => message.type)).toEqual(['ACTIVATION_ENABLED']);
   });
+
+  it('captures an immutable preference snapshot at activation request time', async () => {
+    const messages: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); }, createActivationId: () => 'activation-preferences' });
+    await manager.setContext(context, 'context-correlation');
+    manager.setPreferences({ quizIntervalMinutes: 5, questionType: 'shortAnswer', difficulty: 'easy' });
+    await manager.request('on', context.youtubeVideoId, 'on-correlation');
+    manager.setPreferences({ quizIntervalMinutes: 15, questionType: 'multipleChoice', difficulty: 'hard' });
+    manager.setTranscriptSnapshot({ transcriptSnapshotId: 'snapshot-1', youtubeVideoId: context.youtubeVideoId, language: 'en', status: 'available', contentHash: 'a'.repeat(64), version: '0.2.0' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(messages[0].payload).toMatchObject({
+      preferences: { quizIntervalMinutes: 5, questionType: 'shortAnswer', difficulty: 'easy' },
+    });
+  });
 });

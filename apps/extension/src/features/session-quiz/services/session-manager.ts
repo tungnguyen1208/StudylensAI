@@ -19,7 +19,7 @@ export class SessionManager {
       this.apply({ type: 'failed', error: 'sessionStartFailed' });
     }
   }
-  public async complete(reason: 'activationDisabled' | 'videoEnded', activeStudyMs: number, clientCompletionId: string): Promise<void> {
+  public async complete(reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged', activeStudyMs: number, clientCompletionId: string): Promise<void> {
     if (this.state.status !== 'active' || !this.state.session) return;
     this.apply({ type: 'completeRequested' });
     try {

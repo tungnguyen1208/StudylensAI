@@ -57,6 +57,20 @@ public class SessionQuizModuleTests
     }
 
     [Fact]
+    public void StudySessionService_AcceptsVideoContextChangeCompletion()
+    {
+        var service = new StudySessionService();
+        var started = service.Start(new StartStudySessionCommand(
+            "11111111-1111-4111-8111-111111111111", "active", "dQw4w9WgXcQ", null, 10, "multipleChoice", "medium"));
+
+        var completed = service.Complete(new CompleteStudySessionCommand(
+            started.Session!.SessionId, "22222222-2222-4222-8222-222222222222", "videoContextChanged", 30000));
+
+        Assert.Equal("completed", completed.Session!.Status);
+        Assert.Equal("videoContextChanged", completed.Session.CompletionReason);
+    }
+
+    [Fact]
     public async Task QuestionGenerationService_MapsFakeAiOutputToPublicQuizAndReplaysIdempotently()
     {
         var segments = new InMemorySegmentStore();

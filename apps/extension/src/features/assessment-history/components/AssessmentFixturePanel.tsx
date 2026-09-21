@@ -12,10 +12,21 @@ interface AssessmentPanelProps {
   submitAnswer: (submission: LocalAnswerSubmission, clientAttemptId: string) => Promise<GradeView>;
   loadHistory?: () => Promise<HistoryEntryReadModel[]>;
   onOperationStatus?: (status: OperationStatusPayload) => void;
+  onGrade?: (grade: GradeView) => void;
+  showGrade?: boolean;
+  showHistory?: boolean;
 }
 
 /** Renders public questions only; grading and history stay behind the Backend API. */
-export function AssessmentPanel({ quiz, submitAnswer, loadHistory = async () => [], onOperationStatus = () => {} }: AssessmentPanelProps) {
+export function AssessmentPanel({
+  quiz,
+  submitAnswer,
+  loadHistory = async () => [],
+  onOperationStatus = () => {},
+  onGrade,
+  showGrade = true,
+  showHistory = true,
+}: AssessmentPanelProps) {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [state, dispatch] = useReducer(assessmentHistoryReducer, initialAssessmentHistoryState);
   const [failedSubmission, setFailedSubmission] = useState<LocalAnswerSubmission | null>(null);
@@ -42,7 +53,8 @@ export function AssessmentPanel({ quiz, submitAnswer, loadHistory = async () => 
       setCanRetrySubmission(false);
       setErrorMessage(null);
       onOperationStatus({ operation: 'answerSubmit', state: 'succeeded', message: 'Đã chấm câu trả lời.', retryable: false });
-      await refreshHistory();
+      onGrade?.(grade);
+      if (showHistory) await refreshHistory();
     } catch (error: unknown) {
       const failure = operationFailure(error, 'answerSubmitFailed', 'Không thể gửi câu trả lời tới Backend.');
       setFailedSubmission(submission);
@@ -70,11 +82,11 @@ export function AssessmentPanel({ quiz, submitAnswer, loadHistory = async () => 
     <section aria-label="Đánh giá bài kiểm tra">
       <p>Câu {questionIndex + 1}/{quiz.questions.length}</p>
       <AnswerForm question={question} onSubmit={handleSubmit} />
-      {state.latestGrade && <GradeResult grade={state.latestGrade} />}
-      <HistoryPage entries={state.entries} />
+      {showGrade && state.latestGrade && <GradeResult grade={state.latestGrade} />}
+      {showHistory && <HistoryPage entries={state.entries} />}
       {errorMessage && <p role="alert">Lỗi: {errorMessage}</p>}
       {failedSubmission && canRetrySubmission && <button type="button" onClick={() => void handleSubmit(failedSubmission)}>Thử lại gửi đáp án</button>}
-      <button type="button" onClick={() => void refreshHistory()}>Tải lại lịch sử</button>
+      {showHistory && <button type="button" onClick={() => void refreshHistory()}>Tải lại lịch sử</button>}
       <div>
         <button type="button" disabled={questionIndex === 0} onClick={() => setQuestionIndex(questionIndex - 1)}>Câu trước</button>
         <button type="button" disabled={questionIndex === quiz.questions.length - 1} onClick={() => setQuestionIndex(questionIndex + 1)}>Câu tiếp</button>

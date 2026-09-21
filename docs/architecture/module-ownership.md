@@ -3,7 +3,7 @@
 This document defines the strict vertical ownership boundaries for StudyLens AI.
 To prevent merge conflicts and architectural divergence, developers and Codex instances must only modify files within their assigned ownership areas.
 
-The target v1.2 seam is intentionally manual: Dev 1 emits `ACTIVATION_ENABLED` only for the page captured when the learner turns ON (or a restored ON state initializes on that page), and `ACTIVATION_DISABLED` when the learner turns OFF. No module may add an automatic page monitor, SPA navigation observer, or automatic video-to-video session switch.
+The target v1.2 seam keeps the learner's global ON/OFF choice explicit: Dev 1 emits `ACTIVATION_DISABLED` only for an explicit OFF. While ON, Dev 1's controlled YouTube SPA transition coordinator emits `VIDEO_CONTEXT_CHANGED` for a supported video-ID change; Dev 2 closes the matching old session and waits for the replacement `ACTIVATION_ENABLED`. No module may add video classification or silently persist OFF.
 
 ---
 
@@ -11,7 +11,7 @@ The target v1.2 seam is intentionally manual: Dev 1 emits `ACTIVATION_ENABLED` o
 
 | Developer | Vertical Slice | Extension Scope | Backend Scope | AI Service Scope | Contracts | Tests |
 |---|---|---|---|---|---|---|
-| **Dev 1** | **Persistent Activation & Content Acquisition** | `apps/extension/src/features/persistent-activation/**`<br>`apps/extension/src/platform/youtube/**` | `services/api/src/StudyLens.Api/Features/ActivationSettings/**` | — | `contracts/public-api/persistent-activation.yaml`<br>`contracts/extension-messages/persistent-activation.schema.json`<br>`contracts/examples/persistent-activation/**` | `services/api/tests/VideoActivation.Tests/**`<br>`tests/contract/persistent-activation/**`<br>`tests/e2e/persistent-activation/**` |
+| **Dev 1** | **Persistent Activation & Content Acquisition** | `apps/extension/src/features/video-activation/**`<br>`apps/extension/src/platform/youtube/**` | — | — | `contracts/public-api/video-activation.yaml`<br>`contracts/extension-messages/video-activation.schema.json`<br>`contracts/examples/video-activation/**` | `services/api/tests/VideoActivation.Tests/**`<br>`tests/contract/video-activation/**`<br>`tests/e2e/video-activation/**` |
 | **Dev 2** | **Study Session & Quiz Generation** | `apps/extension/src/features/session-quiz/**` | `services/api/src/StudyLens.Api/Features/SessionQuiz/**` | `services/ai/app/features/question_generation/**` | `contracts/public-api/session-quiz.yaml`<br>`contracts/ai-api/question-generation.yaml`<br>`contracts/extension-messages/session-quiz.schema.json`<br>`contracts/examples/session-quiz/**` | `services/api/tests/SessionQuiz.Tests/**`<br>`tests/contract/session-quiz/**`<br>`tests/e2e/session-quiz/**` |
 | **Dev 3** | **Assessment, Grading & History** | `apps/extension/src/features/assessment-history/**` | `services/api/src/StudyLens.Api/Features/AssessmentHistory/**` | `services/ai/app/features/grading/**` | `contracts/public-api/assessment-history.yaml`<br>`contracts/ai-api/grading.yaml`<br>`contracts/extension-messages/assessment-history.schema.json`<br>`contracts/examples/assessment-history/**` | `services/api/tests/AssessmentHistory.Tests/**`<br>`tests/contract/assessment-history/**`<br>`tests/e2e/assessment-history/**` |
 

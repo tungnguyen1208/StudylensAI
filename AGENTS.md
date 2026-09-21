@@ -46,8 +46,8 @@ Core MVP capabilities:
 
 1. Provide one global Persistent Activation ON/OFF state through `chrome.storage.local`.
 2. Restore that state after browser restart; only first installation defaults to OFF.
-3. On an explicit ON or restored watch-page load, capture the current supported YouTube page once for the learning flow. There is no automatic page monitoring, navigation observer, or video-change event.
-4. While ON, process that captured page without classifying the video as educational or non-educational.
+3. On an explicit ON or restored watch-page load, capture the current supported YouTube page for the learning flow. While ON, a supported YouTube SPA video change publishes `VIDEO_CONTEXT_CHANGED`, closes the old flow, and captures the replacement page without persisting OFF. Leaving `/watch` publishes `VIDEO_CONTEXT_UNAVAILABLE`, closes only the old flow, and keeps global ON waiting for a supported page.
+4. While ON, process the active captured page without classifying the video as educational or non-educational.
 6. Read an available valid transcript/subtitle.
 7. Preserve transcript timestamps.
 8. Track actual watched time.
@@ -156,8 +156,10 @@ The ASP.NET Core Backend is responsible for:
 - persistence
 - sessions
 - history
-- settings
 - AI integration orchestration
+
+Learning preferences are local Extension state in the unauthenticated MVP;
+there is no Backend settings endpoint or cloud synchronization.
 
 FastAPI AI Service is responsible for:
 
@@ -246,7 +248,7 @@ M6 — Settings & Reliability
 Responsibilities:
 
 - global ON/OFF state persisted in `chrome.storage.local`
-- one-time current-page capture only when the learner enables the Extension or a restored ON state initializes on a watch page
+- current-page capture when the learner enables the Extension or a restored ON state initializes on a watch page, plus controlled supported-video transitions while ON
 - player adapter, transcript acquisition, and learning preferences
 
 ### M2 — Learning Session
@@ -294,7 +296,7 @@ Responsibilities:
 
 Responsibilities:
 
-- ActivationMode
+- Persistent `extensionEnabled` and local learning preferences
 - QuizInterval
 - QuestionType
 - Difficulty
@@ -413,9 +415,6 @@ POST /api/quizzes/{id}/answer
 
 GET  /api/history
 GET  /api/history/videos/{videoId}
-
-GET  /api/settings
-PUT  /api/settings
 ```
 
 These endpoints are the baseline design and may evolve.
@@ -439,11 +438,11 @@ apps/extension/src/
 │   └── service-worker.ts
 │
 ├── features/
-│   ├── persistent-activation/
+│   ├── video-activation/
 │   ├── session/
 │   ├── quiz/
 │   ├── history/
-│   └── settings/
+│   └── video-activation/      # activation and local learning preferences
 │
 ├── api/
 │   └── api-client.ts
@@ -474,15 +473,13 @@ services/api/
 │   ├── VideosController.cs
 │   ├── SessionsController.cs
 │   ├── QuizzesController.cs
-│   ├── HistoryController.cs
-│   └── SettingsController.cs
+│   └── HistoryController.cs
 │
 ├── Features/
 │   ├── Videos/
 │   ├── Sessions/
 │   ├── Quizzes/
-│   ├── History/
-│   └── Settings/
+│   └── History/
 │
 ├── AI/
 │   └── AIServiceClient.cs
@@ -618,9 +615,9 @@ Speech-to-Text is not required for the current MVP unless explicitly added later
 
 - `extensionEnabled` is a global learner choice stored in `chrome.storage.local`.
 - The first installation defaults to OFF; later browser launches restore the saved value with source `storageRestore`.
-- There is no video-classification gate or automatic page detector in the MVP. ON starts work only for the YouTube page captured at enable time.
+- There is no video-classification gate in the MVP. A controlled YouTube SPA transition coordinator observes supported video-ID changes only while ON; it is not a classification gate.
 - Only an explicit user OFF persists OFF and stops the current business flow. Leaving a watch page must not silently change the global setting.
-- Changing video does not start, complete, or switch a session automatically. The learner turns StudyLens OFF then ON again for a new page.
+- A supported YouTube video-ID change while ON publishes `VIDEO_CONTEXT_CHANGED`, completes the prior flow through the Dev 2 seam, and captures the replacement page. Global ON remains unchanged; only explicit user OFF persists OFF.
 
 ### Side Panel acceptance constraints
 
@@ -698,13 +695,13 @@ Minimum test scopes:
 
 ### Extension
 
-- one-time page capture on ON and on restored ON page load
+- page capture on ON and restored ON page load, plus idempotent supported-video transition while ON
 - timer
 - pause/resume
 - segment trigger
 - player seek
 - persistent ON/OFF storage restore and first-install OFF
-- changing video does not start a second session until explicit OFF then ON
+- changing a supported video while ON closes the prior session once and starts a replacement only after its transcript is available
 
 ### ASP.NET Backend
 
@@ -712,7 +709,6 @@ Minimum test scopes:
 - segment persistence
 - quiz orchestration
 - answer persistence
-- settings
 - history
 - validation
 

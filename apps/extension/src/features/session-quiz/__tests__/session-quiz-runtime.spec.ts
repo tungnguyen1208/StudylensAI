@@ -11,6 +11,7 @@ import type { CreateStudySegmentRequest, GenerateQuizRequest, QuizPublic, Sessio
 // ============================================================
 
 const VIDEO_ID = 'dQw4w9WgXcQ';
+const VIDEO_B_ID = '9bZkp7q19f0';
 const SESSION_ID = '22222222-2222-4222-8222-222222222222';
 
 const activation = {
@@ -143,6 +144,20 @@ describe('SessionQuizRuntime activation', () => {
     expect(api.starts).toBe(1);
   });
 
+  it('rejects a stale enabled handoff after its activation was closed by a transition', async () => {
+    const { api, bus } = build();
+    await bus.emit('VIDEO_CONTEXT_CHANGED', {
+      transitionId: 'transition-a-b',
+      previousActivationId: activation.activationId,
+      previousYoutubeVideoId: VIDEO_ID,
+      videoTitle: 'Video B',
+    }, VIDEO_B_ID);
+
+    await bus.emit('ACTIVATION_ENABLED', activation);
+
+    expect(api.starts).toBe(0);
+  });
+
   it('retries the same activation after a retryable session-start failure', async () => {
     const { api, bus, runtime } = build();
     api.failNextStart = true;
@@ -227,6 +242,61 @@ describe('SessionQuizRuntime completion', () => {
     ended.clock.advance(20000);
     await ended.bus.emit('PLAYER_ENDED', { currentTimeMs: 20000 });
     expect(ended.api.completions[0]).toEqual({ activeStudyMs: 20000, reason: 'videoEnded' });
+  });
+
+  it('closes A once on a matching transition and starts B only after its enabled handoff', async () => {
+    const { api, bus, clock, runtime } = build();
+    await bus.emit('ACTIVATION_ENABLED', activation);
+    await bus.emit('PLAYER_PLAYING', { currentTimeMs: 0 });
+    clock.advance(30000);
+
+    await bus.emit('VIDEO_CONTEXT_CHANGED', {
+      transitionId: 'transition-a-b',
+      previousActivationId: activation.activationId,
+      previousYoutubeVideoId: VIDEO_ID,
+      videoTitle: 'Video B',
+    }, VIDEO_B_ID);
+    await bus.emit('VIDEO_CONTEXT_CHANGED', {
+      transitionId: 'transition-a-b-duplicate',
+      previousActivationId: activation.activationId,
+      previousYoutubeVideoId: VIDEO_ID,
+      videoTitle: 'Video B',
+    }, VIDEO_B_ID);
+
+    expect(api.completions).toEqual([{ activeStudyMs: 30000, reason: 'videoContextChanged' }]);
+    expect(runtime.getStore().getState().status).toBe('completed');
+    expect(api.starts).toBe(1);
+
+    await bus.emit('ACTIVATION_ENABLED', {
+      ...activation,
+      activationId: '11111111-1111-4111-8111-111111111112',
+      videoTitle: 'Video B',
+      transcriptSnapshot: { ...activation.transcriptSnapshot, youtubeVideoId: VIDEO_B_ID },
+    }, VIDEO_B_ID);
+
+    expect(api.starts).toBe(2);
+    expect(runtime.getStore().getState().status).toBe('active');
+  });
+
+  it('closes only the matching old session when ON navigation leaves watch', async () => {
+    const { api, bus } = build();
+    await bus.emit('ACTIVATION_ENABLED', activation);
+
+    await bus.emit('VIDEO_CONTEXT_UNAVAILABLE', {
+      transitionId: 'transition-away',
+      previousActivationId: 'different-activation',
+      previousYoutubeVideoId: VIDEO_ID,
+      reasonCode: 'unsupportedWatchPage',
+    });
+    expect(api.completions).toEqual([]);
+
+    await bus.emit('VIDEO_CONTEXT_UNAVAILABLE', {
+      transitionId: 'transition-away',
+      previousActivationId: activation.activationId,
+      previousYoutubeVideoId: VIDEO_ID,
+      reasonCode: 'unsupportedWatchPage',
+    });
+    expect(api.completions).toEqual([{ activeStudyMs: 0, reason: 'videoContextChanged' }]);
   });
 
   it('stops reacting to events after dispose', async () => {

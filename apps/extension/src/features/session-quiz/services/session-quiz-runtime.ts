@@ -58,6 +58,9 @@ export class SessionQuizRuntime {
   private messageContext: Pick<ExtensionMessage, 'correlationId' | 'tabId'> | null = null;
   private lastQuizSegment: { segmentId: string; sessionId: string; youtubeVideoId: string } | null = null;
   private lastActivationMessage: ExtensionMessage | null = null;
+  private activationId: string | null = null;
+  private readonly closedActivationIds = new Set<string>();
+  private lifecycleQueue: Promise<void> = Promise.resolve();
 
   public constructor(private readonly options: SessionQuizRuntimeOptions) {
     this.store = options.store ?? new SessionStore();
@@ -71,8 +74,10 @@ export class SessionQuizRuntime {
 
   public start(): () => void {
     const unsubscribers = [
-      this.options.bus.subscribe('ACTIVATION_ENABLED', (message) => void this.onActivationEnabled(message)),
-      this.options.bus.subscribe('ACTIVATION_DISABLED', () => void this.finish('activationDisabled')),
+      this.options.bus.subscribe('ACTIVATION_ENABLED', (message) => this.enqueueLifecycle(() => this.onActivationEnabled(message))),
+      this.options.bus.subscribe('ACTIVATION_DISABLED', (message) => this.enqueueLifecycle(() => this.onActivationDisabled(message))),
+      this.options.bus.subscribe('VIDEO_CONTEXT_CHANGED', (message) => this.enqueueLifecycle(() => this.onVideoContextClosed(message))),
+      this.options.bus.subscribe('VIDEO_CONTEXT_UNAVAILABLE', (message) => this.enqueueLifecycle(() => this.onVideoContextClosed(message))),
       this.options.bus.subscribe('OPERATION_RETRY_REQUEST', (message) => void this.retryOperation(message)),
       ...PLAYER_EVENTS.map((type) => this.options.bus.subscribe(type, (message) => void this.onPlayerEvent(type, message))),
     ];
@@ -86,9 +91,11 @@ export class SessionQuizRuntime {
   private async onActivationEnabled(message: ExtensionMessage): Promise<void> {
     const activation = message.payload as ActivationEnabledPayload | undefined;
     if (!activation || !activation.activationId) return;
+    if (this.closedActivationIds.has(activation.activationId)) return;
     if (this.store.getState().status === 'active') return;
 
     this.lastActivationMessage = message;
+    this.activationId = activation.activationId;
     this.youtubeVideoId = message.youtubeVideoId;
     this.messageContext = { correlationId: message.correlationId, tabId: message.tabId };
     await this.publishStatus({ operation: 'sessionStart', state: 'pending', message: 'Đang tạo phiên học.', retryable: false });
@@ -97,6 +104,10 @@ export class SessionQuizRuntime {
     if (!session) {
       const failure = operationFailure(this.sessions.getLastError(), 'sessionStartFailed', 'Không thể tạo phiên học.');
       await this.publishStatus({ operation: 'sessionStart', state: 'failed', ...failure });
+      return;
+    }
+    if (this.closedActivationIds.has(activation.activationId)) {
+      await this.finish('videoContextChanged');
       return;
     }
 
@@ -166,7 +177,25 @@ export class SessionQuizRuntime {
   // completion
   // ============================================================
 
-  private async finish(reason: 'activationDisabled' | 'videoEnded'): Promise<void> {
+  private async onActivationDisabled(message: ExtensionMessage): Promise<void> {
+    if (message.youtubeVideoId !== this.youtubeVideoId) return;
+    await this.finish('activationDisabled');
+  }
+
+  private async onVideoContextClosed(message: ExtensionMessage): Promise<void> {
+    const payload = message.payload as {
+      previousActivationId?: unknown;
+      previousYoutubeVideoId?: unknown;
+    } | undefined;
+    if (!payload || typeof payload.previousActivationId !== 'string' ||
+      typeof payload.previousYoutubeVideoId !== 'string') return;
+    this.rememberClosedActivation(payload.previousActivationId);
+    if (payload.previousActivationId !== this.activationId ||
+      payload.previousYoutubeVideoId !== this.youtubeVideoId) return;
+    await this.finish('videoContextChanged');
+  }
+
+  private async finish(reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged'): Promise<void> {
     if (this.store.getState().status !== 'active' || !this.timer) return;
 
     this.tracker?.closeOpenSpan();
@@ -182,6 +211,20 @@ export class SessionQuizRuntime {
     this.messageContext = null;
     this.lastQuizSegment = null;
     this.lastActivationMessage = null;
+    this.activationId = null;
+  }
+
+  private enqueueLifecycle(task: () => Promise<void>): Promise<void> {
+    this.lifecycleQueue = this.lifecycleQueue.then(task, task).catch(() => undefined);
+    return this.lifecycleQueue;
+  }
+
+  private rememberClosedActivation(activationId: string): void {
+    this.closedActivationIds.add(activationId);
+    if (this.closedActivationIds.size > 100) {
+      const oldest = this.closedActivationIds.values().next().value;
+      if (oldest) this.closedActivationIds.delete(oldest);
+    }
   }
 
   private async generateQuiz(segment: { segmentId: string; sessionId: string; youtubeVideoId: string }): Promise<void> {

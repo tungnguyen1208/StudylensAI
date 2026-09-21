@@ -9,39 +9,36 @@ classifying a video's subject matter.
 ```text
 chrome.storage.local extensionEnabled
   -> ExtensionActivationState
-  -> one supported YouTube page capture at ON + player events
+  -> supported YouTube page capture at ON and on supported video transitions + player events
   -> transcript snapshot + preferences
   -> Dev 2 SessionQuiz
 ```
 
 The first installation defaults to OFF. Later browser launches restore the
-saved state. Automatic page detection, SPA-navigation observation, and automatic
-session switching are out of scope. A learner starts a flow for a new video by
-explicitly turning StudyLens OFF and then ON. Leaving a watch page must not
-persist OFF.
+saved state. While ON, a controlled YouTube SPA transition coordinator detects
+supported video-ID changes, tells Dev 2 to close the old session, and captures
+the replacement page. Leaving a watch page must not persist OFF.
 
 ## Allowed paths
 
 ```text
 apps/extension/src/platform/youtube/**
-apps/extension/src/features/persistent-activation/**
-services/api/src/StudyLens.Api/Features/ActivationSettings/**
+apps/extension/src/features/video-activation/**
 services/api/tests/VideoActivation.Tests/**
-contracts/public-api/persistent-activation.yaml
-contracts/extension-messages/persistent-activation.schema.json
-contracts/examples/persistent-activation/**
-tests/contract/persistent-activation/**
-tests/e2e/persistent-activation/**
+contracts/public-api/video-activation.yaml
+contracts/extension-messages/video-activation.schema.json
+contracts/examples/video-activation/**
+tests/contract/video-activation/**
+tests/e2e/video-activation/**
 ```
 
-The pre-migration `video-activation/**` paths and `0.1.0` contracts may only
-be changed in the explicit Integration Captain migration task. Do not create a
-parallel implementation that emits both contract versions.
+`video-activation/**` is the current Dev 1 runtime path. Do not create a
+parallel implementation or mix contract versions.
 
 ## Owns
 
 - `ExtensionActivationState { enabled, source: user | storageRestore, persistedAtUtc }`.
-- `ACTIVATION_ENABLED` and `ACTIVATION_DISABLED`; the enabled event envelope carries the YouTube ID captured once when a flow starts.
+- `VIDEO_CONTEXT_CHANGED`, `ACTIVATION_ENABLED`, and `ACTIVATION_DISABLED`; the transition envelope identifies the prior flow and the enabled envelope carries the captured YouTube ID.
 - `PlayerPort` and normalized player events; only `platform/youtube/**` reads or controls YouTube DOM.
 - Passive transcript acquisition, cue normalization, timestamp preservation, and `TranscriptSnapshotRef` publication.
 - `PreferenceSnapshot` for interval (5/10/15), question type, and difficulty.
@@ -57,8 +54,10 @@ parallel implementation that emits both contract versions.
 
 1. Store only an explicit learner toggle to `chrome.storage.local`.
 2. Restore the saved value at startup and publish `source: storageRestore`.
-3. When ON on a supported watch page, capture the page once and publish the current activation state, enabled event, transcript reference when available, preferences, and player events.
-4. Do not observe video changes or publish a context-change event. A bound player that no longer matches the captured page must ignore its event; the learner explicitly uses OFF then ON for the new page.
+3. When ON on a supported watch page, capture the page and publish the current activation state, enabled event, transcript reference when available, preferences, and player events.
+4. When a supported YouTube SPA video ID changes while ON, dispose stale adapters/tasks, publish exactly one `VIDEO_CONTEXT_CHANGED`, and capture the replacement page. Only a valid replacement transcript may publish its `ACTIVATION_ENABLED`.
+   When navigation leaves a supported watch page, publish
+   `VIDEO_CONTEXT_UNAVAILABLE`, stop only the page flow, and retain global ON.
 5. On user OFF, persist OFF and publish the stop state. Do not pause, seek, or otherwise disrupt YouTube on errors.
 6. Transcript `unavailable` or `insufficient` is an explicit state. Never invent cues or enable unsupported quiz generation.
 
@@ -75,15 +74,17 @@ parallel implementation that emits both contract versions.
 - First install is OFF; a saved ON/OFF is restored after browser restart.
 - OFF remains OFF until explicit user ON.
 - A supported `/watch?v=<11-char-id>` page can be captured only on ON; unsupported URLs fail safely.
-- Video A to B does not switch the active flow. OFF then ON captures B for Dev 2.
+- Video A to B while ON closes the active flow once through `VIDEO_CONTEXT_CHANGED`; B starts only after valid transcript evidence.
+- Leaving `/watch` while ON closes the prior flow through
+  `VIDEO_CONTEXT_UNAVAILABLE`; a later supported page may start a replacement flow without another learner ON action.
 - Player events use milliseconds and do not duplicate after mount/remount.
 - Transcript preserves valid cue timestamps; unavailable/insufficient states never produce an available reference.
 - Backend/AI/network failure never pauses or breaks YouTube.
-- Chrome and Edge smoke checks validate reload, restored state, explicit OFF then ON for a new video, transcript present/absent, and explicit OFF.
+- Chrome and Edge smoke checks validate reload, restored state, A-to-B transition while ON, transcript present/absent, and explicit OFF.
 
 ## Handoff to Dev 2
 
-Publish fixture-backed `ExtensionActivationState`, `ACTIVATION_ENABLED`,
+Publish fixture-backed `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `VIDEO_CONTEXT_UNAVAILABLE`, `ACTIVATION_ENABLED`,
 `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player-event envelopes, and
 `ITranscriptSnapshotReader` / `TranscriptSnapshotForSession`. Document the
 contract version, event order, idempotency behavior, test evidence, and any

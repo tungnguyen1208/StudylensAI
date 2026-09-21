@@ -38,5 +38,5 @@ export type SessionAction =
 
 export interface SessionApiPort {
   start(request: { youtubeVideoId: string; activation: ActivationEnabledPayload }): Promise<SessionSnapshot>;
-  complete(sessionId: string, request: { clientCompletionId: string; reason: 'activationDisabled' | 'videoEnded'; activeStudyMs: number }): Promise<SessionSnapshot>;
+  complete(sessionId: string, request: { clientCompletionId: string; reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged'; activeStudyMs: number }): Promise<SessionSnapshot>;
 }
