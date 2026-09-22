@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.platform.config import settings
 from app.platform.health import router as health_router
-from app.features.classification.router import router as classification_router
 from app.features.question_generation.router import router as question_generation_router
 from app.features.grading.router import router as grading_router
 
@@ -25,8 +24,8 @@ app.add_middleware(
 # Register Health Router
 app.include_router(health_router)
 
-# Register Vertical Business Feature Routers (Dev 1, Dev 2, Dev 3)
-app.include_router(classification_router)
+# Register the AI-owned vertical feature routers. Persistent Activation has no
+# FastAPI feature: Dev 1 never classifies a video's subject matter in v1.2.
 app.include_router(question_generation_router)
 app.include_router(grading_router)
 

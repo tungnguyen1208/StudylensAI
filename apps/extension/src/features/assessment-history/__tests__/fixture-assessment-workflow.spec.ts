@@ -3,10 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { FakeAssessmentWorkflow } from '../__fixtures__/fake-assessment-workflow';
 import { seedQuiz } from '../__fixtures__/seed-quiz';
-import { AssessmentPanel } from '../components/AssessmentFixturePanel';
+import { AssessmentPanel } from '../components/AssessmentPanel';
 import { GradeResult } from '../components/GradeResult';
 import { HistoryPage } from '../components/HistoryPage';
-import { assessmentHistoryReducer, initialAssessmentHistoryState } from '../state/assessment-history-reducer';
 
 describe('assessment view-model workflow', () => {
   it('produces a post-submit result and history entry for a MCQ fixture answer', async () => {
@@ -35,16 +34,15 @@ describe('assessment view-model workflow', () => {
     expect(grade).toMatchObject({ outcome: 'incorrect', score: 0 });
   });
 
-  it('stores the latest grade and prepends its corresponding history read model', async () => {
+  it('keeps the history read model in the history workflow rather than the quiz-answer view', async () => {
     const workflow = new FakeAssessmentWorkflow();
     const question = seedQuiz.questions[1];
     const submission = { questionId: question.questionId, type: 'shortAnswer' as const, answerText: 'Dùng để định danh thiết bị trên mạng.' };
     const grade = await workflow.submit(seedQuiz, question, submission);
-    const entry = workflow.getHistory()[0];
-
-    const state = assessmentHistoryReducer(initialAssessmentHistoryState, { type: 'gradeReceived', grade, entry });
-    expect(state.latestGrade).toEqual(grade);
-    expect(state.entries).toEqual([entry]);
+    expect(grade.questionId).toBe(question.questionId);
+    expect(workflow.getHistory()).toEqual([
+      expect.objectContaining({ answerAttemptId: grade.answerAttemptId, questionId: question.questionId }),
+    ]);
   });
 
   it('renders public answer, result, and empty history states without accessing YouTube DOM', async () => {

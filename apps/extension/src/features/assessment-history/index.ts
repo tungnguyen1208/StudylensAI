@@ -20,7 +20,7 @@ export function registerAssessmentHistoryFeature(): AssessmentHistoryFeatureMeta
 }
 
 export { AnswerForm } from './components/AnswerForm';
-export { AssessmentPanel, AssessmentFixturePanel } from './components/AssessmentFixturePanel';
+export { AssessmentPanel } from './components/AssessmentPanel';
 export { AssessmentHistoryApi } from './api/assessment-history-api';
 export { GradeResult } from './components/GradeResult';
 export { HistoryPage } from './components/HistoryPage';

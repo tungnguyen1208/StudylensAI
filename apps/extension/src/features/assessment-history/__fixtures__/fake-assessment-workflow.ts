@@ -1,4 +1,3 @@
-import { createHistoryEntry } from '../services/history-entry-mapper';
 import type { GradeView, HistoryEntryReadModel, LocalAnswerSubmission, QuestionPublic, QuizAvailable } from '../types/assessment-types';
 
 /**
@@ -10,7 +9,22 @@ export class FakeAssessmentWorkflow {
 
   public async submit(quiz: QuizAvailable, question: QuestionPublic, submission: LocalAnswerSubmission): Promise<GradeView> {
     const grade = this.grade(question, submission);
-    this.entries.unshift(createHistoryEntry(quiz, question, submission, grade, grade.gradedAtUtc));
+    this.entries.unshift({
+      answerAttemptId: grade.answerAttemptId,
+      youtubeVideoId: question.source.youtubeVideoId,
+      sessionId: quiz.sessionId,
+      questionId: question.questionId,
+      questionPrompt: question.prompt,
+      questionType: question.type,
+      submittedAnswer: submission.type === 'multipleChoice'
+        ? question.options?.find((option) => option.optionId === submission.selectedOptionId)?.text ?? submission.selectedOptionId
+        : submission.answerText,
+      outcome: grade.outcome,
+      score: grade.score,
+      explanation: grade.explanation,
+      timestampMs: question.source.startMs,
+      submittedAtUtc: grade.gradedAtUtc,
+    });
     return grade;
   }
 

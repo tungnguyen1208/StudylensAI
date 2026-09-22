@@ -70,7 +70,7 @@ studylens/
 │           ├── shell/                 # Shell & integration entry points (HOT)
 │           ├── platform/youtube/      # YouTube DOM & player adapter (Dev 1)
 │           ├── features/              # Feature modules (Dev 1, Dev 2, Dev 3)
-│           ├── shared/                # HTTP client, error models, messaging
+│           ├── shared/                # HTTP, messaging, errors, published TS contract projections
 │           └── generated/             # Auto-generated schemas/clients
 │
 ├── services/
@@ -88,7 +88,7 @@ studylens/
 │       ├── app/
 │       │   ├── main.py                # App factory & router registration (HOT)
 │       │   ├── platform/              # Config, health, LLM provider abstractions
-│       │   └── features/              # question_generation, grading
+│       │   └── features/              # question_generation, grading; no video-classification feature
 │       ├── requirements.txt
 │       └── pyproject.toml
 │
@@ -114,14 +114,14 @@ studylens/
 
 | Feature Module | Developer Owner | Extension Feature | Backend Feature | AI Feature | Contracts |
 |---|---|---|---|---|---|
-| **Persistent Activation** | **Dev 1** | `features/video-activation/`<br>`platform/youtube/` | — | — | `video-activation.schema.json`<br>`video-activation.yaml` |
+| **Persistent Activation** | **Dev 1** | `features/video-activation/`<br>`platform/youtube/` | `Features/VideoActivation/` integration seam | — | `video-activation.schema.json`<br>`video-activation.yaml` |
 | **Session & Quiz** | **Dev 2** | `features/session-quiz/` | `Features/SessionQuiz/` | `features/question_generation/` | `session-quiz.yaml`<br>`question-generation.yaml` |
 | **Assessment & History** | **Dev 3** | `features/assessment-history/` | `Features/AssessmentHistory/` | `features/grading/` | `assessment-history.yaml`<br>`grading.yaml` |
 
 ### Shared & HOT Files
 Developers 1, 2, and 3 must not modify shared HOT files in daily feature tasks. Integration changes are managed by the Integration Captain:
 - `AGENTS.md`
-- `apps/extension/manifest.json`, `vite.config.ts`, `src/shell/**`
+- `apps/extension/manifest.json`, `vite.config.ts`, `src/shell/**`, `src/shared/**`
 - `services/api/src/StudyLens.Api/Program.cs`, `BuildingBlocks/**`, `StudyLensDbContext.cs`
 - `services/ai/app/main.py`, `app/platform/**`
 - `contracts/public-api/root.yaml`, `contracts/ai-api/root.yaml`
@@ -198,7 +198,7 @@ uvicorn app.main:app --reload --port 8000
 
 ## 7. Persistent Activation Contract Migration
 
-The v1.2 architecture uses contract baseline **0.2.0**. It introduces `ExtensionActivationState`, removes video classification, and uses the explicit `VIDEO_CONTEXT_CHANGED` seam when a supported YouTube SPA page changes while StudyLens remains ON. Dev 1 publishes the transition before capturing the replacement page. `TranscriptSnapshotRef` plus `PreferenceSnapshot` remain the Dev 1 → Dev 2 handoff; a replacement `ACTIVATION_ENABLED` is published only after its transcript is available.
+The v1.2 architecture uses contract baseline **0.2.0**. It introduces `ExtensionActivationState`, removes video classification, and uses the explicit `VIDEO_CONTEXT_CHANGED` seam when a supported YouTube SPA page changes while StudyLens remains ON. Dev 1 publishes the transition before capturing the replacement page. If a page is no longer supported it publishes `VIDEO_CONTEXT_UNAVAILABLE` without persisting OFF. `TranscriptSnapshotRef` plus `PreferenceSnapshot` remain the Dev 1 → Dev 2 handoff; a replacement `ACTIVATION_ENABLED` is published only after its transcript is available. Cross-feature progress and retryable failures use `OPERATION_STATUS_CHANGED`.
 
 Existing `0.1.0` artifacts must be migrated in one explicit Integration Captain task. Do not mix `0.1.0` and `0.2.0` message envelopes or API DTOs in one runtime path. The migration must update contracts, fixtures, producers, consumers, tests, and the corresponding ADR before merge.
 
@@ -207,7 +207,7 @@ Existing `0.1.0` artifacts must be migrated in one explicit Integration Captain 
 The current checks verify the walking-skeleton communication path:
 - Extension builds cleanly and connects to Backend via typed `HttpClient`.
 - Backend responds on `/api/health` and queries AI service via `AiHealthClient`.
-- FastAPI AI service responds on `/health` and has all 3 feature routers registered.
+- FastAPI AI service responds on `/health` and has the question-generation and grading routers registered; v1.2 has no classification router.
 - All 3 backend module test suites pass.
 
 This is not, by itself, acceptance evidence for every MVP requirement. Product acceptance additionally requires persistent ON/OFF restore, valid/invalid transcript handling, actual watched-time tracking, quiz generation, answer/grading, timestamp review, history, and Chrome/Edge smoke testing.

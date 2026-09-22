@@ -140,11 +140,6 @@ export const App: React.FC = () => {
     return assessmentHistoryApi.submitAnswer(quiz, submission, clientAttemptId);
   };
 
-  const loadAssessmentHistory = async () => {
-    const videoId = quiz?.questions[0]?.source.youtubeVideoId;
-    return assessmentHistoryApi.getHistory(videoId);
-  };
-
   const refreshHistoryTab = async () => {
     setHistoryStatus('loading');
     setHistoryError(null);
@@ -321,11 +316,8 @@ export const App: React.FC = () => {
             <AssessmentPanel
               quiz={quiz}
               submitAnswer={submitAssessmentAnswer}
-              loadHistory={loadAssessmentHistory}
               onOperationStatus={recordOperationStatus}
               onGrade={handleGradeReceived}
-              showGrade={false}
-              showHistory={false}
             />
           </div>
         )}

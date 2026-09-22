@@ -19,6 +19,7 @@ only that prior session; global ON waits for the next supported capture.
 | Area | Contract/source evidence | Status |
 |---|---|---|
 | Persistent activation | `extensionEnabled` is first-install OFF and persists in `chrome.storage.local`. | Implemented |
+| No classification | FastAPI registers only question generation and short-answer grading; no classification contract or route remains. | Implemented |
 | Video transition seam | `VIDEO_CONTEXT_CHANGED` identifies the prior activation and replacement supported YouTube ID; `VIDEO_CONTEXT_UNAVAILABLE` closes only the old flow when ON navigation leaves `/watch`. | Dev 1 producer and Dev 2 matching-session consumer implemented; Backend records `videoContextChanged` |
 | Activation handoff | `ACTIVATION_ENABLED`/`ACTIVATION_DISABLED`, `TranscriptSnapshotRef` and `PreferenceSnapshot` use envelope `0.2.0`. | Implemented; replacement enable is produced only after a valid transcript |
 | Learning preferences | Interval, question type and difficulty persist in `chrome.storage.local` and are immutable per activation. | Implemented |

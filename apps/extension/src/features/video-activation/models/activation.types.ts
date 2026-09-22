@@ -1,8 +1,5 @@
-import type { AvailableTranscriptSnapshotRef, TranscriptSnapshotRef } from './video-activation.types';
-import {
-  DEFAULT_LEARNING_PREFERENCES,
-  type LearningPreferences,
-} from './learning-preferences';
+import type { TranscriptSnapshotRef } from '../../../shared/contracts/activation-handoff';
+import { DEFAULT_LEARNING_PREFERENCES } from './learning-preferences';
 
 export const DEFAULT_MANUAL_PREFERENCES = DEFAULT_LEARNING_PREFERENCES;
 
@@ -12,15 +9,7 @@ export interface ActivationContext {
   title: string;
 }
 
-export type PreferenceSnapshot = LearningPreferences;
-
-export interface ActivationEnabledPayload {
-  activationId: string;
-  source: 'user' | 'storageRestore';
-  videoTitle: string;
-  transcriptSnapshot: AvailableTranscriptSnapshotRef;
-  preferences: PreferenceSnapshot;
-}
+export type { ActivationEnabledPayload, PreferenceSnapshot } from '../../../shared/contracts/activation-handoff';
 
 export type ActivationStoppedReason = 'userDisabled';
 

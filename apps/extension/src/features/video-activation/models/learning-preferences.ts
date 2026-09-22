@@ -1,10 +1,9 @@
+import type { PreferenceSnapshot } from '../../../shared/contracts/activation-handoff';
+
 export const LEARNING_PREFERENCES_STORAGE_KEY = 'studylensLearningPreferences';
 
-export interface LearningPreferences {
-  quizIntervalMinutes: 5 | 10 | 15;
-  questionType: 'multipleChoice' | 'shortAnswer';
-  difficulty: 'easy' | 'medium' | 'hard';
-}
+/** Local persisted form of the public preference snapshot. */
+export type LearningPreferences = PreferenceSnapshot;
 
 export const DEFAULT_LEARNING_PREFERENCES: LearningPreferences = {
   quizIntervalMinutes: 10,

@@ -101,8 +101,12 @@ shared/
 ├── http/http-client.ts                # fetch timeout + ErrorEnvelope -> HttpError
 └── messaging/
     ├── message-bus.ts                 # Local and Chrome runtime publish/subscribe
-    ├── message-types.ts               # Envelope 0.2.0
-    └── operation-status.ts            # Operation state/code/message/retryable/traceId
+├── message-types.ts               # Envelope 0.2.0
+└── operation-status.ts            # Operation state/code/message/retryable/traceId
+
+shared/contracts/
+├── activation-handoff.ts          # Dev 1 -> Dev 2 public activation DTOs
+└── quiz-public.ts                 # Dev 2 -> Dev 3 public quiz DTOs
 
 platform/youtube/
 ├── learning-target-capture.ts         # URL/title capture for ON and supported replacement pages
@@ -137,16 +141,16 @@ platform/youtube/
 - `services/session-manager.ts`, `study-timer.ts`, `playback-span-tracker.ts`,
   `segment-manager.ts`: stateful logic with injected clock and idempotency.
 - `api/session-quiz-api.ts`: typed Extension → ASP.NET client.
-- `models/session-quiz-contracts.ts`: public `QuizPublic`, source reference,
-  preferences and transcript/session DTOs.
+- `models/session-quiz-contracts.ts`: SessionQuiz-only request, segment and
+  session DTOs. Cross-module activation and quiz DTOs are in
+  `shared/contracts/`.
 
 ### Dev 3 — `features/assessment-history/`
 
 - `api/assessment-history-api.ts`: typed answer submit and history load client.
-- `components/AssessmentFixturePanel.tsx`: exported `AssessmentPanel` renders
-  public questions, preserves a failed draft, submits through Backend and
-  reloads persistent history. The old filename is compatibility-only, not a
-  fixture runtime path.
+- `components/AssessmentPanel.tsx`: renders public questions, preserves a
+  failed draft, and submits through the Backend. Result and persistent history
+  render in their dedicated Side Panel tab.
 - `components/AnswerForm.tsx`, `GradeResult.tsx`, `HistoryPage.tsx`: public
   answer, post-submit feedback and history presentation.
 - `state/`: local draft/validation/view state only; no answer key, reference

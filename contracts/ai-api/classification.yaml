@@ -1,8 +1,0 @@
-openapi: 3.0.3
-info:
-  title: StudyLens AI Service — Classification Feature
-  version: 0.2.0
-  description: AI contracts for video classification owned by Dev 1.
-paths: {}
-components:
-  schemas: {}

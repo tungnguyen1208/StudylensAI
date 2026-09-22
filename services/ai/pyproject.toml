@@ -1,7 +1,7 @@
 [project]
 name = "studylens-ai"
-version = "0.1.0"
-description = "StudyLens AI Service for Video Classification, Question Generation, and Grading"
+version = "0.2.0"
+description = "StudyLens AI Service for deterministic question generation and short-answer grading"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,4 +1,10 @@
-export type TranscriptSnapshotStatus = 'available' | 'unavailable' | 'insufficient';
+import type { TranscriptSnapshotStatus } from '../../../shared/contracts/activation-handoff';
+
+export type {
+  AvailableTranscriptSnapshotRef,
+  TranscriptSnapshotRef,
+  TranscriptSnapshotStatus,
+} from '../../../shared/contracts/activation-handoff';
 
 export interface TranscriptCueDto {
   startMs: number;
@@ -15,18 +21,3 @@ export interface CreateTranscriptSnapshotRequest {
   contentHash?: string;
   cues: TranscriptCueDto[];
 }
-
-export interface TranscriptSnapshotRef {
-  transcriptSnapshotId: string;
-  youtubeVideoId: string;
-  language: string;
-  status: TranscriptSnapshotStatus;
-  contentHash?: string;
-  version: string;
-}
-
-/** A session may begin only from uploaded, usable transcript evidence. */
-export type AvailableTranscriptSnapshotRef = TranscriptSnapshotRef & {
-  status: 'available';
-  contentHash: string;
-};
