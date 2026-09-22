@@ -1,0 +1,5 @@
+{
+  "code": "invalidAiOutputOptions",
+  "message": "A multiple-choice question needs at least two options.",
+  "retryable": false
+}
