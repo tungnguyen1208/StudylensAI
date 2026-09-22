@@ -98,7 +98,7 @@ components:
     ErrorEnvelope:
       type: object
       additionalProperties: false
-      required: [code, status, message, retryable]
+      required: [code, status, message, traceId, retryable]
       properties:
         code: { type: string }
         status: { type: integer }

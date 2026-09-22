@@ -21,6 +21,8 @@ public sealed class AssessmentHistoryService(
         var question = await questions.FindAsync(command.QuizId, command.QuestionId, cancellationToken);
         if (question is null) return AssessmentResult.NotFound("questionNotFound", "The quiz question was not found.");
         if (!IsValidAnswer(question.Type, command)) return AssessmentResult.Invalid("invalidAnswer", "The submitted answer does not match the question type.");
+        if (question.Type == "multipleChoice" && !ContainsOption(question, command.SelectedOptionId!))
+            return AssessmentResult.Invalid("invalidOption", "The selected option does not belong to the quiz question.");
 
         var grade = question.Type == "multipleChoice"
             ? GradeMultipleChoice(question, command.SelectedOptionId!)
@@ -47,7 +49,19 @@ public sealed class AssessmentHistoryService(
             GradedAtUtc = DateTimeOffset.UtcNow,
         };
         db.AnswerAttempts.Add(attempt);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent request can win the unique clientAttemptId race. Replay it safely.
+            db.Detach(attempt);
+            existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
+            if (existing is not null)
+                return SameSubmission(existing, command) ? AssessmentResult.Success(ToGrade(existing)) : AssessmentResult.Conflict();
+            throw;
+        }
         return AssessmentResult.Success(ToGrade(attempt));
     }
 
@@ -73,6 +87,9 @@ public sealed class AssessmentHistoryService(
         _ => false,
     };
 
+    private static bool ContainsOption(QuestionForAssessment question, string selectedOptionId) =>
+        question.Options?.Any(option => option.OptionId == selectedOptionId) == true;
+
     private static GradeData GradeMultipleChoice(QuestionForAssessment question, string selectedOptionId)
     {
         var correct = selectedOptionId == question.CorrectOptionId;
@@ -85,9 +102,17 @@ public sealed class AssessmentHistoryService(
     private async Task<GradeData?> GradeShortAnswerAsync(QuestionForAssessment question, string answerText, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(question.ReferenceAnswer)) return null;
-        var response = await shortAnswers.GradeAsync(new(question.QuestionId, question.Prompt, question.ReferenceAnswer, answerText), cancellationToken);
-        return response is null ? null : new GradeData(response.Outcome, response.Score, response.ReferenceAnswer, response.Explanation);
+        var response = await shortAnswers.GradeAsync(new("0.2.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, answerText), cancellationToken);
+        return response is null || !IsValidShortAnswerGrade(response)
+            ? null
+            : new GradeData(response.Outcome, response.Score, response.ReferenceAnswer, response.Explanation);
     }
+
+    private static bool IsValidShortAnswerGrade(ShortAnswerGradeResponse response) =>
+        (response.Outcome is "correct" or "incorrect" or "partiallyCorrect") &&
+        double.IsFinite(response.Score) && response.Score is >= 0 and <= 1 &&
+        !string.IsNullOrWhiteSpace(response.ReferenceAnswer) &&
+        !string.IsNullOrWhiteSpace(response.Explanation);
 
     private static GradeView ToGrade(AnswerAttemptEntity entity) => new(
         entity.AnswerAttemptId, entity.QuestionId, entity.Outcome, entity.Score, entity.ReferenceAnswer,

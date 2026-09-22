@@ -102,6 +102,45 @@ public class AssessmentHistoryModuleTests
     }
 
     [Fact]
+    public async Task SubmitAnswer_RejectsAnOptionThatDoesNotBelongToTheQuestion()
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>()
+            .UseSqlite("Data Source=:memory:").Options;
+        await using var db = new StudyLensDbContext(options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        var service = new AssessmentHistoryService(
+            new AssessmentHistoryDbContext(db), new FakeQuestionReader(), new FakeShortAnswerGateway());
+
+        var result = await service.SubmitAsync(new SubmitAnswerCommand(
+            "0.2.0", "55555555-5555-4555-8555-555555555555", "quiz-1", "question-1", "option-missing", null), CancellationToken.None);
+
+        Assert.Null(result.Grade);
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("invalidOption", result.ErrorCode);
+        Assert.Empty(await db.Set<AnswerAttemptEntity>().ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task SubmitAnswer_MapsInvalidFakeAiOutputToRetryableGradingFailure()
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>()
+            .UseSqlite("Data Source=:memory:").Options;
+        await using var db = new StudyLensDbContext(options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        var service = new AssessmentHistoryService(
+            new AssessmentHistoryDbContext(db), new FakeQuestionReader(), new InvalidShortAnswerGateway());
+
+        var result = await service.SubmitAsync(new SubmitAnswerCommand(
+            "0.2.0", "66666666-6666-4666-8666-666666666666", "quiz-1", "question-short", null, "An answer"), CancellationToken.None);
+
+        Assert.Null(result.Grade);
+        Assert.Equal(503, result.StatusCode);
+        Assert.Equal("gradingUnavailable", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task ShortAnswerGradingClient_TreatsInvalidFakeAiResponseAsRetryableGatewayFailure()
     {
         using var httpClient = new HttpClient(new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
@@ -115,9 +154,49 @@ public class AssessmentHistoryModuleTests
         var gateway = new ShortAnswerGradingClient(httpClient, configuration);
 
         var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
-            "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
+            "0.2.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task ShortAnswerGradingClient_RejectsAnOutOfContractFakeAiGrade()
+    {
+        using var httpClient = new HttpClient(new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"outcome\":\"unknown\",\"score\":2,\"referenceAnswer\":\"Answer\",\"explanation\":\"Explanation\"}"),
+        }));
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AiService:BaseUrl"] = "https://fake-ai.test",
+        }).Build();
+        var gateway = new ShortAnswerGradingClient(httpClient, configuration);
+
+        var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
+            "0.2.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task ShortAnswerGradingClient_SendsTheAiContractVersion()
+    {
+        var handler = new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"outcome\":\"correct\",\"score\":1,\"referenceAnswer\":\"Answer\",\"explanation\":\"OK\"}"),
+        });
+        using var httpClient = new HttpClient(handler);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AiService:BaseUrl"] = "https://fake-ai.test",
+        }).Build();
+        var gateway = new ShortAnswerGradingClient(httpClient, configuration);
+
+        var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
+            "0.2.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains("\"contractVersion\":\"0.2.0\"", handler.RequestBody ?? string.Empty);
     }
 
     private sealed class FakeQuestionReader : IQuestionAssessmentReader
@@ -139,9 +218,20 @@ public class AssessmentHistoryModuleTests
             Task.FromResult<ShortAnswerGradeResponse?>(new("correct", 1, request.ReferenceAnswer, "OK"));
     }
 
+    private sealed class InvalidShortAnswerGateway : IShortAnswerGradingGateway
+    {
+        public Task<ShortAnswerGradeResponse?> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ShortAnswerGradeResponse?>(new("unexpected", 2, string.Empty, string.Empty));
+    }
+
     private sealed class StaticResponseHandler(HttpResponseMessage response) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(response);
+        public string? RequestBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            return response;
+        }
     }
 }

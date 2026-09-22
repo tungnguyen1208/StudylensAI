@@ -24,14 +24,22 @@ public sealed class ShortAnswerGradingClient : IShortAnswerGradingGateway
         try
         {
             using var response = await _httpClient.PostAsJsonAsync("api/ai/grading/short-answer", request, cancellationToken);
-            return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ShortAnswerGradeResponse>(cancellationToken: cancellationToken) : null;
+            if (!response.IsSuccessStatusCode) return null;
+            var grade = await response.Content.ReadFromJsonAsync<ShortAnswerGradeResponse>(cancellationToken: cancellationToken);
+            return grade is not null && IsValid(grade) ? grade : null;
         }
         catch (HttpRequestException) { return null; }
         catch (TaskCanceledException) { return null; }
         catch (JsonException) { return null; }
         catch (NotSupportedException) { return null; }
     }
+
+    private static bool IsValid(ShortAnswerGradeResponse response) =>
+        (response.Outcome is "correct" or "incorrect" or "partiallyCorrect") &&
+        double.IsFinite(response.Score) && response.Score is >= 0 and <= 1 &&
+        !string.IsNullOrWhiteSpace(response.ReferenceAnswer) &&
+        !string.IsNullOrWhiteSpace(response.Explanation);
 }
 
-public sealed record ShortAnswerGradeRequest(string QuestionId, string Prompt, string ReferenceAnswer, string AnswerText);
+public sealed record ShortAnswerGradeRequest(string ContractVersion, string QuestionId, string Prompt, string ReferenceAnswer, string AnswerText);
 public sealed record ShortAnswerGradeResponse(string Outcome, double Score, string ReferenceAnswer, string Explanation);
