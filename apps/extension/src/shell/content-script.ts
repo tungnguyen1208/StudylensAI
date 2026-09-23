@@ -6,14 +6,14 @@ interface TabContextResponse {
   tabId?: number;
 }
 
-async function startVideoActivation(): Promise<void> {
+async function startVideoActivation(): Promise<boolean> {
   try {
     const response = (await chrome.runtime.sendMessage({
       type: 'STUDYLENS_RESOLVE_TAB_ID',
     })) as TabContextResponse | undefined;
 
     if (!response || !Number.isInteger(response.tabId) || response.tabId! < 0) {
-      return;
+      return false;
     }
 
     const api = new SessionQuizApi();
@@ -34,9 +34,19 @@ async function startVideoActivation(): Promise<void> {
       bus: messageBus,
     });
     initializeVideoActivationContentScript({ tabId: response.tabId! });
+    return true;
   } catch {
     // Extension bootstrap failure must not affect the YouTube page.
+    return false;
   }
 }
 
-void startVideoActivation();
+const bootstrap = startVideoActivation();
+
+// Registered synchronously so the service worker can verify that an injected
+// script has completed its asynchronous bootstrap before sending commands.
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== 'STUDYLENS_CONTENT_SCRIPT_READY') return;
+  void bootstrap.then((ok) => sendResponse({ ok }));
+  return true;
+});

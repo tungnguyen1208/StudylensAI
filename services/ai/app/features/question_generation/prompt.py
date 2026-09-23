@@ -2,7 +2,7 @@ import json
 
 from app.features.question_generation.schemas import QuestionGenerationRequest
 
-PROMPT_VERSION = "0.2.0"
+PROMPT_VERSION = "0.3.0"
 
 EVIDENCE_OPEN = "<<<EVIDENCE"
 EVIDENCE_CLOSE = "EVIDENCE>>>"

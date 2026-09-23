@@ -1,12 +1,16 @@
 {
   "manifest_version": 3,
   "name": "StudyLens AI",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Active learning companion for YouTube with automated transcript analysis and quiz generation.",
   "permissions": [
     "sidePanel",
+    "activeTab",
+    "scripting",
     "storage",
-    "tabs"
+    "tabs",
+    "tabCapture",
+    "offscreen"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
@@ -15,6 +19,9 @@
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"
+  },
+  "action": {
+    "default_title": "StudyLens: bắt đầu thu âm tab"
   },
   "side_panel": {
     "default_path": "sidepanel.html"

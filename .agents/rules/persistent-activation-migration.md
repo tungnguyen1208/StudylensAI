@@ -4,7 +4,7 @@
 
 This rule governs the one-time migration from the legacy `0.1.0` Video
 Activation / Manual-Auto design to the v1.2 Persistent Activation design at
-contract baseline `0.2.0`.
+contract baseline `0.3.0`.
 
 Only the Integration Captain may execute this migration because it changes
 shared contracts, message routing, shell wiring, and multiple module seams.
@@ -30,7 +30,7 @@ chrome.storage.local extensionEnabled
 
 ## Required migration set
 
-1. Create or update the `0.2.0` public API, internal API when applicable,
+1. Create or update the `0.3.0` public API, internal API when applicable,
    Extension-message schemas, and JSON examples.
 2. Replace `ActivationDecision` as the Dev 1 to Dev 2 entry seam with
    `ExtensionActivationState` and `ACTIVATION_ENABLED` / `ACTIVATION_DISABLED`.
@@ -47,7 +47,7 @@ chrome.storage.local extensionEnabled
 
 ## Safety gates
 
-- Do not emit `0.1.0` and `0.2.0` messages into one runtime flow.
+- Do not emit `0.1.0` and `0.3.0` messages into one runtime flow.
 - Do not alter the global enabled setting on transcript, Backend, AI, or player
   failure.
 - Do not let Dev 2 or Dev 3 access YouTube DOM or Dev 1 repositories.

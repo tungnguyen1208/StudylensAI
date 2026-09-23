@@ -1,0 +1,13 @@
+{
+  "capture": {
+    "transcriptCaptureId": "11111111-1111-4111-8111-111111111111",
+    "youtubeVideoId": "dQw4w9WgXcQ",
+    "language": "vi",
+    "source": "tabAudioStt",
+    "status": "available",
+    "availableCueCount": 1,
+    "version": 1
+  },
+  "cueCount": 1,
+  "acceptedChunkIndex": 0
+}

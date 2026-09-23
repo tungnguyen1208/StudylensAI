@@ -40,11 +40,14 @@ export function LearningPreferencesForm({
         Dạng câu hỏi
         <select
           value={draft.questionType}
-          onChange={(event) => setDraft((value) => ({ ...value, questionType: event.target.value as LearningPreferences['questionType'] }))}
+          onChange={(event) => {
+            const questionType = event.target.value;
+            if (questionType !== 'multipleChoice' && questionType !== 'shortAnswer') return;
+            setDraft((value) => ({ ...value, questionType }));
+          }}
         >
           <option value="multipleChoice">Trắc nghiệm</option>
           <option value="shortAnswer">Trả lời ngắn</option>
-          <option value="trueFalse">Ngẫu nhiên</option>
         </select>
       </label>
       <label>

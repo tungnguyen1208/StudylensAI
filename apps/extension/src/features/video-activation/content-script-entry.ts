@@ -4,18 +4,16 @@ import {
 } from '../../platform/youtube/learning-target-capture';
 import { createVideoActivationMessage } from '../../platform/youtube/youtube-events';
 import { PlayerPort, YoutubePlayerAdapter } from '../../platform/youtube/youtube-player-adapter';
-import { createBrowserYoutubeTranscriptAdapter, YoutubeTranscriptDomAdapter } from '../../platform/youtube/youtube-transcript-adapter';
-import type { TranscriptReadResult } from '../../platform/youtube/transcript-reader';
 import { ExtensionMessage } from '../../shared/messaging/message-types';
 import { messageBus } from '../../shared/messaging/message-bus';
-import { operationFailure, type OperationStatusPayload } from '../../shared/messaging/operation-status';
+import { type OperationStatusPayload } from '../../shared/messaging/operation-status';
+import type { TranscriptCaptureRef } from '../../shared/contracts/activation-handoff';
 import {
   DEFAULT_LEARNING_PREFERENCES,
   isLearningPreferences,
   type LearningPreferences,
 } from './models/learning-preferences';
 import { ManualActivationManager } from './services/activation-manager';
-import { TranscriptService } from './services/transcript-service';
 import {
   createBrowserYoutubeSpaTransitionObserver,
   type YoutubeSpaTransitionObserver,
@@ -24,7 +22,6 @@ import {
 export interface VideoActivationContentScriptOptions {
   tabId: number;
   publish?: (message: ExtensionMessage) => Promise<void>;
-  transcriptService?: TranscriptService;
 }
 
 export interface VideoActivationContentScriptController {
@@ -39,7 +36,6 @@ type ToggleRequest = {
   correlationId: string;
 };
 
-type OperationRetryRequest = ExtensionMessage<{ operation?: string }>;
 type ActivationSource = 'user' | 'storageRestore';
 
 /**
@@ -50,13 +46,9 @@ export function initializeVideoActivationContentScript(
   options: VideoActivationContentScriptOptions,
 ): VideoActivationContentScriptController {
   const publish = options.publish ?? ((message) => messageBus.publish(message));
-  const transcriptService = options.transcriptService ?? new TranscriptService();
   const activationManager = new ManualActivationManager({ publish });
   let playerAdapter: YoutubePlayerAdapter | null = null;
-  let transcriptAdapter: YoutubeTranscriptDomAdapter | null = null;
   let transitionObserver: YoutubeSpaTransitionObserver | null = null;
-  let lastTranscript: TranscriptReadResult | null = null;
-  let lastTranscriptGeneration: number | null = null;
   let activeTargetId: string | null = null;
   let flowGeneration = 0;
   let flowEnabled = false;
@@ -71,10 +63,6 @@ export function initializeVideoActivationContentScript(
     flowGeneration += 1;
     playerAdapter?.dispose();
     playerAdapter = null;
-    transcriptAdapter?.dispose();
-    transcriptAdapter = null;
-    lastTranscript = null;
-    lastTranscriptGeneration = null;
   };
 
   const publishOperationStatus = async (
@@ -89,33 +77,18 @@ export function initializeVideoActivationContentScript(
     }));
   };
 
-  const uploadTranscript = async (
-    youtubeVideoId: string,
-    transcript: TranscriptReadResult,
+  const switchAudioCapture = async (
+    target: LearningTargetCapture,
     correlationId: string,
-    generation: number,
   ): Promise<void> => {
-    if (!isCurrentFlow(youtubeVideoId, generation)) return;
-    await publishOperationStatus(youtubeVideoId, correlationId, {
-      operation: 'transcriptUpload', state: 'pending', message: 'Đang gửi transcript tới Backend.', retryable: false,
-    });
-    if (!isCurrentFlow(youtubeVideoId, generation)) return;
-    try {
-      const snapshot = await transcriptService.upload(youtubeVideoId, transcript);
-      if (!isCurrentFlow(youtubeVideoId, generation)) return;
-      activationManager.setTranscriptSnapshot(snapshot);
-      await publishOperationStatus(youtubeVideoId, correlationId, snapshot.status === 'available'
-        ? { operation: 'transcriptUpload', state: 'succeeded', message: 'Transcript đã sẵn sàng.', retryable: false }
-        : {
-          operation: 'transcriptUpload', state: 'failed', code: `transcript${snapshot.status[0].toUpperCase()}${snapshot.status.slice(1)}`,
-          message: snapshot.status === 'unavailable' ? 'Video chưa có transcript khả dụng.' : 'Transcript chưa đủ nội dung để tạo bài kiểm tra.',
-          retryable: false,
-        });
-    } catch (error: unknown) {
-      if (!isCurrentFlow(youtubeVideoId, generation)) return;
-      const failure = operationFailure(error, 'transcriptUploadFailed', 'Không thể gửi transcript tới Backend.');
-      await publishOperationStatus(youtubeVideoId, correlationId, {
-        operation: 'transcriptUpload', state: 'failed', ...failure,
+    const response = await chrome.runtime.sendMessage({
+      type: 'STUDYLENS_SWITCH_AUDIO_CAPTURE',
+      youtubeVideoId: target.youtubeVideoId,
+    }) as { ok?: boolean; code?: string } | undefined;
+    if (response?.ok === false) {
+      await publishOperationStatus(target.youtubeVideoId, correlationId, {
+        operation: 'audioTranscription', state: 'failed', code: response.code ?? 'tabCaptureUnavailable',
+        message: 'Không thể bắt đầu thu âm thanh của tab YouTube.', retryable: true,
       });
     }
   };
@@ -124,6 +97,7 @@ export function initializeVideoActivationContentScript(
     target: LearningTargetCapture,
     correlationId: string,
     source: ActivationSource,
+    switched = false,
   ): Promise<void> => {
     const generation = flowGeneration + 1;
     flowGeneration = generation;
@@ -164,13 +138,10 @@ export function initializeVideoActivationContentScript(
       playerAdapter = null;
     }
 
-    transcriptAdapter = createBrowserYoutubeTranscriptAdapter();
-    transcriptAdapter.start((transcript) => {
-      if (!isCurrentFlow(target.youtubeVideoId, generation)) return;
-      lastTranscript = transcript;
-      lastTranscriptGeneration = generation;
-      void uploadTranscript(target.youtubeVideoId, transcript, correlationId, generation);
-    });
+    // Initial capture is deliberately started only by the Side Panel click so
+    // Chrome receives a direct learner gesture. A SPA A-to-B transition reuses
+    // the already approved tab stream and only switches its Backend capture.
+    if (switched) void switchAudioCapture(target, correlationId);
   };
 
   const enqueueTransition = (task: () => Promise<void>): void => {
@@ -198,7 +169,7 @@ export function initializeVideoActivationContentScript(
         youtubeVideoId: next.youtubeVideoId,
       }));
     }
-    if (!disposed && flowEnabled) await startCapturedFlow(next, crypto.randomUUID(), activationSource);
+    if (!disposed && flowEnabled) await startCapturedFlow(next, crypto.randomUUID(), activationSource, true);
   };
 
   const handleUnsupportedPage = async (previous: LearningTargetCapture): Promise<void> => {
@@ -206,6 +177,7 @@ export function initializeVideoActivationContentScript(
     const previousActivationId = activationManager.getCurrentActivationId();
     const transitionId = crypto.randomUUID();
     disposePageResources();
+    await chrome.runtime.sendMessage({ type: 'STUDYLENS_STOP_AUDIO_CAPTURE' }).catch(() => undefined);
     activeTargetId = null;
     activationManager.clearUnavailableContext();
     await publish(createVideoActivationMessage('VIDEO_CONTEXT_UNAVAILABLE', {
@@ -239,6 +211,7 @@ export function initializeVideoActivationContentScript(
     transitionObserver = null;
     const targetId = activeTargetId;
     if (targetId) await activationManager.request('off', targetId, correlationId, 'user');
+    await chrome.runtime.sendMessage({ type: 'STUDYLENS_STOP_AUDIO_CAPTURE' }).catch(() => undefined);
     disposePageResources();
     activeTargetId = null;
   };
@@ -275,13 +248,32 @@ export function initializeVideoActivationContentScript(
   };
   chrome.runtime.onMessage.addListener(onToggleRequest);
 
-  const onOperationRetryRequest = (message: unknown) => {
-    const request = message as Partial<OperationRetryRequest>;
-    if (request?.type !== 'OPERATION_RETRY_REQUEST' || request.payload?.operation !== 'transcriptUpload') return;
-    if (!activeTargetId || !lastTranscript || lastTranscriptGeneration !== flowGeneration || disposed) return;
-    void uploadTranscript(activeTargetId, lastTranscript, typeof request.correlationId === 'string' ? request.correlationId : crypto.randomUUID(), flowGeneration);
+  const onAudioCaptureMessage = (
+    message: unknown,
+    _sender: chrome.runtime.MessageSender,
+    sendResponse: (response?: unknown) => void,
+  ) => {
+    if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'STUDYLENS_GET_PLAYER_TIME') {
+      const currentTimeMs = playerAdapter?.getCurrentTimeMs() ?? 0;
+      sendResponse({ currentTimeMs });
+      return;
+    }
+    const candidate = message as Partial<{ type: string; youtubeVideoId: string; progress: { capture?: TranscriptCaptureRef }; payload: OperationStatusPayload }>;
+    if (candidate?.type === 'STUDYLENS_AUDIO_CAPTURE_READY' && candidate.youtubeVideoId === activeTargetId) {
+      const readyCapture = (message as { capture?: TranscriptCaptureRef }).capture;
+      if (readyCapture?.youtubeVideoId === activeTargetId) activationManager.setTranscriptCapture(readyCapture);
+      return;
+    }
+    if (candidate?.type === 'STUDYLENS_AUDIO_TRANSCRIPTION_PROGRESS' && candidate.youtubeVideoId === activeTargetId) {
+      const capture = candidate.progress?.capture;
+      if (capture && capture.youtubeVideoId === activeTargetId && capture.status === 'available') activationManager.setTranscriptCapture(capture);
+      return;
+    }
+    if (candidate?.type === 'STUDYLENS_AUDIO_TRANSCRIPTION_STATUS' && candidate.youtubeVideoId === activeTargetId && candidate.payload) {
+      void publishOperationStatus(candidate.youtubeVideoId, crypto.randomUUID(), candidate.payload);
+    }
   };
-  chrome.runtime.onMessage.addListener(onOperationRetryRequest);
+  chrome.runtime.onMessage.addListener(onAudioCaptureMessage);
 
   void chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVATION_STATE' }).then(
     (state: { enabled?: boolean; correlationId?: string } | undefined) => {
@@ -301,7 +293,7 @@ export function initializeVideoActivationContentScript(
       disposePageResources();
       activeTargetId = null;
       chrome.runtime.onMessage.removeListener(onToggleRequest);
-      chrome.runtime.onMessage.removeListener(onOperationRetryRequest);
+      chrome.runtime.onMessage.removeListener(onAudioCaptureMessage);
     },
   };
 }

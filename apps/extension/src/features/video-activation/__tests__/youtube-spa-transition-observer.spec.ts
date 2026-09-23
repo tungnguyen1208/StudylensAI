@@ -82,4 +82,23 @@ describe('YoutubeSpaTransitionObserver', () => {
 
     expect(transitions).toEqual([{ previous: null, next: videoB.youtubeVideoId }]);
   });
+
+  it('cancels a pending route change when the page flow is disposed', () => {
+    const harness = createEnvironment({ status: 'supported', target: videoA });
+    const unsupported: string[] = [];
+    const transitions: string[] = [];
+    const observer = new YoutubeSpaTransitionObserver(harness.environment, {
+      onSupportedChange: (_previous, next) => transitions.push(next.youtubeVideoId),
+      onUnsupportedPage: (previous) => unsupported.push(previous.youtubeVideoId),
+    });
+    observer.start(videoA);
+
+    harness.setCapture({ status: 'unsupported', code: 'notYoutubeWatchPage' });
+    harness.navigate('yt-navigate-finish');
+    observer.dispose();
+    harness.flush();
+
+    expect(unsupported).toEqual([]);
+    expect(transitions).toEqual([]);
+  });
 });

@@ -1,7 +1,7 @@
 import type { QuestionSourceRef, QuestionType } from '../../../shared/contracts';
 
-/** Public quiz data consumed from Dev 2's SessionQuiz contract (v0.2.0). */
-export const ASSESSMENT_HISTORY_CONTRACT_VERSION = '0.2.0' as const;
+/** Public quiz data consumed from Dev 2's SessionQuiz contract (v0.3.0). */
+export const ASSESSMENT_HISTORY_CONTRACT_VERSION = '0.3.0' as const;
 
 export type {
   QuestionOptionPublic,

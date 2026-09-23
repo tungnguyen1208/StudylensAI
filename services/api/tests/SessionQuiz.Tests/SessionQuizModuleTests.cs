@@ -137,7 +137,7 @@ public class SessionQuizModuleTests
     {
         public Task<QuestionGenerationResponse?> GenerateAsync(QuestionGenerationRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<QuestionGenerationResponse?>(new(
-                "0.2.0", "0.2.0",
+                "0.3.0", "0.3.0",
                 [new GeneratedQuestion(
                     "multipleChoice", "What does the transcript describe?",
                     [new GeneratedOption("option-a", "Network routing"), new GeneratedOption("option-b", "A database table")],

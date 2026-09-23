@@ -18,7 +18,7 @@ const activation = {
   activationId: '11111111-1111-4111-8111-111111111111',
   source: 'user' as const,
   videoTitle: 'Video',
-  transcriptSnapshot: { transcriptSnapshotId: '33333333-3333-4333-8333-333333333333', youtubeVideoId: VIDEO_ID, language: 'en', status: 'available' as const, contentHash: 'a'.repeat(64), version: '0.2.0' },
+  transcriptCapture: { transcriptCaptureId: '33333333-3333-4333-8333-333333333333', youtubeVideoId: VIDEO_ID, language: 'en', source: 'tabAudioStt' as const, status: 'available' as const, availableCueCount: 1, version: 1 },
   preferences: { quizIntervalMinutes: 5 as const, questionType: 'multipleChoice' as const, difficulty: 'medium' as const },
 };
 
@@ -93,7 +93,7 @@ class FakeBus implements MessageSubscriberPort {
   public async emit(type: string, payload: unknown, youtubeVideoId = VIDEO_ID): Promise<void> {
     const message: ExtensionMessage = {
       type,
-      contractVersion: '0.2.0',
+      contractVersion: '0.3.0',
       correlationId: 'c-1',
       tabId: 7,
       youtubeVideoId,
@@ -271,7 +271,7 @@ describe('SessionQuizRuntime completion', () => {
       ...activation,
       activationId: '11111111-1111-4111-8111-111111111112',
       videoTitle: 'Video B',
-      transcriptSnapshot: { ...activation.transcriptSnapshot, youtubeVideoId: VIDEO_B_ID },
+      transcriptCapture: { ...activation.transcriptCapture, youtubeVideoId: VIDEO_B_ID },
     }, VIDEO_B_ID);
 
     expect(api.starts).toBe(2);

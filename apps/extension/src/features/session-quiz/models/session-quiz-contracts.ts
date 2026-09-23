@@ -6,7 +6,6 @@ import type {
 
 export type {
   ActivationEnabledPayload,
-  AvailableTranscriptSnapshotRef,
   Difficulty,
   PreferenceSnapshot,
   QuestionOptionPublic,
@@ -14,10 +13,10 @@ export type {
   QuestionType,
   QuizPublic,
   QuizIntervalMinutes,
-  TranscriptSnapshotRef,
+  TranscriptCaptureRef,
 } from '../../../shared/contracts';
 
-export const SESSION_QUIZ_CONTRACT_VERSION = '0.2.0' as const;
+export const SESSION_QUIZ_CONTRACT_VERSION = '0.3.0' as const;
 
 export interface SessionSnapshot {
   sessionId: string;

@@ -12,7 +12,7 @@ from app.features.grading.router import (
 
 def request(answer_text: str) -> ShortAnswerGradeRequest:
     return ShortAnswerGradeRequest(
-        contractVersion="0.2.0",
+        contractVersion="0.3.0",
         questionId="55555555-5555-4555-8555-555555555555",
         prompt="Nêu vai trò của địa chỉ IP.",
         referenceAnswer="Địa chỉ IP định danh thiết bị hoặc giao diện mạng để định tuyến dữ liệu.",

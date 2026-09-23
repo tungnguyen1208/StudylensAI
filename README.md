@@ -92,7 +92,7 @@ studylens/
 │       ├── requirements.txt
 │       └── pyproject.toml
 │
-├── contracts/                         # Source of truth for API contracts (Baseline 0.2.0)
+├── contracts/                         # Source of truth for API contracts (Baseline 0.3.0)
 │   ├── public-api/                    # Extension ↔ Backend OpenAPI contracts
 │   ├── ai-api/                        # Backend ↔ FastAPI OpenAPI contracts
 │   ├── extension-messages/            # Browser internal JSON schema message envelopes
@@ -117,6 +117,7 @@ studylens/
 | **Persistent Activation** | **Dev 1** | `features/video-activation/`<br>`platform/youtube/` | `Features/VideoActivation/` integration seam | — | `video-activation.schema.json`<br>`video-activation.yaml` |
 | **Session & Quiz** | **Dev 2** | `features/session-quiz/` | `Features/SessionQuiz/` | `features/question_generation/` | `session-quiz.yaml`<br>`question-generation.yaml` |
 | **Assessment & History** | **Dev 3** | `features/assessment-history/` | `Features/AssessmentHistory/` | `features/grading/` | `assessment-history.yaml`<br>`grading.yaml` |
+| **Tab audio transcription** | **Dev 1 + Integration Captain** | `platform/audio/`, `features/video-activation/` | `Features/VideoActivation/` | `features/transcription/` | `video-activation.yaml`<br>`transcription.yaml` |
 
 ### Shared & HOT Files
 Developers 1, 2, and 3 must not modify shared HOT files in daily feature tasks. Integration changes are managed by the Integration Captain:
@@ -191,6 +192,18 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+For real tab-audio STT, configure the ignored local `.env` (never the Extension)
+before starting FastAPI:
+
+```dotenv
+STT_PROVIDER=gemini
+GEMINI_TRANSCRIBE_MODEL=gemini-3.5-transcribe
+```
+
+`GEMINI_API_KEY` stays only in the local FastAPI environment. Use
+`STT_PROVIDER=fake` for deterministic automated tests. Each WebM/Opus chunk is
+discarded after transcription; only timestamped cues are retained by the Backend.
+
 **Health endpoint:**
 - `GET http://localhost:8000/health` — FastAPI service health check
 
@@ -198,16 +211,16 @@ uvicorn app.main:app --reload --port 8000
 
 ## 7. Persistent Activation Contract Migration
 
-The v1.2 architecture uses contract baseline **0.2.0**. It introduces `ExtensionActivationState`, removes video classification, and uses the explicit `VIDEO_CONTEXT_CHANGED` seam when a supported YouTube SPA page changes while StudyLens remains ON. Dev 1 publishes the transition before capturing the replacement page. If a page is no longer supported it publishes `VIDEO_CONTEXT_UNAVAILABLE` without persisting OFF. `TranscriptSnapshotRef` plus `PreferenceSnapshot` remain the Dev 1 → Dev 2 handoff; a replacement `ACTIVATION_ENABLED` is published only after its transcript is available. Cross-feature progress and retryable failures use `OPERATION_STATUS_CHANGED`.
+The v1.2 architecture uses contract baseline **0.3.0**. It introduces `ExtensionActivationState`, removes video classification, and uses the explicit `VIDEO_CONTEXT_CHANGED` seam when a supported YouTube SPA page changes while StudyLens remains ON. Dev 1 publishes the transition before capturing the replacement page. If a page is no longer supported it publishes `VIDEO_CONTEXT_UNAVAILABLE` without persisting OFF. Tab audio is the sole runtime transcript source: learner-approved YouTube audio is sent in 30-second WebM/Opus chunks through the Backend to STT, then retained only as timestamped cues. Chrome requires the learner to start tab capture after a browser restart. `TranscriptCaptureRef` plus `PreferenceSnapshot` are the Dev 1 → Dev 2 handoff; a replacement `ACTIVATION_ENABLED` is published only after its first valid STT cue is available. Cross-feature progress and retryable failures use `OPERATION_STATUS_CHANGED`.
 
-Existing `0.1.0` artifacts must be migrated in one explicit Integration Captain task. Do not mix `0.1.0` and `0.2.0` message envelopes or API DTOs in one runtime path. The migration must update contracts, fixtures, producers, consumers, tests, and the corresponding ADR before merge.
+Existing `0.1.0` artifacts must be migrated in one explicit Integration Captain task. Do not mix `0.1.0` and `0.3.0` message envelopes or API DTOs in one runtime path. The migration must update contracts, fixtures, producers, consumers, tests, and the corresponding ADR before merge.
 
 ## 8. Verification Status
 
 The current checks verify the walking-skeleton communication path:
 - Extension builds cleanly and connects to Backend via typed `HttpClient`.
 - Backend responds on `/api/health` and queries AI service via `AiHealthClient`.
-- FastAPI AI service responds on `/health` and has the question-generation and grading routers registered; v1.2 has no classification router.
+- FastAPI AI service responds on `/health` and has question-generation, grading and tab-audio transcription routers registered; v1.2 has no classification router. Tab audio is received only as an in-flight chunk and is not persisted.
 - All 3 backend module test suites pass.
 
 This is not, by itself, acceptance evidence for every MVP requirement. Product acceptance additionally requires persistent ON/OFF restore, valid/invalid transcript handling, actual watched-time tracking, quiz generation, answer/grading, timestamp review, history, and Chrome/Edge smoke testing.

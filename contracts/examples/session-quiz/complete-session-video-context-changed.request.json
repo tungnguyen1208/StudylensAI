@@ -1,5 +1,5 @@
 {
-  "contractVersion": "0.2.0",
+  "contractVersion": "0.3.0",
   "clientCompletionId": "77777777-7777-4777-8777-777777777777",
   "reason": "videoContextChanged",
   "activeStudyMs": 30000

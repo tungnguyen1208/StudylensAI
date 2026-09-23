@@ -1,6 +1,6 @@
 {
-  "contractVersion": "0.2.0",
-  "promptVersion": "0.2.0",
+  "contractVersion": "0.3.0",
+  "promptVersion": "0.3.0",
   "questions": [
     {
       "type": "multipleChoice",

@@ -10,7 +10,7 @@ classifying a video's subject matter.
 chrome.storage.local extensionEnabled
   -> ExtensionActivationState
   -> supported YouTube page capture at ON and on supported video transitions + player events
-  -> transcript snapshot + preferences
+  -> tab-audio STT timeline + preferences
   -> Dev 2 SessionQuiz
 ```
 
@@ -23,6 +23,7 @@ the replacement page. Leaving a watch page must not persist OFF.
 
 ```text
 apps/extension/src/platform/youtube/**
+apps/extension/src/platform/audio/**
 apps/extension/src/features/video-activation/**
 services/api/tests/VideoActivation.Tests/**
 contracts/public-api/video-activation.yaml
@@ -40,7 +41,8 @@ parallel implementation or mix contract versions.
 - `ExtensionActivationState { enabled, source: user | storageRestore, persistedAtUtc }`.
 - `VIDEO_CONTEXT_CHANGED`, `ACTIVATION_ENABLED`, and `ACTIVATION_DISABLED`; the transition envelope identifies the prior flow and the enabled envelope carries the captured YouTube ID.
 - `PlayerPort` and normalized player events; only `platform/youtube/**` reads or controls YouTube DOM.
-- Passive transcript acquisition, cue normalization, timestamp preservation, and `TranscriptSnapshotRef` publication.
+- Learner-approved tab-audio capture in 30-second WebM/Opus chunks, cue normalization,
+  timestamp preservation, and `TranscriptCaptureRef` publication. Raw audio is never persisted.
 - `PreferenceSnapshot` for interval (5/10/15), question type, and difficulty.
 - Side Panel activation, video-context, transcript, and recoverable-error display.
 
@@ -54,7 +56,10 @@ parallel implementation or mix contract versions.
 
 1. Store only an explicit learner toggle to `chrome.storage.local`.
 2. Restore the saved value at startup and publish `source: storageRestore`.
-3. When ON on a supported watch page, capture the page and publish the current activation state, enabled event, transcript reference when available, preferences, and player events.
+3. When ON on a supported watch page, require a learner gesture for `tabCapture`, capture
+   tab audio through the offscreen document, and publish the enabled event only after the
+   first valid STT cue is available. A restored ON state asks the learner to click
+   the **StudyLens toolbar icon**; it never starts tab capture silently after browser restart.
 4. When a supported YouTube SPA video ID changes while ON, dispose stale adapters/tasks, publish exactly one `VIDEO_CONTEXT_CHANGED`, and capture the replacement page. Only a valid replacement transcript may publish its `ACTIVATION_ENABLED`.
    When navigation leaves a supported watch page, publish
    `VIDEO_CONTEXT_UNAVAILABLE`, stop only the page flow, and retain global ON.
@@ -63,11 +68,12 @@ parallel implementation or mix contract versions.
 
 ## Contract and data rules
 
-- Contract baseline: `0.2.0`; camelCase; string enums; opaque IDs; integer video milliseconds; ISO-8601 UTC system time.
+- Contract baseline: `0.3.0`; camelCase; string enums; opaque IDs; integer video milliseconds; ISO-8601 UTC system time.
 - Every Extension message uses the common envelope: `type`, `contractVersion`, `correlationId`, `tabId`, optional `youtubeVideoId`, `occurredAtUtc`, `payload`.
 - Emit idempotent state/context messages and tolerate stale/out-of-order browser events.
 - Extension never receives or stores LLM keys, correct answers, hidden prompts, or grading rubrics.
-- Backend is the only system of record; FastAPI has no Dev 1 feature in this architecture.
+- Backend is the only system of record. FastAPI may receive only an in-flight audio
+  chunk from Backend for STT and never persists the audio.
 
 ## Acceptance tests
 
@@ -78,14 +84,14 @@ parallel implementation or mix contract versions.
 - Leaving `/watch` while ON closes the prior flow through
   `VIDEO_CONTEXT_UNAVAILABLE`; a later supported page may start a replacement flow without another learner ON action.
 - Player events use milliseconds and do not duplicate after mount/remount.
-- Transcript preserves valid cue timestamps; unavailable/insufficient states never produce an available reference.
+- Tab-audio STT preserves valid cue timestamps; unavailable/insufficient states never produce an available reference.
 - Backend/AI/network failure never pauses or breaks YouTube.
 - Chrome and Edge smoke checks validate reload, restored state, A-to-B transition while ON, transcript present/absent, and explicit OFF.
 
 ## Handoff to Dev 2
 
 Publish fixture-backed `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `VIDEO_CONTEXT_UNAVAILABLE`, `ACTIVATION_ENABLED`,
-`ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player-event envelopes, and
-`ITranscriptSnapshotReader` / `TranscriptSnapshotForSession`. Document the
+`ACTIVATION_DISABLED`, `TranscriptCaptureRef`, `PreferenceSnapshot`, player-event envelopes, and
+`ITranscriptCaptureReader` / `TranscriptCaptureForSession`. Document the
 contract version, event order, idempotency behavior, test evidence, and any
 required HOT-file integration separately.

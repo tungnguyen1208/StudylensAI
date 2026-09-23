@@ -6,7 +6,7 @@
   "required": ["type", "contractVersion", "correlationId", "tabId", "youtubeVideoId", "occurredAtUtc", "payload"],
   "properties": {
     "type": { "const": "QUIZ_AVAILABLE" },
-    "contractVersion": { "const": "0.2.0" },
+    "contractVersion": { "const": "0.3.0" },
     "correlationId": { "type": "string", "minLength": 1 },
     "tabId": { "type": "integer", "minimum": 0 },
     "youtubeVideoId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{11}$" },

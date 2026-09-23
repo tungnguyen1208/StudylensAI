@@ -14,12 +14,15 @@ import {
   ActivationToggle,
   DEFAULT_LEARNING_PREFERENCES,
   LearningPreferencesForm,
+  TranscriptPreview,
   applyVideoActivationMessage,
   initialActivationState,
   isLearningPreferences,
   type ActivationState,
   type LearningPreferences,
+  type TranscriptCaptureDetails,
 } from '../features/video-activation';
+import { VideoActivationApi } from '../features/video-activation/api/video-activation-api';
 import { httpClient } from '../shared/http/http-client';
 import { messageBus } from '../shared/messaging/message-bus';
 import type { ExtensionMessage } from '../shared/messaging/message-types';
@@ -35,12 +38,19 @@ interface BackendHealthResponse {
   };
 }
 
+interface AudioCaptureTarget {
+  tabId: number;
+  youtubeVideoId: string;
+  title: string;
+}
+
 type BackendStatus = 'idle' | 'checking' | 'connected' | 'error';
 type ThemeMode = 'light' | 'dark';
 type SidePanelTab = 'study' | 'history' | 'settings';
 
 const THEME_STORAGE_KEY = 'studylensTheme';
 const assessmentHistoryApi = new AssessmentHistoryApi();
+const videoActivationApi = new VideoActivationApi();
 
 export const App: React.FC = () => {
   const [features, setFeatures] = useState<RegisteredFeatures | null>(null);
@@ -51,6 +61,7 @@ export const App: React.FC = () => {
   const [activationState, setActivationState] = useState<ActivationState>(initialActivationState);
   const [activationCommandStatus, setActivationCommandStatus] = useState<'idle' | 'sending' | 'error'>('idle');
   const [activationCommandError, setActivationCommandError] = useState<string | null>(null);
+  const [activationCommandNotice, setActivationCommandNotice] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>('dark');
   const [activeTab, setActiveTab] = useState<SidePanelTab>('study');
   const [latestGrade, setLatestGrade] = useState<GradeView | null>(null);
@@ -61,10 +72,58 @@ export const App: React.FC = () => {
   const [learningPreferences, setLearningPreferences] = useState<LearningPreferences>(DEFAULT_LEARNING_PREFERENCES);
   const [preferencesStatus, setPreferencesStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
+  const [audioCaptureTarget, setAudioCaptureTarget] = useState<AudioCaptureTarget | null>(null);
+  const [transcriptPreview, setTranscriptPreview] = useState<TranscriptCaptureDetails | null>(null);
+  const [transcriptPreviewLoading, setTranscriptPreviewLoading] = useState(false);
+  const [transcriptPreviewError, setTranscriptPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     setFeatures(initializeFeatureRegistry());
     void checkHealth();
+  }, []);
+
+  const transcriptCaptureId = activationState.transcriptCapture?.transcriptCaptureId ?? null;
+
+  const refreshTranscriptPreview = async () => {
+    if (!transcriptCaptureId) return;
+    setTranscriptPreviewLoading(true);
+    setTranscriptPreviewError(null);
+    try {
+      setTranscriptPreview(await videoActivationApi.getTranscriptCaptureDetails(transcriptCaptureId));
+    } catch (error: unknown) {
+      setTranscriptPreviewError(error instanceof Error ? error.message : 'Không thể tải transcript từ Backend.');
+    } finally {
+      setTranscriptPreviewLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!transcriptCaptureId) {
+      setTranscriptPreview(null);
+      setTranscriptPreviewError(null);
+      return;
+    }
+    void refreshTranscriptPreview();
+    const intervalId = window.setInterval(() => void refreshTranscriptPreview(), 5_000);
+    return () => window.clearInterval(intervalId);
+  }, [transcriptCaptureId]);
+
+  useEffect(() => {
+    let mounted = true;
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return () => { mounted = false; };
+    const refreshTarget = async () => {
+      const target = await getAudioCaptureTarget();
+      if (mounted) setAudioCaptureTarget(target);
+    };
+    void refreshTarget();
+    const listener = () => { void refreshTarget(); };
+    chrome.tabs?.onActivated?.addListener(listener);
+    chrome.tabs?.onUpdated?.addListener(listener);
+    return () => {
+      mounted = false;
+      chrome.tabs?.onActivated?.removeListener(listener);
+      chrome.tabs?.onUpdated?.removeListener(listener);
+    };
   }, []);
 
   useEffect(() => {
@@ -175,19 +234,44 @@ export const App: React.FC = () => {
     }
     setActivationCommandStatus('sending');
     setActivationCommandError(null);
+    setActivationCommandNotice(null);
     try {
       const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_MANUAL_TOGGLE', requestedState }) as {
-        ok?: boolean; code?: string; state?: { enabled?: boolean };
+        ok?: boolean; code?: string; pendingPageCapture?: boolean; state?: { enabled?: boolean };
       };
       if (!response?.ok) throw new Error(response?.code ?? 'manualActivationUnavailable');
-      setActivationState((state) => requestedState === 'on'
-        ? { ...state, status: 'active', errorCode: null }
-        : { ...state, status: 'off', errorCode: null });
+      if (requestedState === 'on') {
+        const contentScriptUnavailable = response.pendingPageCapture && response.code === 'contentScriptUnavailable';
+        setActivationState((state) => ({
+          ...state,
+          status: 'active',
+          errorCode: contentScriptUnavailable ? 'contentScriptUnavailable' : null,
+        }));
+        if (contentScriptUnavailable) {
+          setActivationCommandNotice('StudyLens đã được bật. Hãy tải lại tab YouTube này để Extension khởi chạy và đọc transcript.');
+        }
+      } else {
+        setActivationState((state) => ({ ...state, status: 'off', errorCode: null }));
+      }
       setActivationCommandStatus('idle');
     } catch (error: unknown) {
       setActivationCommandStatus('error');
       setActivationCommandError(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái StudyLens.');
     }
+  };
+
+  const resumeTabAudioCapture = async () => {
+    if (!audioCaptureTarget) {
+      setActivationCommandStatus('error');
+      setActivationCommandError('Hãy mở một trang xem YouTube hợp lệ rồi thử lại.');
+      return;
+    }
+    // Chrome accepts tab capture only from an extension-action invocation.
+    // A Side Panel click cannot mint a usable stream ID, so guide the learner
+    // to the StudyLens toolbar icon rather than issuing a failing API call.
+    setActivationCommandStatus('idle');
+    setActivationCommandError(null);
+    setActivationCommandNotice('Để Chrome cấp quyền, hãy bấm biểu tượng StudyLens trên thanh công cụ. StudyLens sẽ bắt đầu thu âm tab YouTube hiện tại.');
   };
 
   const toggleTheme = () => {
@@ -214,7 +298,7 @@ export const App: React.FC = () => {
       <header className="app-header">
         <div>
           <h1 className="app-title">StudyLens AI</h1>
-          <p className="app-subtitle">Khung ứng dụng học tập (v0.2.0)</p>
+          <p className="app-subtitle">Khung ứng dụng học tập (v0.3.0)</p>
         </div>
         <nav className="panel-tabs" aria-label="Điều hướng StudyLens" role="tablist">
           <button
@@ -303,7 +387,18 @@ export const App: React.FC = () => {
           disabled={activationCommandStatus === 'sending'}
           onRequest={requestManualActivation}
         />
+        {activationState.status === 'active' && !activationState.transcriptCapture && (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={activationCommandStatus === 'sending' || !audioCaptureTarget || activationState.errorCode === 'contentScriptUnavailable'}
+            onClick={() => void resumeTabAudioCapture()}
+          >
+            Hướng dẫn cấp quyền thu âm tab
+          </button>
+        )}
         {activationCommandError && <p role="alert" className="health-error">Lỗi: {activationCommandError}</p>}
+        {activationCommandNotice && <p role="status" className="section-copy section-copy--warning">{activationCommandNotice}</p>}
       </section>
 
       <section className="panel-section" aria-labelledby="study-flow-heading">
@@ -321,6 +416,15 @@ export const App: React.FC = () => {
             />
           </div>
         )}
+      </section>
+
+      <section className="panel-section" aria-labelledby="transcript-preview-heading">
+        <TranscriptPreview
+          details={transcriptPreview}
+          loading={transcriptPreviewLoading}
+          error={transcriptPreviewError}
+          onRefresh={() => void refreshTranscriptPreview()}
+        />
       </section>
 
       <section className="panel-section" aria-labelledby="operations-heading">
@@ -425,7 +529,7 @@ function OperationStatusList({ statuses, onRetry }: {
           <strong>{operationLabel(status.operation)}</strong>
           <span>{status.message}</span>
           {status.code && <small>Mã: {status.code}{status.traceId ? ` · Trace: ${status.traceId}` : ''}</small>}
-          {status.state === 'failed' && status.retryable && ['transcriptUpload', 'sessionStart', 'segmentCreate', 'quizGenerate'].includes(status.operation) && (
+          {status.state === 'failed' && status.retryable && ['audioTranscription', 'transcriptUpload', 'sessionStart', 'segmentCreate', 'quizGenerate'].includes(status.operation) && (
             <button type="button" className="operation-status__retry" onClick={() => void onRetry(status.operation)}>Thử lại</button>
           )}
         </div>
@@ -436,6 +540,7 @@ function OperationStatusList({ statuses, onRetry }: {
 
 function operationLabel(operation: StudyLensOperation): string {
   return {
+    audioTranscription: 'Transcript âm thanh',
     transcriptUpload: 'Transcript', sessionStart: 'Phiên học', segmentCreate: 'Phân đoạn',
     quizGenerate: 'Bài kiểm tra', answerSubmit: 'Câu trả lời', historyLoad: 'Lịch sử',
   }[operation];
@@ -459,6 +564,22 @@ async function loadPersistentActivationState(): Promise<boolean> {
     return false;
   }
 }
+
+async function getAudioCaptureTarget(): Promise<AudioCaptureTarget | null> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_AUDIO_CAPTURE_TARGET' }) as Partial<AudioCaptureTarget> | undefined;
+    const tabId = response?.tabId;
+    const youtubeVideoId = response?.youtubeVideoId;
+    const title = response?.title;
+    return typeof tabId === 'number' && Number.isInteger(tabId) && typeof youtubeVideoId === 'string' && typeof title === 'string'
+      ? { tabId, youtubeVideoId, title }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 
 async function getLearningPreferences(): Promise<LearningPreferences> {
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return { ...DEFAULT_LEARNING_PREFERENCES };

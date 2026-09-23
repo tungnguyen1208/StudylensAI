@@ -1,14 +1,16 @@
 # Sơ đồ chức năng file và thư mục — StudyLens AI
 
-> Cập nhật theo source và contract `0.2.0`. Đây là bản đồ kiến trúc đang chạy;
+> Cập nhật theo source và contract `0.3.0`. Đây là bản đồ kiến trúc đang chạy;
 > không mô tả output sinh tự động như `dist/`, `node_modules/`, `bin/`, `obj/`
 > hay cache test.
 
 ## 1. Luồng nghiệp vụ hiện tại
 
 StudyLens uses the learner's persisted ON/OFF choice as its global gate. ON
-captures the current supported YouTube watch page, reads passive transcript DOM
-data, and starts a session only after Backend has an `available` transcript.
+captures the current supported YouTube watch page, then (after the learner
+grants tab-capture permission) records 30-second WebM/Opus tab-audio chunks.
+The Backend turns those chunks into an increasing STT cue timeline and starts a
+session only after the capture is `available`.
 While ON, a supported YouTube SPA A-to-B change emits `VIDEO_CONTEXT_CHANGED`,
 closes A through Dev 2, then captures B. Explicit OFF is the only action that
 persists OFF.
@@ -24,8 +26,10 @@ sequenceDiagram
 
     U->>SP: Bật StudyLens
     SP->>CS: Manual toggle đúng tab
-    CS->>API: POST transcript snapshot
-    alt transcript upload thành công
+    CS->>SW: start learner-approved tab audio capture
+    SW->>API: POST capture + 30-second audio chunk
+    API->>AI: transcribe in-flight chunk
+    alt first STT cue thành công
         CS->>CS: ACTIVATION_ENABLED
         CS->>API: Start session / create segment
         API->>AI: Generate quiz fake
@@ -101,7 +105,7 @@ shared/
 ├── http/http-client.ts                # fetch timeout + ErrorEnvelope -> HttpError
 └── messaging/
     ├── message-bus.ts                 # Local and Chrome runtime publish/subscribe
-├── message-types.ts               # Envelope 0.2.0
+├── message-types.ts               # Envelope 0.3.0
 └── operation-status.ts            # Operation state/code/message/retryable/traceId
 
 shared/contracts/
@@ -111,22 +115,25 @@ shared/contracts/
 platform/youtube/
 ├── learning-target-capture.ts         # URL/title capture for ON and supported replacement pages
 ├── youtube-player-adapter.ts          # Only PlayerPort owner of HTMLVideoElement
-└── youtube-transcript-adapter.ts      # Passive rendered-transcript DOM reader
+└── youtube-transcript-adapter.ts      # Legacy read compatibility; not runtime source
+
+platform/audio/
+└── offscreen-audio-capture.ts         # MediaStream/MediaRecorder and audible AudioContext route
 ```
 
 ### Dev 1 — `features/video-activation/`
 
 - `content-script-entry.ts`: coordinator for persistent lifecycle, supported
-  video transitions, passive transcript upload, player event forwarding, and retry.
+  video transitions, tab-audio capture coordination, player event forwarding, and retry.
 - `services/activation-manager.ts`: holds the page-local activation state,
-  snapshots preferences, emits `ACTIVATION_ENABLED` only after a valid
-  snapshot, and emits `ACTIVATION_DISABLED` on explicit OFF.
+  snapshots preferences, emits `ACTIVATION_ENABLED` only after a valid capture
+  cue, and emits `ACTIVATION_DISABLED` on explicit OFF.
 - `services/youtube-spa-transition-observer.ts`: debounces YouTube navigation
   while global ON is active; the content-script coordinator publishes
   `VIDEO_CONTEXT_CHANGED` or `VIDEO_CONTEXT_UNAVAILABLE` before binding
   replacement page resources.
-- `services/transcript-service.ts`: normalization/hash/idempotency request and
-  typed snapshot client.
+- `services/transcript-service.ts`: legacy cue normalization/hash helpers; the
+  runtime source is the typed transcript-capture/chunk client.
 - `components/ActivationToggle.tsx` / `ActivationStatus.tsx`: pure Side Panel
   presentation.
 - `models/learning-preferences.ts` / `components/LearningPreferencesForm.tsx`:
@@ -165,9 +172,9 @@ Infrastructure/Persistence/
 └── Migrations/20260920230000_...cs     # SQLite quiz-private material + answer history
 
 Features/VideoActivation/
-├── Api/CreateTranscriptSnapshotEndpoint.cs
-├── Application/Contracts/ITranscriptSnapshotReader.cs
-└── Infrastructure/InMemoryTranscriptSnapshotStore.cs
+├── Api/TranscriptCaptureEndpoints.cs
+├── Application/Contracts/ITranscriptCaptureReader.cs
+└── Infrastructure/SqliteTranscriptCaptureStore.cs
 
 Features/SessionQuiz/
 ├── Api/StudySessionEndpoints.cs, QuizEndpoints.cs
@@ -184,7 +191,7 @@ Features/AssessmentHistory/
 
 | Route | Owner | Purpose |
 |---|---|---|
-| `POST /api/video-activation/transcript-snapshots` | Dev 1 | Idempotent transcript snapshot upload |
+| `POST /api/video-activation/transcript-captures`, `/audio-chunks` | Dev 1 | Idempotent tab-audio capture and STT cue timeline; no audio blob persistence |
 | `POST /api/sessions`, `/complete`, `/segments` | Dev 2 | StudySession lifecycle and transcript-backed segments |
 | `POST /api/quizzes/generate`, `GET /api/quizzes/{quizId}` | Dev 2 | Generate/read public quiz; private grading material stays SQLite-only |
 | `POST /api/quizzes/{quizId}/answer` | Dev 3 | Idempotent MCQ or short-answer grade |
@@ -200,6 +207,7 @@ answer. The extension never receives private quiz material before submit.
 main.py                                 # router composition
 features/question_generation/router.py # deterministic fake question generator
 features/grading/router.py              # POST /api/ai/grading/short-answer
+features/transcription/router.py        # POST /api/transcriptions, in-flight tab-audio STT
 features/*/tests/                       # Pydantic/schema behaviour tests
 ```
 
@@ -213,7 +221,7 @@ ASP.NET to retryable `gradingUnavailable` without leaking details.
 ```text
 contracts/
 ├── public-api/
-│   ├── video-activation.yaml           # transcript snapshot API
+│   ├── video-activation.yaml           # transcript capture/chunk API
 │   ├── session-quiz.yaml               # session, segment, public quiz API
 │   └── assessment-history.yaml         # answer, GradeView, history, ErrorEnvelope
 ├── ai-api/
@@ -232,9 +240,9 @@ tests/contract/
 └── assessment-history/                 # public answer/history and secret-leak checks
 ```
 
-Contract baseline is `0.2.0`, camelCase, UTC timestamp and integer
+Contract baseline is `0.3.0`, camelCase, UTC timestamp and integer
 milliseconds. `OPERATION_STATUS_CHANGED` supports
-`transcriptUpload`, `sessionStart`, `segmentCreate`, `quizGenerate`,
+`audioTranscription`, `transcriptUpload`, `sessionStart`, `segmentCreate`, `quizGenerate`,
 `answerSubmit` and `historyLoad`; the status card can show `code`, `message`,
 `traceId` and a Retry control only when `retryable` is true.
 

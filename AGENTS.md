@@ -20,7 +20,7 @@ call FastAPI, an LLM provider or the database directly.
 
 ## 2. Persistent Activation v1.2
 
-Contract baseline is **0.2.0**. This is the product behavior to preserve.
+Contract baseline is **0.3.0**. This is the product behavior to preserve.
 
 1. `extensionEnabled` is one global learner choice stored in
    `chrome.storage.local`. First install defaults to OFF; browser restart
@@ -28,9 +28,12 @@ Contract baseline is **0.2.0**. This is the product behavior to preserve.
 2. There is no Auto mode, educational/non-educational video classifier,
    confidence threshold or classification AI route.
 3. When ON on a supported `https://www.youtube.com/watch?v=<11-char-id>` page,
-   Dev 1 captures the page, binds the player adapter, reads an already rendered
-   transcript, uploads its snapshot and publishes an activation only after the
-   snapshot is `available`.
+   Dev 1 captures learner-approved **tab audio** in 30-second WebM/Opus chunks,
+   binds the player adapter and publishes an activation only after the first
+   `tabAudioStt` transcript cue is available. The Extension never captures the
+   microphone or calls FastAPI/Gemini directly. Chrome requires a user gesture
+   for tab capture; after browser restart the restored ON state waits for the
+   learner to click the **StudyLens toolbar icon** to start tab audio capture.
 4. When YouTube SPA changes supported video A to B while ON, publish exactly
    one `VIDEO_CONTEXT_CHANGED`, dispose stale work for A, let Dev 2 complete
    session A idempotently, then publish `ACTIVATION_ENABLED` for B only after
@@ -51,7 +54,7 @@ Work as vertical modules, never as separate frontend, backend and AI teams.
 
 | Owner | Module | Responsibilities |
 |---|---|---|
-| Dev 1 | `video-activation` | Persistent ON/OFF, supported-page capture, video transition coordinator, PlayerPort/events, passive transcript acquisition, local preferences and activation status |
+| Dev 1 | `video-activation` | Persistent ON/OFF, tab-audio transcription capture, supported-page capture, video transition coordinator, PlayerPort/events, local preferences and activation status |
 | Dev 2 | `session-quiz` | StudySession, active timer, playback spans, segments, question generation and `QuizPublic` |
 | Dev 3 | `assessment-history` | Answer submission, grading, explanation, timestamp review request and persistent history |
 | Integration Captain | Shared wiring | Shell, manifest, root contracts, Program.cs, DbContext/migrations, generated code and release gates |
@@ -62,8 +65,8 @@ Published seams only:
 Dev 1 -> Dev 2
 ExtensionActivationState, VIDEO_CONTEXT_CHANGED,
 VIDEO_CONTEXT_UNAVAILABLE, ACTIVATION_ENABLED, ACTIVATION_DISABLED,
-TranscriptSnapshotRef, PreferenceSnapshot, PLAYER_* and
-ITranscriptSnapshotReader
+TranscriptCaptureRef, PreferenceSnapshot, PLAYER_* and
+ITranscriptCaptureReader
 
 Dev 2 -> Dev 3
 QUIZ_AVAILABLE, QuizPublic, QuestionPublic, QuestionSourceRef,
@@ -82,6 +85,7 @@ Do not import another module's private repository, service or state. Only
 apps/extension/src/
   shell/                         # Side Panel, content-script and worker composition (HOT)
   platform/youtube/              # YouTube DOM/player adapters (Dev 1)
+  platform/audio/                # offscreen tab audio capture (Dev 1)
   features/video-activation/     # Dev 1 runtime
   features/session-quiz/         # Dev 2 runtime
   features/assessment-history/   # Dev 3 runtime
@@ -90,7 +94,7 @@ apps/extension/src/
   generated/                     # generated code only
 
 services/api/src/StudyLens.Api/
-  Features/VideoActivation/      # transcript snapshot integration seam
+  Features/VideoActivation/      # transcript capture timeline/seam
   Features/SessionQuiz/
   Features/AssessmentHistory/
   BuildingBlocks/, Infrastructure/Persistence/  # HOT
@@ -98,6 +102,7 @@ services/api/src/StudyLens.Api/
 services/ai/app/
   features/question_generation/  # Dev 2
   features/grading/              # Dev 3
+  features/transcription/        # tab-audio STT adapter
   platform/llm/                  # provider abstraction (HOT)
   main.py                         # router composition (HOT)
 
@@ -120,10 +125,10 @@ is `services/ai/`, never `services/ai-service/`.
 - Current messages include `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`,
   `VIDEO_CONTEXT_CHANGED`, `VIDEO_CONTEXT_UNAVAILABLE`, `PLAYER_*`,
   `QUIZ_AVAILABLE`, `SEEK_REQUEST` and `OPERATION_STATUS_CHANGED`.
-- `OPERATION_STATUS_CHANGED` covers `transcriptUpload`, `sessionStart`,
+- `OPERATION_STATUS_CHANGED` covers `audioTranscription`, `transcriptUpload`, `sessionStart`,
   `segmentCreate`, `quizGenerate`, `answerSubmit` and `historyLoad`. Show a
   retry action only when the status is retryable.
-- Retryable mutations keep their idempotency key: transcript, segment, quiz
+- Retryable mutations keep their idempotency key: transcript capture/chunk, segment, quiz
   and `clientAttemptId` for an answer. Same key and payload replay safely;
   same key with different payload returns `idempotencyConflict`.
 - Public quiz data must never include correct answers, reference answers,
@@ -141,11 +146,14 @@ is `services/ai/`, never `services/ai-service/`.
 - **Backend:** thin endpoints, feature application/domain rules, idempotency,
   persistence, `ErrorEnvelope` and AI orchestration. It is the system of
   record.
-- **FastAPI:** thin routers, Pydantic validation and stateless deterministic
-  question-generation/short-answer-grading adapters. No classification feature
-  and no business database writes.
+- **FastAPI:** thin routers, Pydantic validation and stateless question-generation,
+  grading and tab-audio transcription adapters. It forwards only the in-flight
+  audio chunk to the selected STT provider and persists neither audio nor business data.
 - **LLM provider:** remains behind `services/ai/app/platform/llm/**`. Never put
   secrets in source, logs, contracts or the Extension bundle.
+- **STT provider:** is configured only in FastAPI through local `STT_PROVIDER`
+  and `GEMINI_TRANSCRIBE_MODEL`; `GEMINI_API_KEY` is never read by the Extension
+  or Backend. Use the deterministic `fake` provider in automated tests.
 
 Standard public error shape:
 

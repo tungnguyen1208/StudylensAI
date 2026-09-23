@@ -94,7 +94,7 @@ function aiValidator(schemaName: string): ValidateFunction {
   return ajv.compile({ $defs: definitions, $ref: `#/$defs/${schemaName}` });
 }
 
-describe('session quiz contract 0.2.0', () => {
+describe('session quiz contract 0.3.0', () => {
   it('defines the five public operations required by the vertical module', () => {
     const { contract } = publicValidator('StartStudySessionRequest');
     expect(Object.keys(contract.paths)).toEqual(expect.arrayContaining(['/api/sessions', '/api/sessions/{sessionId}/complete', '/api/sessions/{sessionId}/segments', '/api/quizzes/generate', '/api/quizzes/{quizId}']));
@@ -135,18 +135,19 @@ describe('session quiz contract 0.2.0', () => {
     const fixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/session-quiz/question-generation.request.json`, 'utf8'));
     expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
   });
-  it('accepts the snapshot revision that the Video Activation module really publishes', () => {
-    const { validate } = publicValidator('TranscriptSnapshotRef');
+  it('accepts the capture reference that the Video Activation module really publishes', () => {
+    const { validate } = publicValidator('AvailableTranscriptCaptureRef');
     const fromDev1 = {
-      transcriptSnapshotId: '214edf62-2ab0-4778-815d-19bb460d9703',
+      transcriptCaptureId: '214edf62-2ab0-4778-815d-19bb460d9703',
       youtubeVideoId: 'dQw4w9WgXcQ',
       language: 'vi',
+      source: 'tabAudioStt',
       status: 'available',
-      contentHash: '966f1fa50f66266efde7b670ed2c823836cf0d08a87b2b9ce1ccb74690d22ad8',
-      version: '1',
+      availableCueCount: 3,
+      version: 1,
     };
     expect(validate(fromDev1), JSON.stringify(validate.errors)).toBe(true);
-    expect(validate({ ...fromDev1, version: '' })).toBe(false);
+    expect(validate({ ...fromDev1, availableCueCount: 0 })).toBe(false);
   });
 });
 
@@ -158,7 +159,7 @@ function loadFixture<T>(name: string): T {
   return JSON.parse(readFileSync(`${repoRoot}/contracts/examples/session-quiz/${name}`, 'utf8')) as T;
 }
 
-describe('study segment contract 0.2.0', () => {
+describe('study segment contract 0.3.0', () => {
   it('validates the create-segment request fixture with replayed spans', () => {
     const { validate } = publicValidator('CreateStudySegmentRequest');
     expect(validate(loadFixture('create-segment.request.json')), JSON.stringify(validate.errors)).toBe(true);
@@ -232,7 +233,7 @@ describe('transcript fixtures for segmentation', () => {
 // question generation pipeline (Backend -> FastAPI)
 // ============================================================
 
-describe('question generation contract 0.2.0', () => {
+describe('question generation contract 0.3.0', () => {
   it('validates the deterministic multiple-choice response fixture', () => {
     const validate = aiValidator('QuestionGenerationResponse');
     const fixture = loadFixture<QuestionGenerationResponseFixture>('question-generation-mcq.response.json');

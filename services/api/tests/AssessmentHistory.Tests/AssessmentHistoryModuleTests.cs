@@ -39,7 +39,7 @@ public class AssessmentHistoryModuleTests
         await db.Database.EnsureCreatedAsync();
         var service = new AssessmentHistoryService(
             new AssessmentHistoryDbContext(db), new FakeQuestionReader(), new FakeShortAnswerGateway());
-        var command = new SubmitAnswerCommand("0.2.0", "11111111-1111-4111-8111-111111111111", "quiz-1", "question-1", "option-a", null);
+        var command = new SubmitAnswerCommand("0.3.0", "11111111-1111-4111-8111-111111111111", "quiz-1", "question-1", "option-a", null);
 
         var first = await service.SubmitAsync(command, CancellationToken.None);
         var replay = await service.SubmitAsync(command, CancellationToken.None);
@@ -64,9 +64,9 @@ public class AssessmentHistoryModuleTests
             var service = new AssessmentHistoryService(
                 new AssessmentHistoryDbContext(firstContext), new FakeQuestionReader(), new FakeShortAnswerGateway());
             var created = await service.SubmitAsync(new SubmitAnswerCommand(
-                "0.2.0", clientAttemptId, "quiz-1", "question-1", "option-a", null), CancellationToken.None);
+                "0.3.0", clientAttemptId, "quiz-1", "question-1", "option-a", null), CancellationToken.None);
             var conflict = await service.SubmitAsync(new SubmitAnswerCommand(
-                "0.2.0", clientAttemptId, "quiz-1", "question-1", "option-b", null), CancellationToken.None);
+                "0.3.0", clientAttemptId, "quiz-1", "question-1", "option-b", null), CancellationToken.None);
 
             Assert.Equal("correct", created.Grade!.Outcome);
             Assert.Equal(409, conflict.StatusCode);
@@ -95,7 +95,7 @@ public class AssessmentHistoryModuleTests
             new AssessmentHistoryDbContext(db), new FakeQuestionReader(), new FakeShortAnswerGateway());
 
         var result = await service.SubmitAsync(new SubmitAnswerCommand(
-            "0.2.0", "33333333-3333-4333-8333-333333333333", "quiz-1", "question-short", null, "An answer"), CancellationToken.None);
+            "0.3.0", "33333333-3333-4333-8333-333333333333", "quiz-1", "question-short", null, "An answer"), CancellationToken.None);
 
         Assert.Equal("correct", result.Grade!.Outcome);
         Assert.Equal("Reference answer", result.Grade.ReferenceAnswer);
@@ -113,7 +113,7 @@ public class AssessmentHistoryModuleTests
             new AssessmentHistoryDbContext(db), new FakeQuestionReader(), new FakeShortAnswerGateway());
 
         var result = await service.SubmitAsync(new SubmitAnswerCommand(
-            "0.2.0", "55555555-5555-4555-8555-555555555555", "quiz-1", "question-1", "option-missing", null), CancellationToken.None);
+            "0.3.0", "55555555-5555-4555-8555-555555555555", "quiz-1", "question-1", "option-missing", null), CancellationToken.None);
 
         Assert.Null(result.Grade);
         Assert.Equal(400, result.StatusCode);
@@ -133,7 +133,7 @@ public class AssessmentHistoryModuleTests
             new AssessmentHistoryDbContext(db), new FakeQuestionReader(), new InvalidShortAnswerGateway());
 
         var result = await service.SubmitAsync(new SubmitAnswerCommand(
-            "0.2.0", "66666666-6666-4666-8666-666666666666", "quiz-1", "question-short", null, "An answer"), CancellationToken.None);
+            "0.3.0", "66666666-6666-4666-8666-666666666666", "quiz-1", "question-short", null, "An answer"), CancellationToken.None);
 
         Assert.Null(result.Grade);
         Assert.Equal(503, result.StatusCode);
@@ -154,7 +154,7 @@ public class AssessmentHistoryModuleTests
         var gateway = new ShortAnswerGradingClient(httpClient, configuration);
 
         var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
-            "0.2.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
+            "0.3.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -173,7 +173,7 @@ public class AssessmentHistoryModuleTests
         var gateway = new ShortAnswerGradingClient(httpClient, configuration);
 
         var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
-            "0.2.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
+            "0.3.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -193,10 +193,10 @@ public class AssessmentHistoryModuleTests
         var gateway = new ShortAnswerGradingClient(httpClient, configuration);
 
         var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
-            "0.2.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
+            "0.3.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Contains("\"contractVersion\":\"0.2.0\"", handler.RequestBody ?? string.Empty);
+        Assert.Contains("\"contractVersion\":\"0.3.0\"", handler.RequestBody ?? string.Empty);
     }
 
     private sealed class FakeQuestionReader : IQuestionAssessmentReader

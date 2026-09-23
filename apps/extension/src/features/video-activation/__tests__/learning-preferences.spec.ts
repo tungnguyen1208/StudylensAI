@@ -47,6 +47,11 @@ describe('learning preferences storage', () => {
       questionType: 'multipleChoice',
       difficulty: 'easy',
     })).rejects.toBeInstanceOf(LearningPreferencesValidationError);
+    await expect(saveLearningPreferences(storage, {
+      quizIntervalMinutes: 10,
+      questionType: 'trueFalse',
+      difficulty: 'medium',
+    })).rejects.toBeInstanceOf(LearningPreferencesValidationError);
     expect(writes).toHaveLength(1);
   });
 });

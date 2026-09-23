@@ -1,5 +1,5 @@
 {
-  "contractVersion": "0.2.0",
+  "contractVersion": "0.3.0",
   "clientAttemptId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   "questionId": "55555555-5555-4555-8555-555555555555",
   "answerText": "Địa chỉ IP định danh thiết bị hoặc giao diện mạng để định tuyến dữ liệu."

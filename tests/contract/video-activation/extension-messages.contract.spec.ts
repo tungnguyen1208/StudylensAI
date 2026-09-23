@@ -13,13 +13,13 @@ const videoContextUnavailableFixture = JSON.parse(readFileSync(`${repoRoot}/cont
 const ajv = new Ajv({ strict: true });
 addFormats(ajv);
 const validate = ajv.compile(schema);
-const envelope = { contractVersion: '0.2.0', correlationId: 'c-1', tabId: 7, youtubeVideoId: 'dQw4w9WgXcQ', occurredAtUtc: '2026-09-20T10:00:00.000Z' };
+const envelope = { contractVersion: '0.3.0', correlationId: 'c-1', tabId: 7, youtubeVideoId: 'dQw4w9WgXcQ', occurredAtUtc: '2026-09-20T10:00:00.000Z' };
 
-describe('persistent activation extension message contract 0.2.0', () => {
+describe('persistent activation extension message contract 0.3.0', () => {
   it('validates explicit enable and disable envelopes', () => {
     expect(validate({ ...envelope, type: 'ACTIVATION_ENABLED', payload: {
       activationId: 'a-1', source: 'user', videoTitle: 'Networking lesson',
-      transcriptSnapshot: { transcriptSnapshotId: 'snapshot-1', youtubeVideoId: 'dQw4w9WgXcQ', language: 'en', status: 'available', contentHash: 'a'.repeat(64), version: '0.2.0' },
+      transcriptCapture: { transcriptCaptureId: 'capture-1', youtubeVideoId: 'dQw4w9WgXcQ', language: 'en', source: 'tabAudioStt', status: 'available', availableCueCount: 1, version: 1 },
       preferences: { quizIntervalMinutes: 10, questionType: 'multipleChoice', difficulty: 'medium' },
     } }), JSON.stringify(validate.errors)).toBe(true);
     expect(validate({ ...envelope, type: 'ACTIVATION_DISABLED', payload: { reasonCode: 'userDisabled' } }), JSON.stringify(validate.errors)).toBe(true);
@@ -30,8 +30,8 @@ describe('persistent activation extension message contract 0.2.0', () => {
   });
   it('validates recoverable operation status without exposing implementation details', () => {
     expect(validate({ ...envelope, type: 'OPERATION_STATUS_CHANGED', payload: {
-      operation: 'transcriptUpload', state: 'failed', code: 'NETWORK_ERROR',
-      message: 'Không thể gửi transcript tới Backend.', retryable: true, traceId: 'trace-1',
+      operation: 'audioTranscription', state: 'failed', code: 'audioChunkUploadFailed',
+      message: 'Không thể gửi audio tới Backend.', retryable: true, traceId: 'trace-1',
     } }), JSON.stringify(validate.errors)).toBe(true);
     expect(validate({ ...envelope, type: 'OPERATION_STATUS_CHANGED', payload: {
       operation: 'transcriptUpload', state: 'failed', message: 'Lỗi', retryable: 'yes',

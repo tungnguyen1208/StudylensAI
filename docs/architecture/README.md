@@ -4,7 +4,7 @@
 
 ## 1. Overview
 
-**StudyLens AI** is an active learning companion for YouTube Web. A learner's persistent ON/OFF choice is the activation gate. ON starts a flow for the current YouTube watch page; while ON, a supported SPA video transition closes the old flow and captures the replacement page. Player events, normalized transcript segments, and AI-generated quizzes are processed only while a flow is active.
+**StudyLens AI** is an active learning companion for YouTube Web. A learner's persistent ON/OFF choice is the activation gate. ON starts a flow for the current YouTube watch page; while ON, a supported SPA video transition closes the old flow and captures the replacement page. Player events, tab-audio STT cues, and AI-generated quizzes are processed only while a flow is active.
 
 The current implementation decision is recorded in [v1.2 specification and source alignment](spec-source-alignment-v1.2.md). The controlled transition coordinator observes supported YouTube SPA video-ID changes only while StudyLens is ON. It does not classify videos and never changes the persisted ON/OFF setting by itself.
 
@@ -18,7 +18,7 @@ flowchart TD
     EXT -->|HTTP REST / Public API| API[ASP.NET Core 8 Web API<br/>Modular Monolith]
     API -->|EF Core / SQLite| DB[(SQLite Database<br/>studylens.db)]
     API -->|Internal HTTP REST| AI[FastAPI AI Service<br/>Python 3.12+]
-    AI -->|Deterministic local logic| FAKE[Fake question and grading]
+    AI -->|Fake or cloud provider| FAKE[Question, grading and STT adapters]
 ```
 
 ### Architectural Principles
@@ -34,7 +34,7 @@ flowchart TD
 
 3. **Stateless AI Service**:
    - FastAPI is strictly stateless. It does not store user sessions or database state.
-   - The AI service accepts structured payloads and returns validated deterministic fake results in the current baseline; it stores no session or application data and uses no API key.
+   - The AI service accepts structured payloads and returns validated results. For tab-audio STT it receives an in-flight chunk only, discards it after the request, and stores no session or application data.
 
 4. **Independent Vertical Ownership**:
    - The monorepo is divided into 3 vertical business modules (`Dev 1`, `Dev 2`, `Dev 3`).
@@ -50,7 +50,7 @@ flowchart LR
         direction TB
         E1[apps/extension/.../video-activation]
         B1[Extension local activation and learning preferences]
-        A1[No classification AI feature]
+        A1[Tab audio STT; no classification AI]
     end
 
     subgraph Dev2["Dev 2: Session & Quiz"]
@@ -67,12 +67,12 @@ flowchart LR
         A3[services/ai/.../features/grading]
     end
 
-    Dev1 -->|VIDEO_CONTEXT_CHANGED then ACTIVATION_ENABLED + transcript ref| Dev2
+    Dev1 -->|VIDEO_CONTEXT_CHANGED then ACTIVATION_ENABLED + capture ref| Dev2
     Dev2 -->|QUIZ_AVAILABLE| Dev3
     Dev3 -->|SEEK_REQUEST| Dev1
 ```
 
-- **Dev 1 (Persistent Activation)**: persistent ON/OFF, local learning preferences, controlled supported-video transitions while ON, PlayerPort, and passive transcript acquisition. There is no video classification.
+- **Dev 1 (Persistent Activation)**: persistent ON/OFF, local learning preferences, learner-approved tab-audio STT, controlled supported-video transitions while ON and PlayerPort. There is no video classification or microphone capture.
 - **Unsupported-page behavior**: `VIDEO_CONTEXT_UNAVAILABLE` closes only the
   prior page flow when ON navigation leaves `/watch`; global ON waits for a
   later supported capture and is never silently persisted OFF.
@@ -83,6 +83,6 @@ flowchart LR
 
 ## 4. Cross-Module Seams
 
-- **Dev 1 → Dev 2**: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, and normalized player events. The transition identifies the prior activation; the enable envelope carries the replacement YouTube ID only after valid transcript evidence. Dev 2 does not read YouTube DOM or raw transcript sources directly.
+- **Dev 1 → Dev 2**: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptCaptureRef`, `PreferenceSnapshot`, and normalized player events. The transition identifies the prior activation; the enable envelope carries the replacement YouTube ID only after valid STT evidence. Dev 2 reads available cues only through the Backend port and never reads raw audio or YouTube DOM.
 - **Dev 2 → Dev 3**: `QUIZ_AVAILABLE` carries `QuestionPublic` to the Extension. The Backend separately reads the server-only `QuestionForAssessment` port to grade an answer; private answer keys and reference answers never cross to the Extension.
 - **Dev 3 → Dev 1**: `SEEK_REQUEST` event. Dev 3 dispatches seek requests; only Dev 1's player adapter interacts with the YouTube player.

@@ -5,6 +5,8 @@ export type {
   PreferenceSnapshot,
   QuestionType,
   QuizIntervalMinutes,
+  TranscriptCaptureRef,
+  TranscriptSource,
   TranscriptSnapshotRef,
   TranscriptSnapshotStatus,
 } from './activation-handoff';

@@ -1,17 +1,18 @@
 {
-  "contractVersion": "0.2.0",
+  "contractVersion": "0.3.0",
   "youtubeVideoId": "dQw4w9WgXcQ",
   "activation": {
     "activationId": "11111111-1111-4111-8111-111111111111",
     "source": "user",
     "videoTitle": "Networking lesson",
-    "transcriptSnapshot": {
-      "transcriptSnapshotId": "22222222-2222-4222-8222-222222222222",
+    "transcriptCapture": {
+      "transcriptCaptureId": "22222222-2222-4222-8222-222222222222",
       "youtubeVideoId": "dQw4w9WgXcQ",
       "language": "vi",
+      "source": "tabAudioStt",
       "status": "available",
-      "contentHash": "419fedf08da0041723c3c9928e9568d3420a8ec3227c48697938546a8f514373",
-      "version": "0.2.0"
+      "availableCueCount": 3,
+      "version": 1
     },
     "preferences": { "quizIntervalMinutes": 10, "questionType": "multipleChoice", "difficulty": "medium" }
   }

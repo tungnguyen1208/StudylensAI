@@ -5,6 +5,7 @@ from app.platform.config import settings
 from app.platform.health import router as health_router
 from app.features.question_generation.router import router as question_generation_router
 from app.features.grading.router import router as grading_router
+from app.features.transcription.router import router as transcription_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -24,10 +25,11 @@ app.add_middleware(
 # Register Health Router
 app.include_router(health_router)
 
-# Register the AI-owned vertical feature routers. Persistent Activation has no
-# FastAPI feature: Dev 1 never classifies a video's subject matter in v1.2.
+# Register the AI-owned vertical feature routers. Persistent Activation owns
+# learner-approved tab-audio transcription only; video classification remains absent.
 app.include_router(question_generation_router)
 app.include_router(grading_router)
+app.include_router(transcription_router)
 
 if __name__ == "__main__":
     import uvicorn

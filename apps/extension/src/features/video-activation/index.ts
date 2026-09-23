@@ -12,7 +12,7 @@ export interface VideoActivationFeatureMetadata {
 export function registerVideoActivationFeature(): VideoActivationFeatureMetadata {
   return {
     name: 'video-activation',
-    version: '0.2.0',
+    version: '0.3.0',
     owner: 'Dev 1',
   };
 }
@@ -22,6 +22,7 @@ export type { TranscriptSnapshotRef } from './models/video-activation.types';
 export { ActivationStatus } from './components/ActivationStatus';
 export { ActivationToggle } from './components/ActivationToggle';
 export { LearningPreferencesForm } from './components/LearningPreferencesForm';
+export { TranscriptPreview } from './components/TranscriptPreview';
 export { ManualActivationManager } from './services/activation-manager';
 export { initialActivationState } from './state/activation-reducer';
 export { applyVideoActivationMessage } from './state/side-panel-activation';
@@ -32,3 +33,4 @@ export {
   isLearningPreferences,
 } from './models/learning-preferences';
 export type { LearningPreferences } from './models/learning-preferences';
+export type { TranscriptCaptureDetails } from './models/video-activation.types';

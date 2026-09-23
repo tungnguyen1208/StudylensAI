@@ -204,19 +204,19 @@ internal sealed class SegmentTestContext
     private const string DefaultClientSegmentId = "44444444-4444-4444-8444-444444444444";
 
     private readonly StudySessionService _sessions = new();
-    private readonly FakeTranscriptSnapshotReader _reader;
+    private readonly FakeTranscriptCaptureReader _reader;
     private readonly CreateSegmentHandler _handler;
     private readonly string _sessionId;
 
     private SegmentTestContext(TranscriptSnapshotForSession? transcript, bool attachSnapshot)
     {
-        _reader = new FakeTranscriptSnapshotReader(transcript);
+        _reader = new FakeTranscriptCaptureReader(transcript);
         _handler = new CreateSegmentHandler(_sessions, new InMemorySegmentStore(), _reader);
         var start = _sessions.Start(new StartStudySessionCommand(
             "11111111-1111-4111-8111-111111111111",
             "active",
             "dQw4w9WgXcQ",
-            attachSnapshot ? transcript?.TranscriptSnapshotId ?? "22222222-2222-4222-8222-222222222222" : null,
+            attachSnapshot ? "22222222-2222-4222-8222-222222222222" : null,
             10,
             "multipleChoice",
             "medium"));
@@ -249,18 +249,19 @@ internal sealed class SegmentTestContext
     }
 }
 
-internal sealed class FakeTranscriptSnapshotReader : ITranscriptSnapshotReader
+internal sealed class FakeTranscriptCaptureReader : ITranscriptCaptureReader
 {
-    private readonly TranscriptSnapshotForSession? _snapshot;
+    private readonly TranscriptCaptureForSession? _capture;
 
-    public FakeTranscriptSnapshotReader(TranscriptSnapshotForSession? snapshot) => _snapshot = snapshot;
+    public FakeTranscriptCaptureReader(TranscriptSnapshotForSession? snapshot) => _capture = snapshot is null ? null : new TranscriptCaptureForSession(
+        "22222222-2222-4222-8222-222222222222", snapshot.YoutubeVideoId, snapshot.Language, snapshot.Status.ToString().ToLowerInvariant(), 1, snapshot.Cues);
 
     public int Reads { get; private set; }
 
-    public Task<TranscriptSnapshotForSession?> GetForSessionAsync(string transcriptSnapshotId, CancellationToken cancellationToken)
+    public Task<TranscriptCaptureForSession?> GetForSessionAsync(string transcriptCaptureId, CancellationToken cancellationToken)
     {
         Reads += 1;
-        return Task.FromResult(_snapshot);
+        return Task.FromResult(_capture);
     }
 }
 

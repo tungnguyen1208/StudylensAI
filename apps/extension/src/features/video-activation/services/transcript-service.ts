@@ -5,10 +5,14 @@ import {
   TranscriptSnapshotRef,
 } from '../models/video-activation.types';
 
-export class TranscriptService {
-  private readonly api: VideoActivationApi;
+export interface TranscriptSnapshotApiPort {
+  createTranscriptSnapshot(request: CreateTranscriptSnapshotRequest): Promise<TranscriptSnapshotRef>;
+}
 
-  public constructor(api: VideoActivationApi = new VideoActivationApi()) {
+export class TranscriptService {
+  private readonly api: TranscriptSnapshotApiPort;
+
+  public constructor(api: TranscriptSnapshotApiPort = new VideoActivationApi()) {
     this.api = api;
   }
 

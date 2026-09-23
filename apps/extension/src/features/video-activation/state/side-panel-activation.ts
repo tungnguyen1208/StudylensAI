@@ -14,9 +14,9 @@ export function applyVideoActivationMessage(
       context: { tabId: message.tabId, youtubeVideoId: message.youtubeVideoId, title },
     });
     next = activationReducer(next, { type: 'manualOn' });
-    const transcriptSnapshot = getTranscriptSnapshot(message.payload);
-    if (transcriptSnapshot) {
-      next = activationReducer(next, { type: 'transcriptUpdated', transcriptSnapshot });
+    const transcriptCapture = getTranscriptCapture(message.payload);
+    if (transcriptCapture) {
+      next = activationReducer(next, { type: 'transcriptCaptureUpdated', transcriptCapture });
     }
     return next;
   }
@@ -34,29 +34,30 @@ export function applyVideoActivationMessage(
   }
   if (message.type === 'VIDEO_CONTEXT_UNAVAILABLE') {
     // This is not a learner OFF. Keep the UI ON but explain that page flow waits.
-    return { ...state, context: null, transcriptSnapshot: null, status: 'active', errorCode: 'unsupportedWatchPage' };
+    return { ...state, context: null, transcriptCapture: null, status: 'active', errorCode: 'unsupportedWatchPage' };
   }
   return state;
 }
 
-function getTranscriptSnapshot(payload: unknown) {
+function getTranscriptCapture(payload: unknown) {
   if (!payload || typeof payload !== 'object') return null;
-  const snapshot = (payload as { transcriptSnapshot?: unknown }).transcriptSnapshot;
-  if (!snapshot || typeof snapshot !== 'object') return null;
-  const value = snapshot as {
-    transcriptSnapshotId?: unknown; youtubeVideoId?: unknown; language?: unknown;
-    status?: unknown; version?: unknown; contentHash?: unknown;
+  const capture = (payload as { transcriptCapture?: unknown }).transcriptCapture;
+  if (!capture || typeof capture !== 'object') return null;
+  const value = capture as {
+    transcriptCaptureId?: unknown; youtubeVideoId?: unknown; language?: unknown;
+    source?: unknown; status?: unknown; version?: unknown; availableCueCount?: unknown;
   };
-  if (typeof value.transcriptSnapshotId !== 'string' || typeof value.youtubeVideoId !== 'string' ||
-    typeof value.language !== 'string' || typeof value.version !== 'string' ||
-    !['available', 'unavailable', 'insufficient'].includes(String(value.status))) return null;
+  if (typeof value.transcriptCaptureId !== 'string' || typeof value.youtubeVideoId !== 'string' ||
+    typeof value.language !== 'string' || value.source !== 'tabAudioStt' || typeof value.version !== 'number' ||
+    typeof value.availableCueCount !== 'number' || !['pending', 'available', 'insufficient'].includes(String(value.status))) return null;
   return {
-    transcriptSnapshotId: value.transcriptSnapshotId,
+    transcriptCaptureId: value.transcriptCaptureId,
     youtubeVideoId: value.youtubeVideoId,
     language: value.language,
-    status: value.status as 'available' | 'unavailable' | 'insufficient',
+    source: 'tabAudioStt' as const,
+    status: value.status as 'pending' | 'available' | 'insufficient',
     version: value.version,
-    ...(typeof value.contentHash === 'string' ? { contentHash: value.contentHash } : {}),
+    availableCueCount: value.availableCueCount,
   };
 }
 

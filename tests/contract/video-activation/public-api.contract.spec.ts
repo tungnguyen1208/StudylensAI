@@ -12,7 +12,10 @@ const parseYaml = extensionRequire('yaml').parse as (source: string) => unknown;
 
 interface OpenApiContract {
   components: { schemas: Record<string, unknown> };
-  paths: Record<string, { post: { operationId: string; responses: Record<string, unknown> } }>;
+  paths: Record<string, {
+    post?: { operationId: string; responses: Record<string, unknown> };
+    get?: { operationId: string; responses: Record<string, unknown> };
+  }>;
 }
 
 const contract = parseYaml(
@@ -28,9 +31,33 @@ function validatorFor(schemaName: string) {
   return ajv.compile({ $defs: definitions, $ref: `#/$defs/${schemaName}` });
 }
 
-describe('video activation public API contract 0.1.0', () => {
+describe('video activation public API contract 0.3.0', () => {
+  it('defines the idempotent tab-audio capture and append-only chunk endpoints', () => {
+    const create = contract.paths['/api/video-activation/transcript-captures'].post!;
+    const append = contract.paths['/api/video-activation/transcript-captures/{captureId}/audio-chunks'].post!;
+    expect(create.operationId).toBe('createTranscriptCapture');
+    expect(append.operationId).toBe('appendTranscriptAudioChunk');
+    expect(Object.keys(append.responses)).toEqual(expect.arrayContaining(['200', '400', '404', '409', '502']));
+  });
+
+  it('defines a cue-only transcript preview endpoint without raw audio', () => {
+    const operation = contract.paths['/api/video-activation/transcript-captures/{captureId}'].get!;
+    const fixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/transcript-capture-details.json`, 'utf8'));
+    expect(operation.operationId).toBe('getTranscriptCaptureDetails');
+    expect(validatorFor('TranscriptCaptureDetails')(fixture)).toBe(true);
+    expect(JSON.stringify(fixture)).not.toContain('audio');
+  });
+
+  it('validates capture creation and chunk-progress fixtures without an audio blob', () => {
+    const capture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/transcript-capture-created.json`, 'utf8'));
+    const progress = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/audio-chunk-progress.json`, 'utf8'));
+    expect(validatorFor('TranscriptCaptureRef')(capture)).toBe(true);
+    expect(validatorFor('TranscriptCaptureProgress')(progress)).toBe(true);
+    expect(JSON.stringify(progress)).not.toContain('audio');
+  });
+
   it('defines the idempotent transcript snapshot endpoint', () => {
-    const operation = contract.paths['/api/video-activation/transcript-snapshots'].post;
+    const operation = contract.paths['/api/video-activation/transcript-snapshots'].post!;
     expect(operation.operationId).toBe('createTranscriptSnapshot');
     expect(Object.keys(operation.responses)).toEqual(expect.arrayContaining(['200', '400', '409']));
   });

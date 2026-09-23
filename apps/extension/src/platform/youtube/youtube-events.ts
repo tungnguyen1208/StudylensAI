@@ -31,7 +31,7 @@ export function createVideoActivationMessage<TPayload>(
 ): ExtensionMessage<TPayload> {
   return {
     type,
-    contractVersion: '0.2.0',
+    contractVersion: '0.3.0',
     correlationId: context.correlationId,
     tabId: context.tabId,
     youtubeVideoId: context.youtubeVideoId,

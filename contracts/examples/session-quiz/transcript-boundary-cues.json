@@ -3,7 +3,7 @@
   "youtubeVideoId": "dQw4w9WgXcQ",
   "language": "en",
   "status": "available",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "contentHash": "5f2b1f4a5c3d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
   "scenario": "overlapping cues, cue touching the span end, and a cue far outside every watched span",
   "playbackSpans": [{ "startMs": 5000, "endMs": 20000 }],

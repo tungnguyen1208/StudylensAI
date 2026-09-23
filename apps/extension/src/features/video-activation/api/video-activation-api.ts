@@ -1,10 +1,17 @@
 import {
+  CreateTranscriptCaptureRequest,
   CreateTranscriptSnapshotRequest,
+  TranscriptCaptureDetails,
+  TranscriptCaptureProgress,
+  TranscriptCaptureRef,
   TranscriptSnapshotRef,
+  UploadTranscriptAudioChunkRequest,
 } from '../models/video-activation.types';
 
 export interface VideoActivationHttpClient {
+  get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
+  postForm<T>(path: string, body: FormData): Promise<T>;
 }
 
 export class VideoActivationApiError extends Error {
@@ -68,6 +75,48 @@ class FetchVideoActivationHttpClient implements VideoActivationHttpClient {
       clearTimeout(timeoutId);
     }
   }
+
+  public async get<T>(path: string): Promise<T> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch(`${this.baseUrl}/${path.replace(/^\/+/, '')}`, { signal: controller.signal });
+      if (!response.ok) {
+        const error = await readError(response);
+        throw new VideoActivationApiError(error.code, response.status, error.message, error.retryable, error.traceId);
+      }
+      return (await response.json()) as T;
+    } catch (error: unknown) {
+      if (error instanceof VideoActivationApiError) throw error;
+      const timeout = error instanceof DOMException && error.name === 'AbortError';
+      throw new VideoActivationApiError(timeout ? 'requestTimeout' : 'networkError', timeout ? 408 : 0,
+        timeout ? 'Transcript preview timed out.' : 'Transcript preview could not be loaded.', true);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  public async postForm<T>(path: string, body: FormData): Promise<T> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45_000);
+    try {
+      const response = await fetch(`${this.baseUrl}/${path.replace(/^\/+/, '')}`, {
+        method: 'POST', body, signal: controller.signal,
+      });
+      if (!response.ok) {
+        const error = await readError(response);
+        throw new VideoActivationApiError(error.code, response.status, error.message, error.retryable, error.traceId);
+      }
+      return (await response.json()) as T;
+    } catch (error: unknown) {
+      if (error instanceof VideoActivationApiError) throw error;
+      const timeout = error instanceof DOMException && error.name === 'AbortError';
+      throw new VideoActivationApiError(timeout ? 'requestTimeout' : 'audioChunkUploadFailed', timeout ? 408 : 0,
+        timeout ? 'Audio transcription timed out.' : 'Audio transcription upload failed.', true);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 export class VideoActivationApi {
@@ -83,6 +132,29 @@ export class VideoActivationApi {
     return this.client.post<TranscriptSnapshotRef>(
       '/api/video-activation/transcript-snapshots',
       request,
+    );
+  }
+
+  public createTranscriptCapture(request: CreateTranscriptCaptureRequest): Promise<TranscriptCaptureRef> {
+    return this.client.post<TranscriptCaptureRef>('/api/video-activation/transcript-captures', request);
+  }
+
+  public getTranscriptCaptureDetails(captureId: string): Promise<TranscriptCaptureDetails> {
+    return this.client.get<TranscriptCaptureDetails>(
+      `/api/video-activation/transcript-captures/${encodeURIComponent(captureId)}`,
+    );
+  }
+
+  public uploadAudioChunk(request: UploadTranscriptAudioChunkRequest): Promise<TranscriptCaptureProgress> {
+    const body = new FormData();
+    body.set('idempotencyKey', request.idempotencyKey);
+    body.set('chunkIndex', String(request.chunkIndex));
+    body.set('startMs', String(request.startMs));
+    body.set('endMs', String(request.endMs));
+    body.set('mimeType', request.mimeType);
+    body.set('audio', request.audio, `chunk-${request.chunkIndex}.webm`);
+    return this.client.postForm<TranscriptCaptureProgress>(
+      `/api/video-activation/transcript-captures/${encodeURIComponent(request.captureId)}/audio-chunks`, body,
     );
   }
 }
