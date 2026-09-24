@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StudyLens.Api.Features.VideoActivation;
@@ -7,6 +8,8 @@ using StudyLens.Api.Features.VideoActivation.Api;
 using StudyLens.Api.Features.VideoActivation.Application.Contracts;
 using StudyLens.Api.Features.VideoActivation.Application.CreateTranscriptSnapshot;
 using StudyLens.Api.Features.VideoActivation.Domain;
+using StudyLens.Api.Features.VideoActivation.Infrastructure;
+using StudyLens.Api.Infrastructure.Persistence;
 using Xunit;
 
 namespace VideoActivation.Tests;
@@ -15,6 +18,32 @@ public class VideoActivationModuleTests
 {
     private const string VideoId = "dQw4w9WgXcQ";
     private const string ContentHash = "419fedf08da0041723c3c9928e9568d3420a8ec3227c48697938546a8f514373";
+
+    [Fact]
+    public async Task CaptionCapture_ShouldPersistAndReplayIdenticalCueRequest()
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>()
+            .UseSqlite("Data Source=:memory:").Options;
+        await using var db = new StudyLensDbContext(options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        var store = new SqliteTranscriptCaptureStore(db);
+        var cue = new StudyLens.Api.Features.VideoActivation.Api.TranscriptCue(1000, 4200, "A normalized caption cue.");
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes("1000|4200|A normalized caption cue."))).ToLowerInvariant();
+        var request = new CreateTranscriptCaptureRequest("caption:stable", VideoId, "en", "youtubeCaption", "available", hash, [cue]);
+        var context = new DefaultHttpContext();
+
+        var first = await TranscriptCaptureEndpoints.Create(request, store, context, CancellationToken.None);
+        var replay = await TranscriptCaptureEndpoints.Create(request, store, context, CancellationToken.None);
+
+        var firstRef = Assert.IsAssignableFrom<IValueHttpResult<TranscriptCaptureRef>>(first).Value;
+        var replayRef = Assert.IsAssignableFrom<IValueHttpResult<TranscriptCaptureRef>>(replay).Value;
+        Assert.NotNull(firstRef);
+        Assert.Equal(firstRef!.TranscriptCaptureId, replayRef!.TranscriptCaptureId);
+        Assert.Equal("youtubeCaption", firstRef.Source);
+        Assert.Equal("available", firstRef.Status);
+        Assert.Equal(1, firstRef.AvailableCueCount);
+    }
 
     [Fact]
     public void AddVideoActivationModule_ShouldRegisterPublicTranscriptReader()

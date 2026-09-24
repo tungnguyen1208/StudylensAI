@@ -1,0 +1,13 @@
+{
+  "contractVersion": "0.4.0",
+  "promptVersion": "0.4.0",
+  "questions": [
+    {
+      "type": "shortAnswer",
+      "prompt": "Hãy tóm tắt ý chính của đoạn transcript bằng lời của bạn.",
+      "referenceAnswer": "A valid transcript cue used as the only source evidence.",
+      "sourceStartMs": 0,
+      "sourceEndMs": 10000
+    }
+  ]
+}

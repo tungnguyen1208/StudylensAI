@@ -11,13 +11,13 @@ public sealed class CreateSegmentHandler
 {
     private readonly StudySessionService _sessions;
     private readonly ISegmentRepository _segments;
-    private readonly ITranscriptSnapshotReader _transcripts;
+    private readonly ITranscriptCaptureReader _transcripts;
     private readonly TimeProvider _time;
 
     public CreateSegmentHandler(
         StudySessionService sessions,
         ISegmentRepository segments,
-        ITranscriptSnapshotReader transcripts,
+        ITranscriptCaptureReader transcripts,
         TimeProvider? time = null)
     {
         _sessions = sessions;
@@ -50,7 +50,7 @@ public sealed class CreateSegmentHandler
             return CreateSegmentResult.Conflict("sessionCompleted", "A completed study session cannot accept new segments.");
         }
 
-        var transcript = await ReadTranscriptAsync(session.TranscriptSnapshotId, cancellationToken);
+        var transcript = await ReadTranscriptAsync(session.TranscriptCaptureId, cancellationToken);
         if (transcript.Error is { } transcriptError) return transcriptError;
 
         var cues = SegmentCueSelector.Select(transcript.Cues, command.PlaybackSpans);
@@ -83,31 +83,30 @@ public sealed class CreateSegmentHandler
     // ============================================================
 
     private async Task<(IReadOnlyList<StudySegmentCue> Cues, CreateSegmentResult? Error)> ReadTranscriptAsync(
-        string? transcriptSnapshotId,
+        string? transcriptCaptureId,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(transcriptSnapshotId))
+        if (string.IsNullOrWhiteSpace(transcriptCaptureId))
         {
-            return ([], CreateSegmentResult.Unprocessable("transcriptUnavailable", "The study session has no transcript snapshot."));
+            return ([], CreateSegmentResult.Unprocessable("transcriptUnavailable", "The study session has no transcript capture."));
         }
 
-        var snapshot = await _transcripts.GetForSessionAsync(transcriptSnapshotId, cancellationToken);
-        if (snapshot is null)
+        var capture = await _transcripts.GetForSessionAsync(transcriptCaptureId, cancellationToken);
+        if (capture is null)
         {
-            return ([], CreateSegmentResult.Unprocessable("transcriptUnavailable", "The referenced transcript snapshot was not found."));
+            return ([], CreateSegmentResult.Unprocessable("transcriptUnavailable", "The referenced transcript capture was not found."));
         }
 
-        if (snapshot.Status == TranscriptSnapshotStatus.Insufficient)
+        if (capture.Status == "insufficient")
         {
-            return ([], CreateSegmentResult.Unprocessable("transcriptInsufficient", "The transcript snapshot does not contain enough content."));
+            return ([], CreateSegmentResult.Unprocessable("transcriptInsufficient", "The transcript capture does not contain enough content."));
+        }
+        if (capture.Status != "available" || capture.Cues.Count == 0)
+        {
+            return ([], CreateSegmentResult.Unprocessable("transcriptUnavailable", "The transcript capture is not available for segmentation."));
         }
 
-        if (snapshot.Status != TranscriptSnapshotStatus.Available || snapshot.Cues.Count == 0)
-        {
-            return ([], CreateSegmentResult.Unprocessable("transcriptUnavailable", "The transcript snapshot is not available for segmentation."));
-        }
-
-        var cues = snapshot.Cues
+        var cues = capture.Cues
             .Select(cue => new StudySegmentCue(cue.TranscriptCueId, cue.StartMs, cue.EndMs, cue.Text))
             .ToArray();
         return (cues, null);

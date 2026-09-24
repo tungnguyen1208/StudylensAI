@@ -1,129 +1,83 @@
 openapi: 3.0.3
 info:
-  title: StudyLens Public API — Video Activation Module
-  version: 0.2.0
-  description: Public Extension-to-Backend contracts owned by Dev 1.
+  title: StudyLens Public API - Video Activation Module
+  version: 0.4.0
+  description: Extension submits normalized YouTube caption cues. Raw audio is never accepted.
 paths:
-  /api/video-activation/transcript-snapshots:
+  /api/video-activation/transcript-captures:
     post:
-      operationId: createTranscriptSnapshot
-      summary: Create or replay an idempotent transcript snapshot
+      operationId: createTranscriptCapture
+      summary: Persist an immutable YouTube caption capture idempotently
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/CreateTranscriptSnapshotRequest'
+            schema: { $ref: '#/components/schemas/CreateTranscriptCaptureRequest' }
       responses:
-        '200':
-          description: Snapshot created or an identical idempotent request replayed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TranscriptSnapshotRef'
-        '400':
-          description: Request validation failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '409':
-          description: The idempotency key was reused with a different payload
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
+        '200': { description: Created or identical replay, content: { application/json: { schema: { $ref: '#/components/schemas/TranscriptCaptureRef' } } } }
+        '400': { description: Invalid caption data, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '409': { description: Idempotency conflict, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /api/video-activation/transcript-captures/{captureId}:
+    get:
+      operationId: getTranscriptCaptureDetails
+      parameters:
+        - name: captureId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Persisted caption cues, content: { application/json: { schema: { $ref: '#/components/schemas/TranscriptCaptureDetails' } } } }
+        '404': { description: Capture not found, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
 components:
   schemas:
-    TranscriptSnapshotStatus:
-      type: string
-      enum: [available, unavailable, insufficient]
-    TranscriptSource:
-      type: string
-      enum: [youtubeCaption]
+    TranscriptSource: { type: string, enum: [youtubeCaption] }
+    TranscriptStatus: { type: string, enum: [available, unavailable, insufficient] }
     TranscriptCue:
       type: object
       additionalProperties: false
       required: [startMs, endMs, text]
       properties:
-        startMs:
-          type: integer
-          format: int64
-          minimum: 0
-        endMs:
-          type: integer
-          format: int64
-          minimum: 1
-        text:
-          type: string
-          minLength: 1
-    CreateTranscriptSnapshotRequest:
+        startMs: { type: integer, format: int64, minimum: 0 }
+        endMs: { type: integer, format: int64, minimum: 1 }
+        text: { type: string, minLength: 1 }
+    CreateTranscriptCaptureRequest:
       type: object
       additionalProperties: false
-      required:
-        - idempotencyKey
-        - youtubeVideoId
-        - language
-        - source
-        - status
-        - cues
+      required: [idempotencyKey, youtubeVideoId, language, source, status, cues]
       properties:
-        idempotencyKey:
-          type: string
-          minLength: 1
-        youtubeVideoId:
-          type: string
-          pattern: '^[A-Za-z0-9_-]{11}$'
-        language:
-          type: string
-          minLength: 2
-        source:
-          $ref: '#/components/schemas/TranscriptSource'
-        status:
-          $ref: '#/components/schemas/TranscriptSnapshotStatus'
-        contentHash:
-          type: string
-          pattern: '^[a-f0-9]{64}$'
-        cues:
-          type: array
-          items:
-            $ref: '#/components/schemas/TranscriptCue'
-    TranscriptSnapshotRef:
+        idempotencyKey: { type: string, minLength: 1 }
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        language: { type: string, minLength: 2 }
+        source: { $ref: '#/components/schemas/TranscriptSource' }
+        status: { $ref: '#/components/schemas/TranscriptStatus' }
+        contentHash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        cues: { type: array, items: { $ref: '#/components/schemas/TranscriptCue' } }
+    TranscriptCaptureRef:
       type: object
       additionalProperties: false
-      required:
-        - transcriptSnapshotId
-        - youtubeVideoId
-        - language
-        - status
-        - version
+      required: [transcriptCaptureId, youtubeVideoId, language, source, status, availableCueCount, version]
       properties:
-        transcriptSnapshotId:
-          type: string
-          format: uuid
-        youtubeVideoId:
-          type: string
-        language:
-          type: string
-        status:
-          $ref: '#/components/schemas/TranscriptSnapshotStatus'
-        contentHash:
-          type: string
-          nullable: true
-        version:
-          type: string
+        transcriptCaptureId: { type: string }
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        language: { type: string }
+        source: { $ref: '#/components/schemas/TranscriptSource' }
+        status: { $ref: '#/components/schemas/TranscriptStatus' }
+        availableCueCount: { type: integer, minimum: 0 }
+        version: { type: integer, minimum: 1 }
+    TranscriptCaptureDetails:
+      type: object
+      additionalProperties: false
+      required: [capture, cues]
+      properties:
+        capture: { $ref: '#/components/schemas/TranscriptCaptureRef' }
+        cues: { type: array, items: { $ref: '#/components/schemas/TranscriptCue' } }
     ErrorEnvelope:
       type: object
       additionalProperties: false
       required: [code, status, message, traceId, retryable]
       properties:
-        code:
-          type: string
-        status:
-          type: integer
-        message:
-          type: string
-        traceId:
-          type: string
-        retryable:
-          type: boolean
+        code: { type: string }
+        status: { type: integer }
+        message: { type: string }
+        traceId: { type: string }
+        retryable: { type: boolean }

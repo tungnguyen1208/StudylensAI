@@ -28,6 +28,7 @@ public sealed class AssessmentHistoryDbContext(StudyLensDbContext db)
 {
     public DbSet<AnswerAttemptEntity> AnswerAttempts => db.Set<AnswerAttemptEntity>();
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
+    public void Detach(AnswerAttemptEntity entity) => db.Entry(entity).State = EntityState.Detached;
 }
 
 public sealed class AnswerAttemptEntityConfiguration : IEntityTypeConfiguration<AnswerAttemptEntity>

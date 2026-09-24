@@ -13,7 +13,7 @@ public sealed class StudySessionService
         if (command.State != "active") return StudySessionResult.Invalid("activationInactive", "Only an active activation can start a session.");
         if (string.IsNullOrWhiteSpace(command.ActivationId) || string.IsNullOrWhiteSpace(command.YoutubeVideoId)) return StudySessionResult.Invalid("invalidSession", "Activation and YouTube video identifiers are required.");
         if (command.QuizIntervalMinutes is not (5 or 10 or 15)) return StudySessionResult.Invalid("invalidPreferences", "Quiz interval must be 5, 10, or 15 minutes.");
-        var candidate = new StudySession(Guid.NewGuid().ToString(), command.ActivationId, command.YoutubeVideoId, command.TranscriptSnapshotId, command.QuizIntervalMinutes, command.QuestionType, command.Difficulty, "active", 0, DateTimeOffset.UtcNow, null, null, null);
+        var candidate = new StudySession(Guid.NewGuid().ToString(), command.ActivationId, command.YoutubeVideoId, command.TranscriptCaptureId, command.QuizIntervalMinutes, command.QuestionType, command.Difficulty, "active", 0, DateTimeOffset.UtcNow, null, null, null);
         var stored = _byActivation.GetOrAdd(command.ActivationId, candidate);
         if (stored.YoutubeVideoId != command.YoutubeVideoId) return StudySessionResult.Conflict("activationConflict", "The activation was already used for another video.");
         _byId.TryAdd(stored.SessionId, stored);
@@ -35,7 +35,7 @@ public sealed class StudySessionService
     }
 }
 
-public sealed record StartStudySessionCommand(string ActivationId, string State, string YoutubeVideoId, string? TranscriptSnapshotId, int QuizIntervalMinutes, string QuestionType, string Difficulty);
+public sealed record StartStudySessionCommand(string ActivationId, string State, string YoutubeVideoId, string? TranscriptCaptureId, int QuizIntervalMinutes, string QuestionType, string Difficulty);
 public sealed record CompleteStudySessionCommand(string SessionId, string ClientCompletionId, string Reason, long ActiveStudyMs);
 public sealed record StudySessionResult(StudySession? Session, string? ErrorCode, string? ErrorMessage, int StatusCode)
 {

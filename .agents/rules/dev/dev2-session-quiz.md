@@ -31,7 +31,7 @@ tests/e2e/session-quiz/**
 
 ## Rules
 
-- Contract baseline is `0.2.0`; migrate legacy `0.1.0` artifacts only through an Integration Captain task.
+- Contract baseline is `0.4.0`; migrate legacy `0.1.0` artifacts only through an Integration Captain task.
 - Start only when `ExtensionActivationState.enabled` is true and an `ACTIVATION_ENABLED` handoff has a valid captured YouTube ID; close only the matching session on `VIDEO_CONTEXT_CHANGED` or `VIDEO_CONTEXT_UNAVAILABLE`.
 - Persist an immutable transcript/preference snapshot with the session. Read evidence only through Dev 1's `ITranscriptSnapshotReader`, never through YouTube DOM or Dev 1 internals.
 - Count active study time only while enabled and the player is actually playing. Pause, buffering, seek, ended, stale events, and unobserved service-worker downtime do not add time.

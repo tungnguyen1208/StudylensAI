@@ -4,7 +4,7 @@ public sealed record StudySession(
     string SessionId,
     string ActivationId,
     string YoutubeVideoId,
-    string? TranscriptSnapshotId,
+    string? TranscriptCaptureId,
     int QuizIntervalMinutes,
     string QuestionType,
     string Difficulty,

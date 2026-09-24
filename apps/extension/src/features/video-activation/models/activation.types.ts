@@ -1,4 +1,4 @@
-import type { TranscriptSnapshotRef } from '../../../shared/contracts/activation-handoff';
+import type { TranscriptCaptureRef } from '../../../shared/contracts/activation-handoff';
 import { DEFAULT_LEARNING_PREFERENCES } from './learning-preferences';
 
 export const DEFAULT_MANUAL_PREFERENCES = DEFAULT_LEARNING_PREFERENCES;
@@ -16,6 +16,6 @@ export type ActivationStoppedReason = 'userDisabled';
 export interface ActivationState {
   context: ActivationContext | null;
   status: 'off' | 'active';
-  transcriptSnapshot: TranscriptSnapshotRef | null;
+  transcriptCapture: TranscriptCaptureRef | null;
   errorCode: string | null;
 }

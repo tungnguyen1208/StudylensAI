@@ -14,17 +14,18 @@ public static class VideoActivationModule
         services.AddSingleton<ITranscriptSnapshotStore, InMemoryTranscriptSnapshotStore>();
         services.AddSingleton<CreateTranscriptSnapshotHandler>();
         services.AddSingleton<ITranscriptSnapshotReader, TranscriptSnapshotReader>();
+        services.AddScoped<SqliteTranscriptCaptureStore>();
+        services.AddScoped<ITranscriptCaptureReader>(provider => provider.GetRequiredService<SqliteTranscriptCaptureStore>());
         return services;
     }
 
     public static IEndpointRouteBuilder MapVideoActivationEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost(
-                "/api/video-activation/transcript-snapshots",
-                CreateTranscriptSnapshotEndpoint.HandleAsync)
-            .WithName("CreateTranscriptSnapshot")
-            .WithTags("Video Activation");
+        endpoints.MapPost("/api/video-activation/transcript-captures", TranscriptCaptureEndpoints.Create)
+            .WithName("CreateTranscriptCapture").WithTags("Video Activation");
+        endpoints.MapGet("/api/video-activation/transcript-captures/{captureId}", TranscriptCaptureEndpoints.Get)
+            .WithName("GetTranscriptCaptureDetails").WithTags("Video Activation");
         return endpoints;
     }
 }

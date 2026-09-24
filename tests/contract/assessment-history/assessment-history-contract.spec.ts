@@ -17,7 +17,7 @@ function validator(name) {
   return ajv.compile({ $defs: definitions, $ref: `#/$defs/${name}` });
 }
 
-describe('assessment history contract 0.2.0', () => {
+describe('assessment history contract 0.4.0', () => {
   it('validates the answer request and requires one answer shape', () => {
     const validate = validator('SubmitAnswerRequest');
     const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/submit-answer.request.json`, 'utf8'));
@@ -45,6 +45,6 @@ describe('assessment history contract 0.2.0', () => {
     expect(validateError({
       code: 'gradingUnavailable', status: 503, message: 'Answer grading is temporarily unavailable.', traceId: 'trace-123', retryable: true,
     }), JSON.stringify(validateError.errors)).toBe(true);
-    expect(validateError({ code: 'idempotencyConflict', status: 409, message: 'Conflict', retryable: false })).toBe(true);
+    expect(validateError({ code: 'idempotencyConflict', status: 409, message: 'Conflict', retryable: false })).toBe(false);
   });
 });

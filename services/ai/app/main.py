@@ -24,8 +24,8 @@ app.add_middleware(
 # Register Health Router
 app.include_router(health_router)
 
-# Register the AI-owned vertical feature routers. Persistent Activation has no
-# FastAPI feature: Dev 1 never classifies a video's subject matter in v1.2.
+# Register only AI-owned quiz generation and grading. Caption collection is
+# owned by Extension and Backend, never FastAPI.
 app.include_router(question_generation_router)
 app.include_router(grading_router)
 

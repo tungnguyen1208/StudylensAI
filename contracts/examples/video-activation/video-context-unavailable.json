@@ -1,6 +1,6 @@
 {
   "type": "VIDEO_CONTEXT_UNAVAILABLE",
-  "contractVersion": "0.2.0",
+  "contractVersion": "0.4.0",
   "correlationId": "transition-a-away-001",
   "tabId": 7,
   "youtubeVideoId": "dQw4w9WgXcQ",

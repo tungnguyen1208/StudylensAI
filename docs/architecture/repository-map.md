@@ -1,267 +1,44 @@
-# Sơ đồ chức năng file và thư mục — StudyLens AI
-
-> Cập nhật theo source và contract `0.2.0`. Đây là bản đồ kiến trúc đang chạy;
-> không mô tả output sinh tự động như `dist/`, `node_modules/`, `bin/`, `obj/`
-> hay cache test.
-
-## 1. Luồng nghiệp vụ hiện tại
-
-StudyLens uses the learner's persisted ON/OFF choice as its global gate. ON
-captures the current supported YouTube watch page, reads passive transcript DOM
-data, and starts a session only after Backend has an `available` transcript.
-While ON, a supported YouTube SPA A-to-B change emits `VIDEO_CONTEXT_CHANGED`,
-closes A through Dev 2, then captures B. Explicit OFF is the only action that
-persists OFF.
-
-```mermaid
-sequenceDiagram
-    actor U as Người học
-    participant SP as React Side Panel
-    participant CS as Content Script
-    participant API as ASP.NET Core
-    participant AI as FastAPI deterministic fake
-    participant DB as SQLite
-
-    U->>SP: Bật StudyLens
-    SP->>CS: Manual toggle đúng tab
-    CS->>API: POST transcript snapshot
-    alt transcript upload thành công
-        CS->>CS: ACTIVATION_ENABLED
-        CS->>API: Start session / create segment
-        API->>AI: Generate quiz fake
-        API-->>SP: QUIZ_AVAILABLE public data
-        U->>SP: Nộp đáp án
-        SP->>API: POST answer
-        API->>AI: Grade short answer fake (nếu cần)
-        API->>DB: Lưu quiz private material, answer, grade, history
-        API-->>SP: GradeView / history
-    else lỗi có thể phục hồi
-        CS-->>SP: OPERATION_STATUS_CHANGED + Retry
-    end
-```
-
-Các lỗi StudyLens không được pause, seek hoặc làm hỏng YouTube player.
-
-## 2. Ranh giới hệ thống
-
-```mermaid
-flowchart LR
-    YT[YouTube DOM and player] --> CS[Extension Content Script]
-    CS <--> SW[MV3 Service Worker]
-    SW <--> SP[React Side Panel]
-    CS -->|Public REST only| API[ASP.NET Core 8]
-    SP -->|Public REST only| API
-    API --> DB[(SQLite)]
-    API -->|Internal REST| AI[FastAPI deterministic fake]
-```
-
-- Extension chỉ gọi ASP.NET Core, không gọi FastAPI, LLM hay database.
-- ASP.NET Core sở hữu session, quiz private material, answer attempt, grade và
-  history. `ErrorEnvelope` là lỗi công khai duy nhất.
-- FastAPI stateless; hiện có question generation và short-answer grading
-  deterministic fake, không dùng API key hoặc LLM thật.
-- `contracts/` là source of truth cho các biên Extension–Backend,
-  Backend–FastAPI và message nội bộ Extension.
-
-## 3. Root và quy tắc
+# StudyLens AI repository map - contract 0.4.0
 
 ```text
-StudylensAI/
-├── AGENTS.md                         # Rulebook, scope, contracts, Definition of Done
-├── README.md                          # Onboarding, mô tả và lệnh chạy theo repo-relative
-├── .agents/rules/
-│   ├── common-dev-rules.md            # Quy tắc kỹ thuật chung
-│   ├── module-boundary-rules.md       # Ownership và HOT files
-│   └── dev/                           # Rule dọc Dev 1 / Dev 2 / Dev 3
-├── .codex/agents/                     # Profile Codex tương ứng các role
-├── contracts/                         # Source of truth API, schema, fixture
-├── apps/extension/                    # Manifest V3 + React/Vite Extension
-├── services/api/                      # ASP.NET Core modular monolith
-├── services/ai/                       # FastAPI stateless deterministic fake
-├── tests/contract/                    # Ajv/OpenAPI contract suites
-└── docs/architecture/                 # Kiến trúc, ADR, ownership và bản đồ này
-```
+apps/extension/src/
+  shell/                         Side Panel, service worker, content script wiring
+  platform/youtube/
+    transcript-reader.ts          captionTracks + Timedtext JSON3/XML parser
+    youtube-transcript-adapter.ts direct-first DOM transcript fallback
+    youtube-player-adapter.ts     normalized playback events
+  features/video-activation/     ON/OFF, preferences, caption upload/status
+  features/session-quiz/         session, timer, segment, quiz
+  features/assessment-history/   answer, grade, history
 
-Đọc `AGENTS.md`, rule gần nhất, `common-dev-rules.md` và
-`module-boundary-rules.md` trước khi sửa source. Bất cứ thay đổi
-API/DTO/schema nào phải cập nhật contract, fixture, producer, consumer và test
-trong cùng thay đổi.
+services/api/src/StudyLens.Api/Features/
+  VideoActivation/               caption capture validation + SQLite cues
+  SessionQuiz/                    frozen cue segment and FastAPI quiz gateway
+  AssessmentHistory/              grading/history persistence
 
-## 4. Extension — `apps/extension/src/`
+services/ai/app/features/
+  question_generation/            stateless quiz generation
+  grading/                        stateless short-answer grading
 
-```text
-shell/
-├── App.tsx                            # Side Panel: health, ON/OFF, quiz, grade/history, status card
-├── service-worker.ts                  # Persist ON/OFF, relay whitelist, route retry tới tab active
-├── content-script.ts                  # Bootstrap Persistent Activation + SessionQuiz runtime
-├── sidepanel-main.tsx                 # React entry
-└── sidepanel.css                      # Theme light/dark, typography và component style
-
-shared/
-├── http/http-client.ts                # fetch timeout + ErrorEnvelope -> HttpError
-└── messaging/
-    ├── message-bus.ts                 # Local and Chrome runtime publish/subscribe
-├── message-types.ts               # Envelope 0.2.0
-└── operation-status.ts            # Operation state/code/message/retryable/traceId
-
-shared/contracts/
-├── activation-handoff.ts          # Dev 1 -> Dev 2 public activation DTOs
-└── quiz-public.ts                 # Dev 2 -> Dev 3 public quiz DTOs
-
-platform/youtube/
-├── learning-target-capture.ts         # URL/title capture for ON and supported replacement pages
-├── youtube-player-adapter.ts          # Only PlayerPort owner of HTMLVideoElement
-└── youtube-transcript-adapter.ts      # Passive rendered-transcript DOM reader
-```
-
-### Dev 1 — `features/video-activation/`
-
-- `content-script-entry.ts`: coordinator for persistent lifecycle, supported
-  video transitions, passive transcript upload, player event forwarding, and retry.
-- `services/activation-manager.ts`: holds the page-local activation state,
-  snapshots preferences, emits `ACTIVATION_ENABLED` only after a valid
-  snapshot, and emits `ACTIVATION_DISABLED` on explicit OFF.
-- `services/youtube-spa-transition-observer.ts`: debounces YouTube navigation
-  while global ON is active; the content-script coordinator publishes
-  `VIDEO_CONTEXT_CHANGED` or `VIDEO_CONTEXT_UNAVAILABLE` before binding
-  replacement page resources.
-- `services/transcript-service.ts`: normalization/hash/idempotency request and
-  typed snapshot client.
-- `components/ActivationToggle.tsx` / `ActivationStatus.tsx`: pure Side Panel
-  presentation.
-- `models/learning-preferences.ts` / `components/LearningPreferencesForm.tsx`:
-  browser-local validated preferences and Side Panel controls; a saved change
-  applies to the next activation snapshot.
-- `DEV2_HANDOFF_WEEK2.md`: current Dev 1 → Dev 2 seam and retry order.
-
-### Dev 2 — `features/session-quiz/`
-
-- `services/session-quiz-runtime.ts`: consumes activation/player events,
-  creates session/segment/quiz and publishes operation statuses.
-- `services/session-manager.ts`, `study-timer.ts`, `playback-span-tracker.ts`,
-  `segment-manager.ts`: stateful logic with injected clock and idempotency.
-- `api/session-quiz-api.ts`: typed Extension → ASP.NET client.
-- `models/session-quiz-contracts.ts`: SessionQuiz-only request, segment and
-  session DTOs. Cross-module activation and quiz DTOs are in
-  `shared/contracts/`.
-
-### Dev 3 — `features/assessment-history/`
-
-- `api/assessment-history-api.ts`: typed answer submit and history load client.
-- `components/AssessmentPanel.tsx`: renders public questions, preserves a
-  failed draft, and submits through the Backend. Result and persistent history
-  render in their dedicated Side Panel tab.
-- `components/AnswerForm.tsx`, `GradeResult.tsx`, `HistoryPage.tsx`: public
-  answer, post-submit feedback and history presentation.
-- `state/`: local draft/validation/view state only; no answer key, reference
-  answer or rubric may exist before Backend returns a grade.
-
-## 5. Backend — `services/api/src/StudyLens.Api/`
-
-```text
-Program.cs                              # module registration, migrations, safe ErrorEnvelope middleware
-Infrastructure/Persistence/
-├── StudyLensDbContext.cs               # shared EF Core context; module configs auto-discovered
-└── Migrations/20260920230000_...cs     # SQLite quiz-private material + answer history
-
-Features/VideoActivation/
-├── Api/CreateTranscriptSnapshotEndpoint.cs
-├── Application/Contracts/ITranscriptSnapshotReader.cs
-└── Infrastructure/InMemoryTranscriptSnapshotStore.cs
-
-Features/SessionQuiz/
-├── Api/StudySessionEndpoints.cs, QuizEndpoints.cs
-├── Application/QuestionGenerationService.cs
-├── Application/Abstractions/IQuestionAssessmentReader.cs
-└── Infrastructure/SqliteQuestionAssessmentStore.cs
-
-Features/AssessmentHistory/
-├── Api/AssessmentHistoryEndpoints.cs   # answer and history routes
-├── Application/AssessmentHistoryService.cs
-├── Application/ShortAnswerGradingClient.cs
-└── Infrastructure/AssessmentHistoryDbContext.cs
-```
-
-| Route | Owner | Purpose |
-|---|---|---|
-| `POST /api/video-activation/transcript-snapshots` | Dev 1 | Idempotent transcript snapshot upload |
-| `POST /api/sessions`, `/complete`, `/segments` | Dev 2 | StudySession lifecycle and transcript-backed segments |
-| `POST /api/quizzes/generate`, `GET /api/quizzes/{quizId}` | Dev 2 | Generate/read public quiz; private grading material stays SQLite-only |
-| `POST /api/quizzes/{quizId}/answer` | Dev 3 | Idempotent MCQ or short-answer grade |
-| `GET /api/history`, `/api/history/videos/{youtubeVideoId}` | Dev 3 | Persistent answer/result history |
-
-`AssessmentHistoryService` grades MCQ with the server-only option key.
-Short answers call the deterministic FastAPI route using server-only reference
-answer. The extension never receives private quiz material before submit.
-
-## 6. FastAPI — `services/ai/app/`
-
-```text
-main.py                                 # router composition
-features/question_generation/router.py # deterministic fake question generator
-features/grading/router.py              # POST /api/ai/grading/short-answer
-features/*/tests/                       # Pydantic/schema behaviour tests
-```
-
-The grading request requires `questionId`, `prompt`, `referenceAnswer` and
-`answerText`; response is validated `outcome`, `score`, `referenceAnswer` and
-`explanation`. A timeout, connection error or invalid response is mapped by
-ASP.NET to retryable `gradingUnavailable` without leaking details.
-
-## 7. Contracts and tests
-
-```text
 contracts/
-├── public-api/
-│   ├── video-activation.yaml           # transcript snapshot API
-│   ├── session-quiz.yaml               # session, segment, public quiz API
-│   └── assessment-history.yaml         # answer, GradeView, history, ErrorEnvelope
-├── ai-api/
-│   ├── question-generation.yaml        # deterministic fake question generation
-│   └── grading.yaml                    # deterministic fake short-answer grading
-├── extension-messages/
-│   ├── video-activation.schema.json    # activation, transition, player, OPERATION_STATUS_CHANGED
-│   ├── session-quiz.schema.json        # QUIZ_AVAILABLE public payload
-│   └── assessment-history.schema.json  # answer/history operation-status shape
-└── examples/
-    └── assessment-history/             # safe public API fixtures only
-
-tests/contract/
-├── video-activation/                   # message and transcript API checks
-├── session-quiz/                       # public quiz and SessionQuiz contract checks
-└── assessment-history/                 # public answer/history and secret-leak checks
+  public-api/video-activation.yaml Extension-to-Backend caption capture API
+  ai-api/                          Backend-to-FastAPI quiz/grading APIs
+  extension-messages/              browser handoff schemas
+  examples/                        contract fixtures
 ```
 
-Contract baseline is `0.2.0`, camelCase, UTC timestamp and integer
-milliseconds. `OPERATION_STATUS_CHANGED` supports
-`transcriptUpload`, `sessionStart`, `segmentCreate`, `quizGenerate`,
-`answerSubmit` and `historyLoad`; the status card can show `code`, `message`,
-`traceId` and a Retry control only when `retryable` is true.
+The public caption API is:
 
-## 8. Verification and generated artifacts
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/video-activation/transcript-captures` | Validate and idempotently persist normalized YouTube caption cues |
+| `GET /api/video-activation/transcript-captures/{captureId}` | Side Panel cue preview |
 
-Run from the component directory so commands work across developer machines:
+New records have `source: youtubeCaption` and status `available`,
+`unavailable`, or `insufficient`. The retained `TranscriptAudioChunks` SQLite
+table is legacy-only; no current route writes WebM/Opus or calls a
+transcription provider.
 
-```powershell
-Set-Location apps/extension
-npm.cmd test
-npm.cmd run typecheck
-npm.cmd run build
-
-Set-Location ../..
-dotnet test .\services\api\StudyLens.sln
-
-Set-Location services/ai
-py -m pytest app -q
-```
-
-`apps/extension/dist/` is rebuilt by `npm.cmd run build`; load that directory
-as unpacked Chrome/Edge extension after every source change. Automated tests do
-not replace manual browser smoke for upload retry, persistent answer/history,
-Backend/FastAPI outage, A-to-B transition while ON, explicit OFF, and
-non-interference with YouTube playback.
-
-The build first emits `content-script.js` as one IIFE because Manifest V3
-content scripts are loaded as classic scripts. The build verification fails if
-that output contains an ESM `import`; reload the unpacked extension after a
-successful rebuild before manual browser smoke.
+Event ordering is `VIDEO_CONTEXT_CHANGED -> old session complete -> available
+caption capture -> ACTIVATION_ENABLED`. FastAPI is not a transcript source; it
+receives only a frozen segment from Backend to generate a quiz.

@@ -34,10 +34,10 @@ Rules:
 
 ## Contract Baseline
 
-Current architecture baseline: `0.2.0`.
+Current architecture baseline: `0.4.0`.
 
 `0.1.0` remains a legacy implementation baseline only until the explicit
-Persistent Activation migration is merged. Do not mix `0.1.0` and `0.2.0`
+Persistent Activation migration is merged. Do not mix `0.1.0` and `0.4.0`
 envelopes, DTOs, or fixtures inside one runtime flow.
 
 Shared API rules:

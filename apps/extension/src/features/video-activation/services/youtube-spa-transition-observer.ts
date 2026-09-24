@@ -10,6 +10,7 @@ export interface YoutubeSpaTransitionEnvironment {
   capture(): LearningTargetCaptureResult;
   addNavigationListener(type: YoutubeNavigationEvent, listener: () => void): void;
   removeNavigationListener(type: YoutubeNavigationEvent, listener: () => void): void;
+  observeTitleChange?(listener: () => void): () => void;
   schedule(listener: () => void): number;
   cancelSchedule(handle: number): void;
 }
@@ -23,6 +24,7 @@ export interface YoutubeSpaTransitionObserverOptions {
 export class YoutubeSpaTransitionObserver {
   private currentTarget: LearningTargetCapture | null = null;
   private scheduledHandle: number | null = null;
+  private stopObservingTitle: (() => void) | null = null;
   private started = false;
 
   public constructor(
@@ -36,6 +38,7 @@ export class YoutubeSpaTransitionObserver {
     this.currentTarget = initialTarget;
     this.environment.addNavigationListener('yt-navigate-finish', this.onNavigation);
     this.environment.addNavigationListener('popstate', this.onNavigation);
+    this.stopObservingTitle = this.environment.observeTitleChange?.(this.onNavigation) ?? null;
   }
 
   public dispose(): void {
@@ -43,6 +46,8 @@ export class YoutubeSpaTransitionObserver {
     this.started = false;
     this.environment.removeNavigationListener('yt-navigate-finish', this.onNavigation);
     this.environment.removeNavigationListener('popstate', this.onNavigation);
+    this.stopObservingTitle?.();
+    this.stopObservingTitle = null;
     if (this.scheduledHandle !== null) this.environment.cancelSchedule(this.scheduledHandle);
     this.scheduledHandle = null;
     this.currentTarget = null;
@@ -80,8 +85,24 @@ export function createBrowserYoutubeSpaTransitionObserver(
 ): YoutubeSpaTransitionObserver {
   return new YoutubeSpaTransitionObserver({
     capture: () => captureLearningTarget(window.location.href, document.title),
-    addNavigationListener: (type, listener) => window.addEventListener(type, listener),
-    removeNavigationListener: (type, listener) => window.removeEventListener(type, listener),
+    // YouTube can dispatch SPA events on document rather than window.
+    addNavigationListener: (type, listener) => {
+      window.addEventListener(type, listener);
+      document.addEventListener(type, listener);
+    },
+    removeNavigationListener: (type, listener) => {
+      window.removeEventListener(type, listener);
+      document.removeEventListener(type, listener);
+    },
+    observeTitleChange: (listener) => {
+      const observer = new MutationObserver(() => listener());
+      observer.observe(document.querySelector('title') ?? document.head, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+      return () => observer.disconnect();
+    },
     schedule: (listener) => window.setTimeout(listener, 200),
     cancelSchedule: (handle) => window.clearTimeout(handle),
   }, options);

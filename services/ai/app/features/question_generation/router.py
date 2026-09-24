@@ -1,88 +1,76 @@
-from fastapi import APIRouter
-from pydantic import BaseModel, Field, model_validator
+from typing import Callable, Coroutine
 
-router = APIRouter(prefix="/api/ai/question-generation", tags=["Question Generation (Dev 2)"])
+from fastapi import APIRouter, Depends, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
-class TranscriptCue(BaseModel):
-    startMs: int = Field(ge=0)
-    endMs: int = Field(gt=0)
-    text: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def end_must_follow_start(self):
-        if self.endMs <= self.startMs:
-            raise ValueError("endMs must be greater than startMs")
-        return self
-
-
-class QuestionGenerationRequest(BaseModel):
-    contractVersion: str
-    promptVersion: str
-    segmentId: str
-    youtubeVideoId: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
-    startMs: int = Field(ge=0)
-    endMs: int = Field(gt=0)
-    questionType: str
-    difficulty: str
-    cues: list[TranscriptCue] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_versions_and_range(self):
-        if self.contractVersion != "0.2.0" or self.promptVersion != "0.2.0":
-            raise ValueError("unsupported contract or prompt version")
-        if self.endMs <= self.startMs:
-            raise ValueError("endMs must be greater than startMs")
-        if self.questionType not in {"multipleChoice", "shortAnswer"}:
-            raise ValueError("unsupported questionType")
-        if self.difficulty not in {"easy", "medium", "hard"}:
-            raise ValueError("unsupported difficulty")
-        return self
+from app.features.question_generation.output_validator import InvalidAiOutputError
+from app.features.question_generation.schemas import (
+    AiErrorEnvelope,
+    QuestionGenerationRequest,
+    QuestionGenerationResponse,
+)
+from app.features.question_generation.service import (
+    InsufficientEvidenceRejected,
+    ProviderUnavailableError,
+    QuestionGenerationService,
+)
 
 
-class GeneratedOption(BaseModel):
-    optionId: str
-    text: str
+# ============================================================
+# contract-shaped validation errors
+# ============================================================
+
+def _envelope(status_code: int, code: str, message: str, retryable: bool) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content=AiErrorEnvelope(code=code, message=message, retryable=retryable).model_dump(),
+    )
 
 
-class GeneratedQuestion(BaseModel):
-    type: str
-    prompt: str
-    options: list[GeneratedOption] | None = None
-    correctOptionId: str | None = None
-    referenceAnswer: str | None = None
-    sourceStartMs: int
-    sourceEndMs: int
+class AiErrorRoute(APIRoute):
+    """Maps FastAPI validation failures onto the AiErrorEnvelope in the AI contract."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[None, None, Response]]:
+        handler = super().get_route_handler()
+
+        async def guarded(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                return _envelope(400, "invalidSegmentInput", "The question generation request is invalid.", False)
+
+        return guarded
 
 
-class QuestionGenerationResponse(BaseModel):
-    contractVersion: str = "0.2.0"
-    promptVersion: str = "0.2.0"
-    questions: list[GeneratedQuestion]
+router = APIRouter(
+    prefix="/api/ai/question-generation",
+    tags=["Question Generation (Dev 2)"],
+    route_class=AiErrorRoute,
+)
+
+
+# ============================================================
+# endpoint
+# ============================================================
+
+def get_service() -> QuestionGenerationService:
+    return QuestionGenerationService()
 
 
 @router.post("/generate", response_model=QuestionGenerationResponse)
-async def generate_questions(request: QuestionGenerationRequest) -> QuestionGenerationResponse:
-    """Deterministic fake provider for the Week 1 integration demo; no network or LLM key."""
-    first_cue = request.cues[0]
-    if request.questionType == "multipleChoice":
-        question = GeneratedQuestion(
-            type="multipleChoice",
-            prompt=f"Theo transcript, ý chính của đoạn '{first_cue.text}' là gì?",
-            options=[
-                GeneratedOption(optionId="option-a", text=first_cue.text),
-                GeneratedOption(optionId="option-b", text="Một chi tiết không xuất hiện trong đoạn học"),
-                GeneratedOption(optionId="option-c", text="Một kết luận không có bằng chứng"),
-            ],
-            correctOptionId="option-a",
-            sourceStartMs=first_cue.startMs,
-            sourceEndMs=first_cue.endMs,
-        )
-    else:
-        question = GeneratedQuestion(
-            type="shortAnswer",
-            prompt="Hãy tóm tắt ý chính của đoạn transcript bằng lời của bạn.",
-            referenceAnswer=first_cue.text,
-            sourceStartMs=first_cue.startMs,
-            sourceEndMs=first_cue.endMs,
-        )
-    return QuestionGenerationResponse(questions=[question])
+async def generate_questions(
+    request: QuestionGenerationRequest,
+    service: QuestionGenerationService = Depends(get_service),
+) -> Response:
+    try:
+        response = await service.generate(request)
+    except InsufficientEvidenceRejected as error:
+        return _envelope(400, error.code, error.message, False)
+    except InvalidAiOutputError as error:
+        return _envelope(422, error.code, error.message, False)
+    except ProviderUnavailableError as error:
+        return _envelope(503, error.code, error.message, True)
+
+    return JSONResponse(status_code=200, content=response.model_dump(exclude_none=True))

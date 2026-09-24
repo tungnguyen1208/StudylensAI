@@ -15,6 +15,7 @@ export interface PreferenceSnapshot {
 }
 
 export type TranscriptSnapshotStatus = 'available' | 'unavailable' | 'insufficient';
+export type TranscriptSource = 'youtubeCaption';
 
 export interface TranscriptSnapshotRef {
   transcriptSnapshotId: string;
@@ -30,10 +31,24 @@ export type AvailableTranscriptSnapshotRef = TranscriptSnapshotRef & {
   contentHash: string;
 };
 
+/**
+ * A capture references the immutable caption cue set persisted by Backend.
+ * Dev 2 freezes the relevant cue range when it creates a segment.
+ */
+export interface TranscriptCaptureRef {
+  transcriptCaptureId: string;
+  youtubeVideoId: string;
+  language: string;
+  source: TranscriptSource;
+  status: 'available' | 'unavailable' | 'insufficient';
+  availableCueCount: number;
+  version: number;
+}
+
 export interface ActivationEnabledPayload {
   activationId: string;
   source: 'user' | 'storageRestore';
   videoTitle: string;
-  transcriptSnapshot: AvailableTranscriptSnapshotRef;
+  transcriptCapture: TranscriptCaptureRef & { status: 'available' };
   preferences: PreferenceSnapshot;
 }

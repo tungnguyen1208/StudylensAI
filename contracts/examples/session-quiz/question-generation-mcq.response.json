@@ -1,0 +1,27 @@
+{
+  "contractVersion": "0.4.0",
+  "promptVersion": "0.4.0",
+  "questions": [
+    {
+      "type": "multipleChoice",
+      "prompt": "Theo transcript, ý chính của đoạn 'A valid transcript cue used as the only source evidence.' là gì?",
+      "options": [
+        {
+          "optionId": "option-a",
+          "text": "A valid transcript cue used as the only source evidence."
+        },
+        {
+          "optionId": "option-b",
+          "text": "Một chi tiết không xuất hiện trong đoạn học"
+        },
+        {
+          "optionId": "option-c",
+          "text": "Một kết luận không có bằng chứng trong transcript"
+        }
+      ],
+      "correctOptionId": "option-a",
+      "sourceStartMs": 0,
+      "sourceEndMs": 10000
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: StudyLens AI Service - Deterministic Grading
-  version: 0.2.0
+  version: 0.4.0
 paths:
   /api/ai/grading/short-answer:
     post:
@@ -18,8 +18,9 @@ components:
     ShortAnswerGradeRequest:
       type: object
       additionalProperties: false
-      required: [questionId, prompt, referenceAnswer, answerText]
+      required: [contractVersion, questionId, prompt, referenceAnswer, answerText]
       properties:
+        contractVersion: { const: '0.4.0' }
         questionId: { type: string, format: uuid }
         prompt: { type: string, minLength: 1 }
         referenceAnswer: { type: string, minLength: 1 }
@@ -31,5 +32,5 @@ components:
       properties:
         outcome: { type: string, enum: [correct, incorrect, partiallyCorrect] }
         score: { type: number, minimum: 0, maximum: 1 }
-        referenceAnswer: { type: string }
-        explanation: { type: string }
+        referenceAnswer: { type: string, minLength: 1 }
+        explanation: { type: string, minLength: 1 }

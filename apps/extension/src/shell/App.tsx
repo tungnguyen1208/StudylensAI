@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AssessmentPanel,
   AssessmentHistoryApi,
@@ -14,12 +14,15 @@ import {
   ActivationToggle,
   DEFAULT_LEARNING_PREFERENCES,
   LearningPreferencesForm,
+  TranscriptPreview,
   applyVideoActivationMessage,
   initialActivationState,
   isLearningPreferences,
   type ActivationState,
   type LearningPreferences,
+  type TranscriptCaptureDetails,
 } from '../features/video-activation';
+import { VideoActivationApi } from '../features/video-activation/api/video-activation-api';
 import { httpClient } from '../shared/http/http-client';
 import { messageBus } from '../shared/messaging/message-bus';
 import type { ExtensionMessage } from '../shared/messaging/message-types';
@@ -38,9 +41,11 @@ interface BackendHealthResponse {
 type BackendStatus = 'idle' | 'checking' | 'connected' | 'error';
 type ThemeMode = 'light' | 'dark';
 type SidePanelTab = 'study' | 'history' | 'settings';
+type ActiveYoutubeContext = NonNullable<ActivationState['context']>;
 
 const THEME_STORAGE_KEY = 'studylensTheme';
 const assessmentHistoryApi = new AssessmentHistoryApi();
+const videoActivationApi = new VideoActivationApi();
 
 export const App: React.FC = () => {
   const [features, setFeatures] = useState<RegisteredFeatures | null>(null);
@@ -51,6 +56,7 @@ export const App: React.FC = () => {
   const [activationState, setActivationState] = useState<ActivationState>(initialActivationState);
   const [activationCommandStatus, setActivationCommandStatus] = useState<'idle' | 'sending' | 'error'>('idle');
   const [activationCommandError, setActivationCommandError] = useState<string | null>(null);
+  const [activationCommandNotice, setActivationCommandNotice] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>('dark');
   const [activeTab, setActiveTab] = useState<SidePanelTab>('study');
   const [latestGrade, setLatestGrade] = useState<GradeView | null>(null);
@@ -61,11 +67,117 @@ export const App: React.FC = () => {
   const [learningPreferences, setLearningPreferences] = useState<LearningPreferences>(DEFAULT_LEARNING_PREFERENCES);
   const [preferencesStatus, setPreferencesStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
+  const [transcriptPreview, setTranscriptPreview] = useState<TranscriptCaptureDetails | null>(null);
+  const [transcriptPreviewLoading, setTranscriptPreviewLoading] = useState(false);
+  const [transcriptPreviewError, setTranscriptPreviewError] = useState<string | null>(null);
+  const [playerTimeMs, setPlayerTimeMs] = useState<number | null>(null);
+  const activeVideoContextRef = useRef<ActiveYoutubeContext | null>(null);
+  const transcriptCaptureIdRef = useRef<string | null>(null);
+
+  const resetVideoScopedPanelState = () => {
+    setQuiz(null);
+    setLatestGrade(null);
+    setOperationStatuses({});
+    setTranscriptPreview(null);
+    setTranscriptPreviewError(null);
+    setTranscriptPreviewLoading(false);
+    setPlayerTimeMs(null);
+    setActivationCommandError(null);
+    setActivationCommandNotice(null);
+  };
+
+  const presentVideoContext = (context: ActiveYoutubeContext) => {
+    const previous = activeVideoContextRef.current;
+    const hasChanged = previous?.tabId !== context.tabId || previous.youtubeVideoId !== context.youtubeVideoId;
+    activeVideoContextRef.current = context;
+    if (hasChanged) resetVideoScopedPanelState();
+    setActivationState((state) => ({
+      ...state,
+      context,
+      transcriptCapture: hasChanged ? null : state.transcriptCapture,
+    }));
+  };
+
+  const refreshActiveYoutubeContext = async () => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_YOUTUBE_CONTEXT' }) as {
+        ok?: unknown; context?: unknown;
+      } | undefined;
+      const context = response?.context;
+      if (response?.ok !== true || !isActiveYoutubeContext(context)) return;
+      presentVideoContext(context);
+    } catch {
+      // The Side Panel remains usable while no ready YouTube tab is selected.
+    }
+  };
 
   useEffect(() => {
     setFeatures(initializeFeatureRegistry());
     void checkHealth();
+    void refreshActiveYoutubeContext();
   }, []);
+
+  const transcriptCaptureId = activationState.transcriptCapture?.transcriptCaptureId ?? null;
+
+  useEffect(() => {
+    transcriptCaptureIdRef.current = transcriptCaptureId;
+  }, [transcriptCaptureId]);
+
+  useEffect(() => {
+    const context = activationState.context;
+    if (!transcriptCaptureId || !context) {
+      setPlayerTimeMs(null);
+      return;
+    }
+
+    let disposed = false;
+    const refreshPlayerTime = async () => {
+      const result = await getActivePlayerTime();
+      if (!disposed && result?.youtubeVideoId === context.youtubeVideoId) {
+        setPlayerTimeMs(result.currentTimeMs);
+      }
+    };
+    void refreshPlayerTime();
+    const intervalId = window.setInterval(() => void refreshPlayerTime(), 750);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [transcriptCaptureId, activationState.context?.tabId, activationState.context?.youtubeVideoId]);
+
+  const refreshTranscriptPreview = async () => {
+    const requestedCaptureId = transcriptCaptureId;
+    if (!requestedCaptureId) return;
+    setTranscriptPreviewLoading(true);
+    setTranscriptPreviewError(null);
+    try {
+      const details = await videoActivationApi.getTranscriptCaptureDetails(requestedCaptureId);
+      const activeContext = activeVideoContextRef.current;
+      if (
+        transcriptCaptureIdRef.current === requestedCaptureId &&
+        activeContext?.youtubeVideoId === details.capture.youtubeVideoId
+      ) {
+        setTranscriptPreview(details);
+      }
+    } catch (error: unknown) {
+      if (transcriptCaptureIdRef.current !== requestedCaptureId) return;
+      setTranscriptPreviewError(error instanceof Error ? error.message : 'Không thể tải transcript từ Backend.');
+    } finally {
+      if (transcriptCaptureIdRef.current === requestedCaptureId) setTranscriptPreviewLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!transcriptCaptureId) {
+      setTranscriptPreview(null);
+      setTranscriptPreviewError(null);
+      return;
+    }
+    void refreshTranscriptPreview();
+    const intervalId = window.setInterval(() => void refreshTranscriptPreview(), 5_000);
+    return () => window.clearInterval(intervalId);
+  }, [transcriptCaptureId]);
 
   useEffect(() => {
     let mounted = true;
@@ -100,6 +212,14 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const onActivationMessage = (message: ExtensionMessage) => {
+      const activeContext = activeVideoContextRef.current;
+      if (activeContext && message.tabId !== activeContext.tabId) return;
+      const context = contextFromVideoActivationMessage(message);
+      if (context) presentVideoContext(context);
+      if (message.type === 'VIDEO_CONTEXT_UNAVAILABLE') {
+        activeVideoContextRef.current = null;
+        resetVideoScopedPanelState();
+      }
       setActivationState((state) => applyVideoActivationMessage(state, message));
     };
     const unsubscribers = [
@@ -108,11 +228,12 @@ export const App: React.FC = () => {
       messageBus.subscribe('VIDEO_CONTEXT_CHANGED', onActivationMessage),
       messageBus.subscribe('VIDEO_CONTEXT_UNAVAILABLE', onActivationMessage),
       messageBus.subscribe('QUIZ_AVAILABLE', (message) => {
+        if (!belongsToActiveVideo(message, activeVideoContextRef.current)) return;
         const payload = message.payload as QuizAvailable;
         if (Array.isArray(payload?.questions) && payload.questions.length > 0) setQuiz(payload);
       }),
       messageBus.subscribe('OPERATION_STATUS_CHANGED', (message) => {
-        if (!isOperationStatusMessage(message)) return;
+        if (!isOperationStatusMessage(message) || !belongsToActiveVideo(message, activeVideoContextRef.current)) return;
         setOperationStatuses((statuses) => ({ ...statuses, [message.payload.operation]: message.payload }));
       }),
     ];
@@ -120,6 +241,18 @@ export const App: React.FC = () => {
       if (enabled) setActivationState((state) => ({ ...state, status: 'active', errorCode: null }));
     });
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, []);
+
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage) return;
+    const onRuntimeMessage = (message: unknown) => {
+      const type = (message as { type?: unknown })?.type;
+      if (type === 'STUDYLENS_ACTIVE_TAB_CHANGED' || type === 'STUDYLENS_ACTIVE_YOUTUBE_CONTEXT_CHANGED') {
+        void refreshActiveYoutubeContext();
+      }
+    };
+    chrome.runtime.onMessage.addListener(onRuntimeMessage);
+    return () => chrome.runtime.onMessage.removeListener(onRuntimeMessage);
   }, []);
 
   const checkHealth = async () => {
@@ -175,14 +308,26 @@ export const App: React.FC = () => {
     }
     setActivationCommandStatus('sending');
     setActivationCommandError(null);
+    setActivationCommandNotice(null);
     try {
       const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_MANUAL_TOGGLE', requestedState }) as {
-        ok?: boolean; code?: string; state?: { enabled?: boolean };
+        ok?: boolean; code?: string; pendingPageCapture?: boolean; state?: { enabled?: boolean };
       };
       if (!response?.ok) throw new Error(response?.code ?? 'manualActivationUnavailable');
-      setActivationState((state) => requestedState === 'on'
-        ? { ...state, status: 'active', errorCode: null }
-        : { ...state, status: 'off', errorCode: null });
+      if (requestedState === 'on') {
+        const contentScriptUnavailable = response.pendingPageCapture && response.code === 'contentScriptUnavailable';
+        setActivationState((state) => ({
+          ...state,
+          status: 'active',
+          errorCode: contentScriptUnavailable ? 'contentScriptUnavailable' : null,
+        }));
+        if (contentScriptUnavailable) {
+          setActivationCommandNotice('StudyLens đã được bật. Hãy tải lại tab YouTube này để Extension khởi chạy và đọc transcript.');
+        }
+        void refreshActiveYoutubeContext();
+      } else {
+        setActivationState((state) => ({ ...state, status: 'off', errorCode: null }));
+      }
       setActivationCommandStatus('idle');
     } catch (error: unknown) {
       setActivationCommandStatus('error');
@@ -214,7 +359,7 @@ export const App: React.FC = () => {
       <header className="app-header">
         <div>
           <h1 className="app-title">StudyLens AI</h1>
-          <p className="app-subtitle">Khung ứng dụng học tập (v0.2.0)</p>
+          <p className="app-subtitle">Khung ứng dụng học tập (v0.4.0)</p>
         </div>
         <nav className="panel-tabs" aria-label="Điều hướng StudyLens" role="tablist">
           <button
@@ -304,6 +449,7 @@ export const App: React.FC = () => {
           onRequest={requestManualActivation}
         />
         {activationCommandError && <p role="alert" className="health-error">Lỗi: {activationCommandError}</p>}
+        {activationCommandNotice && <p role="status" className="section-copy section-copy--warning">{activationCommandNotice}</p>}
       </section>
 
       <section className="panel-section" aria-labelledby="study-flow-heading">
@@ -321,6 +467,16 @@ export const App: React.FC = () => {
             />
           </div>
         )}
+      </section>
+
+      <section className="panel-section" aria-labelledby="transcript-preview-heading">
+        <TranscriptPreview
+          details={transcriptPreview}
+          loading={transcriptPreviewLoading}
+          error={transcriptPreviewError}
+          currentTimeMs={playerTimeMs}
+          onRefresh={() => void refreshTranscriptPreview()}
+        />
       </section>
 
       <section className="panel-section" aria-labelledby="operations-heading">
@@ -436,9 +592,30 @@ function OperationStatusList({ statuses, onRetry }: {
 
 function operationLabel(operation: StudyLensOperation): string {
   return {
-    transcriptUpload: 'Transcript', sessionStart: 'Phiên học', segmentCreate: 'Phân đoạn',
+    transcriptUpload: 'Phụ đề YouTube', sessionStart: 'Phiên học', segmentCreate: 'Phân đoạn',
     quizGenerate: 'Bài kiểm tra', answerSubmit: 'Câu trả lời', historyLoad: 'Lịch sử',
   }[operation];
+}
+
+function isActiveYoutubeContext(value: unknown): value is ActiveYoutubeContext {
+  const context = value as Partial<ActiveYoutubeContext>;
+  return Boolean(context) && Number.isInteger(context.tabId) &&
+    typeof context.youtubeVideoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(context.youtubeVideoId) &&
+    typeof context.title === 'string' && context.title.trim().length > 0;
+}
+
+function contextFromVideoActivationMessage(message: ExtensionMessage): ActiveYoutubeContext | null {
+  if (message.type !== 'ACTIVATION_ENABLED' && message.type !== 'VIDEO_CONTEXT_CHANGED') return null;
+  const title = (message.payload as { videoTitle?: unknown } | undefined)?.videoTitle;
+  return {
+    tabId: message.tabId,
+    youtubeVideoId: message.youtubeVideoId,
+    title: typeof title === 'string' && title.trim() ? title : 'YouTube video',
+  };
+}
+
+function belongsToActiveVideo(message: ExtensionMessage, context: ActiveYoutubeContext | null): boolean {
+  return context !== null && message.tabId === context.tabId && message.youtubeVideoId === context.youtubeVideoId;
 }
 
 function healthStatusLabel(status: BackendStatus): string {
@@ -457,6 +634,22 @@ async function loadPersistentActivationState(): Promise<boolean> {
     return response?.enabled === true;
   } catch {
     return false;
+  }
+}
+
+async function getActivePlayerTime(): Promise<{ youtubeVideoId: string; currentTimeMs: number } | null> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_PLAYER_TIME' }) as {
+      ok?: unknown; youtubeVideoId?: unknown; currentTimeMs?: unknown;
+    } | undefined;
+    return response?.ok === true && typeof response.youtubeVideoId === 'string' &&
+      /^[A-Za-z0-9_-]{11}$/.test(response.youtubeVideoId) &&
+      typeof response.currentTimeMs === 'number' && Number.isFinite(response.currentTimeMs)
+      ? { youtubeVideoId: response.youtubeVideoId, currentTimeMs: response.currentTimeMs }
+      : null;
+  } catch {
+    return null;
   }
 }
 

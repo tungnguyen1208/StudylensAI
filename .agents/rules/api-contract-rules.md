@@ -32,7 +32,7 @@ contracts/extension-messages/assessment-history.schema.json
 
 ## Change Rule
 
-The target baseline is `0.2.0`. Migrating from `0.1.0` is an Integration
+The target baseline is `0.4.0`. Migrating from `0.1.0` is an Integration
 Captain task and must update every producer and consumer atomically; no bridge
 may emit both versions into the same feature flow without an ADR.
 

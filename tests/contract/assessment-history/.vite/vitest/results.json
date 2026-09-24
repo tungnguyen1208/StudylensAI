@@ -1,1 +1,1 @@
-{"version":"2.1.9","results":[[":assessment-history-contract.spec.ts",{"duration":69.88889999999992,"failed":false}]]}
+{"version":"2.1.9","results":[[":assessment-history-contract.spec.ts",{"duration":40.76099999999997,"failed":false}],[":grading-contract.spec.ts",{"duration":34.439700000000016,"failed":false}]]}
