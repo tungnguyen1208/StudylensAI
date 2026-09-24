@@ -1,6 +1,6 @@
 {
   "type": "PLAYER_SEEKED",
-  "contractVersion": "0.3.0",
+  "contractVersion": "0.4.0",
   "correlationId": "player-dQw4w9WgXcQ",
   "tabId": 42,
   "youtubeVideoId": "dQw4w9WgXcQ",

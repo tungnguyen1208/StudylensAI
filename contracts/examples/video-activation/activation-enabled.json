@@ -1,6 +1,6 @@
 {
   "type": "ACTIVATION_ENABLED",
-  "contractVersion": "0.3.0",
+  "contractVersion": "0.4.0",
   "correlationId": "a3e78ce7-561a-4a51-bfdb-d46f8f0e7d8d",
   "tabId": 7,
   "youtubeVideoId": "dQw4w9WgXcQ",
@@ -13,7 +13,7 @@
       "transcriptCaptureId": "22222222-2222-4222-8222-222222222222",
       "youtubeVideoId": "dQw4w9WgXcQ",
       "language": "en",
-      "source": "tabAudioStt",
+      "source": "youtubeCaption",
       "status": "available",
       "availableCueCount": 3,
       "version": 1

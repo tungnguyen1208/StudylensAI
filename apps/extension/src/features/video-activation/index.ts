@@ -12,7 +12,7 @@ export interface VideoActivationFeatureMetadata {
 export function registerVideoActivationFeature(): VideoActivationFeatureMetadata {
   return {
     name: 'video-activation',
-    version: '0.3.0',
+    version: '0.4.0',
     owner: 'Dev 1',
   };
 }

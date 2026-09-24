@@ -17,7 +17,7 @@ function validator(name: string) {
   return ajv.compile({ $defs: definitions, $ref: `#/$defs/${name}` });
 }
 
-describe('grading AI contract 0.3.0', () => {
+describe('grading AI contract 0.4.0', () => {
   it('validates the deterministic short-answer request fixture and contract version', () => {
     const validate = validator('ShortAnswerGradeRequest');
     const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/short-answer-grade.request.json`, 'utf8'));

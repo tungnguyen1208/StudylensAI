@@ -14,7 +14,7 @@ export interface SessionQuizFeatureMetadata {
 export function registerSessionQuizFeature(): SessionQuizFeatureMetadata {
   return {
     name: 'session-quiz',
-    version: '0.3.0',
+    version: '0.4.0',
     owner: 'Dev 2',
   };
 }

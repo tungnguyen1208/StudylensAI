@@ -9,7 +9,7 @@ internal static class StudySessionEndpoints
     public static IResult Start(StartRequest request, StudySessionService service, HttpContext context)
     {
         if (request.Activation.TranscriptCapture is not { Status: "available", AvailableCueCount: > 0 } capture ||
-            capture.YoutubeVideoId != request.YoutubeVideoId || capture.Source != "tabAudioStt")
+            capture.YoutubeVideoId != request.YoutubeVideoId || capture.Source != "youtubeCaption")
         {
             return Results.Json(new ErrorEnvelope(
                 "transcriptUnavailable",

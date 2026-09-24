@@ -11,8 +11,8 @@ from app.features.question_generation.schemas import QuestionGenerationRequest
 
 def request_for(question_type: str = "multipleChoice") -> QuestionGenerationRequest:
     return QuestionGenerationRequest(
-        contractVersion="0.3.0",
-        promptVersion="0.3.0",
+        contractVersion="0.4.0",
+        promptVersion="0.4.0",
         segmentId="11111111-1111-4111-8111-111111111111",
         youtubeVideoId="dQw4w9WgXcQ",
         startMs=0,
@@ -65,8 +65,8 @@ def code_of(raw: str, request: QuestionGenerationRequest) -> str:
 def test_accepts_a_valid_multiple_choice_question() -> None:
     response = validate_output(mcq(), request_for())
 
-    assert response.contractVersion == "0.3.0"
-    assert response.promptVersion == "0.3.0"
+    assert response.contractVersion == "0.4.0"
+    assert response.promptVersion == "0.4.0"
     assert response.questions[0].correctOptionId == "option-a"
 
 

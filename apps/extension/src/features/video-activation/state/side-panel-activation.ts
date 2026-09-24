@@ -48,14 +48,14 @@ function getTranscriptCapture(payload: unknown) {
     source?: unknown; status?: unknown; version?: unknown; availableCueCount?: unknown;
   };
   if (typeof value.transcriptCaptureId !== 'string' || typeof value.youtubeVideoId !== 'string' ||
-    typeof value.language !== 'string' || value.source !== 'tabAudioStt' || typeof value.version !== 'number' ||
-    typeof value.availableCueCount !== 'number' || !['pending', 'available', 'insufficient'].includes(String(value.status))) return null;
+    typeof value.language !== 'string' || value.source !== 'youtubeCaption' || typeof value.version !== 'number' ||
+    typeof value.availableCueCount !== 'number' || !['available', 'unavailable', 'insufficient'].includes(String(value.status))) return null;
   return {
     transcriptCaptureId: value.transcriptCaptureId,
     youtubeVideoId: value.youtubeVideoId,
     language: value.language,
-    source: 'tabAudioStt' as const,
-    status: value.status as 'pending' | 'available' | 'insufficient',
+    source: 'youtubeCaption' as const,
+    status: value.status as 'available' | 'unavailable' | 'insufficient',
     version: value.version,
     availableCueCount: value.availableCueCount,
   };

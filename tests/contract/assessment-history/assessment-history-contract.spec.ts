@@ -17,7 +17,7 @@ function validator(name) {
   return ajv.compile({ $defs: definitions, $ref: `#/$defs/${name}` });
 }
 
-describe('assessment history contract 0.3.0', () => {
+describe('assessment history contract 0.4.0', () => {
   it('validates the answer request and requires one answer shape', () => {
     const validate = validator('SubmitAnswerRequest');
     const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/submit-answer.request.json`, 'utf8'));

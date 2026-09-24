@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CONTRACT_VERSION = "0.3.0"
+CONTRACT_VERSION = "0.4.0"
 
 QuestionType = Literal["multipleChoice", "shortAnswer"]
 Difficulty = Literal["easy", "medium", "hard"]

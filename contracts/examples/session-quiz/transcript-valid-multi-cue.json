@@ -3,7 +3,7 @@
   "youtubeVideoId": "dQw4w9WgXcQ",
   "language": "vi",
   "status": "available",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "contentHash": "419fedf08da0041723c3c9928e9568d3420a8ec3227c48697938546a8f514373",
   "cues": [
     { "transcriptCueId": "aaaaaaa1-0000-4000-8000-000000000001", "startMs": 0, "endMs": 30000, "text": "Hôm nay chúng ta tìm hiểu cách dữ liệu đi qua mạng." },

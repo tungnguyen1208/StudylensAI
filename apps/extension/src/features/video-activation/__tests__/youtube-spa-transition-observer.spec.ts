@@ -8,11 +8,16 @@ const videoB = { youtubeVideoId: '9bZkp7q19f0', canonicalUrl: 'https://www.youtu
 function createEnvironment(initial: LearningTargetCaptureResult) {
   let capture = initial;
   let scheduled: (() => void) | null = null;
+  let titleListener: (() => void) | null = null;
   const listeners = new Map<string, () => void>();
   const environment: YoutubeSpaTransitionEnvironment = {
     capture: () => capture,
     addNavigationListener: (type, listener) => listeners.set(type, listener),
     removeNavigationListener: (type) => listeners.delete(type),
+    observeTitleChange: (listener) => {
+      titleListener = listener;
+      return () => { titleListener = null; };
+    },
     schedule: (listener) => { scheduled = listener; return 1; },
     cancelSchedule: () => { scheduled = null; },
   };
@@ -20,6 +25,7 @@ function createEnvironment(initial: LearningTargetCaptureResult) {
     environment,
     setCapture: (value: LearningTargetCaptureResult) => { capture = value; },
     navigate: (type: 'yt-navigate-finish' | 'popstate') => listeners.get(type)?.(),
+    titleChanged: () => titleListener?.(),
     flush: () => { const pending = scheduled; scheduled = null; pending?.(); },
   };
 }
@@ -81,6 +87,22 @@ describe('YoutubeSpaTransitionObserver', () => {
     harness.flush();
 
     expect(transitions).toEqual([{ previous: null, next: videoB.youtubeVideoId }]);
+  });
+
+  it('uses a title change as an event-driven fallback when YouTube omits a navigation event', () => {
+    const harness = createEnvironment({ status: 'supported', target: videoA });
+    const transitions: string[] = [];
+    const observer = new YoutubeSpaTransitionObserver(harness.environment, {
+      onSupportedChange: (_previous, next) => transitions.push(next.youtubeVideoId),
+      onUnsupportedPage: () => undefined,
+    });
+    observer.start(videoA);
+
+    harness.setCapture({ status: 'supported', target: videoB });
+    harness.titleChanged();
+    harness.flush();
+
+    expect(transitions).toEqual([videoB.youtubeVideoId]);
   });
 
   it('cancels a pending route change when the page flow is disposed', () => {

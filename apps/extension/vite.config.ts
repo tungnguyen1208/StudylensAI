@@ -24,7 +24,6 @@ export default defineConfig({
       input: {
         sidepanel: resolve(__dirname, 'sidepanel.html'),
         'service-worker': resolve(__dirname, 'src/shell/service-worker.ts'),
-        'audio-capture': resolve(__dirname, 'audio-capture.html'),
       },
       output: {
         entryFileNames: (chunkInfo) =>

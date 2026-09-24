@@ -29,7 +29,7 @@ tests/e2e/assessment-history/**
 
 ## Rules
 
-- Contract baseline is `0.3.0`; migrate legacy `0.1.0` artifacts only through an Integration Captain task.
+- Contract baseline is `0.4.0`; migrate legacy `0.1.0` artifacts only through an Integration Captain task.
 - Consume quiz data through `QuizAvailable` / `QuestionPublic`; access answer keys and rubrics solely through `IQuestionAssessmentReader` on the Backend.
 - Preserve answer drafts on Backend/AI failure. Retry reuses `clientAttemptId` and must not create a second attempt.
 - Grade MCQ deterministically; grade short answers using the Backend-to-FastAPI grading contract and validated output.

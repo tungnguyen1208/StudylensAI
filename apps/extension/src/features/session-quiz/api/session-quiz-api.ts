@@ -1,4 +1,4 @@
-import { httpClient } from '../../../shared/http/http-client';
+import { requestSessionQuizThroughWorker } from './session-quiz-worker-bridge';
 import type {
   CompleteStudySessionRequest,
   CreateStudySegmentRequest,
@@ -12,18 +12,18 @@ import type {
 /** The only Extension gateway for the SessionQuiz public API. */
 export class SessionQuizApi {
   public startSession(request: StartStudySessionRequest): Promise<SessionSnapshot> {
-    return httpClient.post<SessionSnapshot>('api/sessions', request);
+    return requestSessionQuizThroughWorker<SessionSnapshot>('start', request);
   }
 
   public completeSession(sessionId: string, request: CompleteStudySessionRequest): Promise<SessionSnapshot> {
-    return httpClient.post<SessionSnapshot>(`api/sessions/${encodeURIComponent(sessionId)}/complete`, request);
+    return requestSessionQuizThroughWorker<SessionSnapshot>('complete', request, sessionId);
   }
 
   public createSegment(sessionId: string, request: CreateStudySegmentRequest): Promise<StudySegmentRef> {
-    return httpClient.post<StudySegmentRef>(`api/sessions/${encodeURIComponent(sessionId)}/segments`, request);
+    return requestSessionQuizThroughWorker<StudySegmentRef>('createSegment', request, sessionId);
   }
 
   public generateQuiz(request: GenerateQuizRequest): Promise<QuizPublic> {
-    return httpClient.post<QuizPublic>('api/quizzes/generate', request);
+    return requestSessionQuizThroughWorker<QuizPublic>('generateQuiz', request);
   }
 }

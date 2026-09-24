@@ -3,11 +3,15 @@ import {
   RawTranscriptCue,
   TranscriptSourcePort,
   normalizeTranscriptCues,
+  parseJson3Transcript,
+  parseXmlTranscript,
   parseTimestampText,
   readTranscript,
+  selectBestCaptionTrack,
+  extractCaptionTracksFromDom,
 } from '../transcript-reader';
 import {
-  createTranscriptSnapshotRequest,
+  createTranscriptCaptureRequest,
   hashTranscript,
 } from '../../../features/video-activation/services/transcript-service';
 
@@ -16,9 +20,39 @@ function source(cues: RawTranscriptCue[]): TranscriptSourcePort {
 }
 
 describe('transcript normalization', () => {
+  it('parses JSON3 and XML timedtext while decoding caption entities', () => {
+    expect(parseJson3Transcript('{"events":[{"tStartMs":1000,"dDurationMs":500,"segs":[{"utf8":"A & B"}]}]}')).toEqual([{ startMs: 1000, endMs: 1500, text: 'A & B' }]);
+    expect(parseXmlTranscript('<transcript><text start="2" dur="1.5">A &amp; B</text></transcript>')).toEqual([{ startMs: 2000, endMs: 3500, text: 'A & B' }]);
+  });
+
+  it('prefers Vietnamese manual captions before ASR and other languages', () => {
+    const track = selectBestCaptionTrack([
+      { baseUrl: 'https://www.youtube.com/api/timedtext?x=1', languageCode: 'en', kind: 'asr', label: 'English' },
+      { baseUrl: 'https://www.youtube.com/api/timedtext?x=2', languageCode: 'vi', kind: 'asr', label: 'Vietnamese auto' },
+      { baseUrl: 'https://www.youtube.com/api/timedtext?x=3', languageCode: 'vi', label: 'Vietnamese' },
+    ], 'en');
+    expect(track?.baseUrl).toContain('x=3');
+  });
+  it('reads matching captionTracks from the page player response before script scanning', () => {
+    const response = {
+      captions: { playerCaptionsTracklistRenderer: { captionTracks: [
+        { baseUrl: 'https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en', languageCode: 'en', name: { simpleText: 'English' } },
+      ] } },
+    };
+    const root = {
+      defaultView: { ytInitialPlayerResponse: response },
+      querySelectorAll: () => [],
+    } as unknown as ParentNode;
+    expect(extractCaptionTracksFromDom(root, 'dQw4w9WgXcQ')).toMatchObject([
+      { languageCode: 'en', label: 'English' },
+    ]);
+    expect(extractCaptionTracksFromDom(root, 'abcdefghijk')).toEqual([]);
+  });
   it('parses YouTube timestamp text', () => {
     expect(parseTimestampText('01:30')).toBe(90000);
     expect(parseTimestampText('1:02:03')).toBe(3723000);
+    expect(parseTimestampText('30 giây')).toBe(30000);
+    expect(parseTimestampText('1 phút, 9 giây')).toBe(69000);
     expect(parseTimestampText('invalid')).toBeNull();
   });
 
@@ -69,20 +103,20 @@ describe('transcript request identity', () => {
     expect(await hashTranscript(cues)).toBe(await hashTranscript(cues));
 
     const transcript = { status: 'available' as const, language: 'en', cues };
-    const first = await createTranscriptSnapshotRequest('dQw4w9WgXcQ', transcript);
-    const replay = await createTranscriptSnapshotRequest('dQw4w9WgXcQ', transcript);
+    const first = await createTranscriptCaptureRequest('dQw4w9WgXcQ', transcript);
+    const replay = await createTranscriptCaptureRequest('dQw4w9WgXcQ', transcript);
     expect(replay.contentHash).toBe(first.contentHash);
     expect(replay.idempotencyKey).toBe(first.idempotencyKey);
   });
 
   it('never sends cues for non-available transcript states', async () => {
-    const request = await createTranscriptSnapshotRequest('dQw4w9WgXcQ', {
+    const request = await createTranscriptCaptureRequest('dQw4w9WgXcQ', {
       status: 'insufficient',
       language: 'vi',
       cues: [],
     });
     expect(request).toEqual({
-      idempotencyKey: 'transcript:dQw4w9WgXcQ:insufficient:vi',
+      idempotencyKey: 'caption:dQw4w9WgXcQ:insufficient:vi',
       youtubeVideoId: 'dQw4w9WgXcQ',
       language: 'vi',
       source: 'youtubeCaption',

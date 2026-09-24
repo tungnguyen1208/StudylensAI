@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { VideoActivationApiError } from '../api/video-activation-api';
 import { operationFailure } from '../../../shared/messaging/operation-status';
 import type {
-  CreateTranscriptSnapshotRequest,
-  TranscriptSnapshotRef,
+  CreateTranscriptCaptureRequest,
+  TranscriptCaptureRef,
 } from '../models/video-activation.types';
 import {
   TranscriptService,
-  type TranscriptSnapshotApiPort,
+  type TranscriptCaptureApiPort,
 } from '../services/transcript-service';
 import type { TranscriptReadResult } from '../../../platform/youtube/transcript-reader';
 
@@ -21,23 +21,22 @@ const availableTranscript: TranscriptReadResult = {
   ],
 };
 
-class ScriptedTranscriptApi implements TranscriptSnapshotApiPort {
-  public readonly requests: CreateTranscriptSnapshotRequest[] = [];
+class ScriptedTranscriptApi implements TranscriptCaptureApiPort {
+  public readonly requests: CreateTranscriptCaptureRequest[] = [];
   private calls = 0;
 
-  public async createTranscriptSnapshot(request: CreateTranscriptSnapshotRequest): Promise<TranscriptSnapshotRef> {
+  public async createTranscriptCapture(request: CreateTranscriptCaptureRequest): Promise<TranscriptCaptureRef> {
     this.requests.push(request);
     this.calls += 1;
     if (this.calls === 1) {
       throw new VideoActivationApiError('backendUnavailable', 503, 'Backend unavailable.', true, 'trace-upload-1');
     }
     return {
-      transcriptSnapshotId: 'snapshot-1',
+      transcriptCaptureId: 'capture-1',
       youtubeVideoId: request.youtubeVideoId,
       language: request.language,
       status: 'available',
-      contentHash: request.contentHash!,
-      version: '0.3.0',
+      source: 'youtubeCaption', availableCueCount: request.cues.length, version: 1,
     };
   }
 }
@@ -56,18 +55,18 @@ describe('TranscriptService retry semantics', () => {
 
     expect(api.requests).toHaveLength(2);
     expect(api.requests[1]).toEqual(api.requests[0]);
-    expect(api.requests[0].idempotencyKey).toMatch(/^transcript:dQw4w9WgXcQ:[a-f0-9]{64}$/);
+    expect(api.requests[0].idempotencyKey).toMatch(/^caption:dQw4w9WgXcQ:[a-f0-9]{64}$/);
     expect(api.requests[0].contentHash).toHaveLength(64);
   });
 
   it('keeps unavailable transcript evidence explicit and without a content hash', async () => {
-    const api: TranscriptSnapshotApiPort = {
-      createTranscriptSnapshot: async (request) => ({
-        transcriptSnapshotId: 'snapshot-unavailable',
+    const api: TranscriptCaptureApiPort = {
+      createTranscriptCapture: async (request) => ({
+        transcriptCaptureId: 'capture-unavailable',
         youtubeVideoId: request.youtubeVideoId,
         language: request.language,
         status: 'unavailable',
-        version: '0.3.0',
+        source: 'youtubeCaption', availableCueCount: 0, version: 1,
       }),
     };
     const service = new TranscriptService(api);

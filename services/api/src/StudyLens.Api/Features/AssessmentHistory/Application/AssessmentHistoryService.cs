@@ -11,7 +11,7 @@ public sealed class AssessmentHistoryService(
 {
     public async Task<AssessmentResult> SubmitAsync(SubmitAnswerCommand command, CancellationToken cancellationToken)
     {
-        if (command.ContractVersion != "0.3.0" || string.IsNullOrWhiteSpace(command.ClientAttemptId) || string.IsNullOrWhiteSpace(command.QuestionId))
+        if (command.ContractVersion != "0.4.0" || string.IsNullOrWhiteSpace(command.ClientAttemptId) || string.IsNullOrWhiteSpace(command.QuestionId))
             return AssessmentResult.Invalid("invalidAnswerRequest", "A valid answer request is required.");
 
         var existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
@@ -102,7 +102,7 @@ public sealed class AssessmentHistoryService(
     private async Task<GradeData?> GradeShortAnswerAsync(QuestionForAssessment question, string answerText, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(question.ReferenceAnswer)) return null;
-        var response = await shortAnswers.GradeAsync(new("0.3.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, answerText), cancellationToken);
+        var response = await shortAnswers.GradeAsync(new("0.4.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, answerText), cancellationToken);
         return response is null || !IsValidShortAnswerGrade(response)
             ? null
             : new GradeData(response.Outcome, response.Score, response.ReferenceAnswer, response.Explanation);

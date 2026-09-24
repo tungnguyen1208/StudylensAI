@@ -36,7 +36,7 @@ public sealed class QuestionGenerationService
 
         var startMs = cues.Min(cue => cue.StartMs);
         var endMs = cues.Max(cue => cue.EndMs);
-        var generated = await _gateway.GenerateAsync(new("0.3.0", "0.3.0", command.SegmentId, command.YoutubeVideoId, startMs, endMs, command.QuestionType, command.Difficulty, cues), cancellationToken);
+        var generated = await _gateway.GenerateAsync(new("0.4.0", "0.4.0", command.SegmentId, command.YoutubeVideoId, startMs, endMs, command.QuestionType, command.Difficulty, cues), cancellationToken);
         if (generated is null || generated.Questions.Count == 0) return QuizGenerationResult.Unavailable();
 
         var questions = generated.Questions

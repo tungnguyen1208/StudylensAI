@@ -18,9 +18,6 @@ internal sealed class SqliteTranscriptCaptureStore : ITranscriptCaptureReader
         await _db.Set<TranscriptCaptureEntity>().Include(item => item.Cues).Include(item => item.Chunks)
             .SingleOrDefaultAsync(item => item.CreateIdempotencyKey == idempotencyKey, cancellationToken);
 
-    public async Task<TranscriptAudioChunkEntity?> FindChunkAsync(string idempotencyKey, CancellationToken cancellationToken) =>
-        await _db.Set<TranscriptAudioChunkEntity>().SingleOrDefaultAsync(item => item.IdempotencyKey == idempotencyKey, cancellationToken);
-
     public async Task AddAsync(TranscriptCaptureEntity capture, CancellationToken cancellationToken)
     {
         await _db.Set<TranscriptCaptureEntity>().AddAsync(capture, cancellationToken);

@@ -18,6 +18,6 @@ Own only:
 Read AGENTS.md, .agents/rules/common-dev-rules.md, .agents/rules/module-boundary-rules.md, and .agents/rules/dev/dev3-assessment-history.md before edits.
 Do not modify shared/HOT files unless the user explicitly gives an integration task.
 Use Dev 2 question data through contracts or published ports. Do not import Dev 2 repositories/services directly.
-Target contract baseline is 0.3.0. Legacy 0.1.0 contract migration is Integration Captain work.
+Target contract baseline is 0.4.0. Legacy 0.1.0 contract migration is Integration Captain work.
 For timestamp review, emit SEEK_REQUEST. Do not manipulate YouTube DOM directly.
 """

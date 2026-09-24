@@ -40,7 +40,7 @@ old flow, and Dev 2 starts the replacement only after its later valid
   page. Stale A events or upload completions cannot activate B.
 - Side Panel status distinguishes the active page, transition, transcript
   pending/unavailable states, and explicit OFF.
-- The migration to baseline `0.3.0` updates contracts, worker, content script,
+- The migration to baseline `0.4.0` updates contracts, worker, content script,
   Side Panel, SessionQuiz consumer, fixtures and tests atomically.
 
 ## Source precedence

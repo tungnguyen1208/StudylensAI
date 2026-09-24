@@ -1,6 +1,6 @@
 {
   "type": "QUIZ_AVAILABLE",
-  "contractVersion": "0.3.0",
+  "contractVersion": "0.4.0",
   "correlationId": "b01-fixture",
   "tabId": 1,
   "youtubeVideoId": "dQw4w9WgXcQ",

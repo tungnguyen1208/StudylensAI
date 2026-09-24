@@ -14,7 +14,7 @@ Own only:
 - tests/e2e/video-activation/**
 
 Read AGENTS.md, .agents/rules/common-dev-rules.md, .agents/rules/module-boundary-rules.md, and .agents/rules/dev/dev1-persistent-activation.md before edits.
-The target contract baseline is 0.3.0. Do not mix legacy 0.1.0 artifacts into the runtime.
+The target contract baseline is 0.4.0. Do not mix legacy 0.1.0 artifacts into the runtime.
 Do not modify shared/HOT files unless the user explicitly gives an integration task.
 Persistent activation is stored in chrome.storage.local. While ON, implement only the contract-backed YouTube SPA coordinator for supported video-ID changes: publish VIDEO_CONTEXT_CHANGED, dispose stale work, then publish a replacement ACTIVATION_ENABLED only after a valid transcript. Do not implement Auto classification, confidence thresholds, or a classification AI feature.
 Extension must not call FastAPI or LLM providers directly. YouTube DOM/player control belongs only in platform/youtube.

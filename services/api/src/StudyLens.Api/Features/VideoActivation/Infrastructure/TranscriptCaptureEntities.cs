@@ -8,8 +8,10 @@ internal sealed class TranscriptCaptureEntity
     public string TranscriptCaptureId { get; set; } = string.Empty;
     public string YoutubeVideoId { get; set; } = string.Empty;
     public string Language { get; set; } = "und";
-    public string Source { get; set; } = "tabAudioStt";
-    public string Status { get; set; } = "pending";
+    // Existing rows and the audio-chunk table are retained as legacy data.
+    // New captures are immutable YouTube caption cue sets.
+    public string Source { get; set; } = "youtubeCaption";
+    public string Status { get; set; } = "unavailable";
     public int Version { get; set; }
     public string CreateIdempotencyKey { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }

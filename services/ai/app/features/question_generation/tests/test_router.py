@@ -9,8 +9,8 @@ from app.main import app
 LONG_CUE = "TCP chia dữ liệu thành các segment có thứ tự và truyền lại phần bị mất."
 
 VALID_BODY = {
-    "contractVersion": "0.3.0",
-    "promptVersion": "0.3.0",
+    "contractVersion": "0.4.0",
+    "promptVersion": "0.4.0",
     "segmentId": "11111111-1111-4111-8111-111111111111",
     "youtubeVideoId": "dQw4w9WgXcQ",
     "startMs": 0,
@@ -65,8 +65,8 @@ def test_returns_a_public_safe_multiple_choice_payload() -> None:
     body = response.json()
 
     assert response.status_code == 200
-    assert body["contractVersion"] == "0.3.0"
-    assert body["promptVersion"] == "0.3.0"
+    assert body["contractVersion"] == "0.4.0"
+    assert body["promptVersion"] == "0.4.0"
     assert body["questions"][0]["correctOptionId"] == "option-a"
     assert "referenceAnswer" not in body["questions"][0]
 

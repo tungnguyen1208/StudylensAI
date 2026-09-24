@@ -19,7 +19,7 @@ export function ActivationStatus({ state }: { state: ActivationState }) {
       {state.errorCode ? <span className="activation-status__error">Lỗi: {state.errorCode}</span> : null}
       {transcriptStatus === 'pending' ? (
         <span className="activation-status__hint">
-          StudyLens đang chờ âm thanh tab để tạo transcript. Nhấn Bắt đầu thu âm tab để cấp quyền.
+          StudyLens đang tìm phụ đề YouTube và sẽ chỉ tạo phiên học sau khi Backend xác thực cue hợp lệ.
         </span>
       ) : null}
     </p>

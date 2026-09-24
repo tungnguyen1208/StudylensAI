@@ -8,7 +8,7 @@ export class AssessmentHistoryApi {
 
   public async submitAnswer(quiz: QuizAvailable, submission: LocalAnswerSubmission, clientAttemptId: string): Promise<GradeView> {
     return this.client.post<GradeView>(`api/quizzes/${encodeURIComponent(quiz.quizId)}/answer`, {
-      contractVersion: '0.3.0',
+      contractVersion: '0.4.0',
       clientAttemptId,
       questionId: submission.questionId,
       ...(submission.type === 'multipleChoice' ? { selectedOptionId: submission.selectedOptionId } : { answerText: submission.answerText }),

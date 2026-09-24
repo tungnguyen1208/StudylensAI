@@ -1,6 +1,6 @@
 {
   "type": "VIDEO_CONTEXT_CHANGED",
-  "contractVersion": "0.3.0",
+  "contractVersion": "0.4.0",
   "correlationId": "transition-a-to-b-001",
   "tabId": 7,
   "youtubeVideoId": "9bZkp7q19f0",

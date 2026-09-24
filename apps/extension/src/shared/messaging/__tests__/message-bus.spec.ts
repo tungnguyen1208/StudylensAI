@@ -9,7 +9,7 @@ describe('MessageBus', () => {
 
     await bus.publish({
       type: 'ACTIVATION_ENABLED',
-      contractVersion: '0.3.0',
+      contractVersion: '0.4.0',
       correlationId: 'local-event',
       tabId: 1,
       youtubeVideoId: 'dQw4w9WgXcQ',
@@ -24,7 +24,7 @@ describe('MessageBus', () => {
     const bus = new MessageBus();
     const received: string[] = [];
     const envelope = {
-      type: 'PLAYER_PLAYING', contractVersion: '0.3.0' as const, correlationId: 'relay-event', tabId: 1,
+      type: 'PLAYER_PLAYING', contractVersion: '0.4.0' as const, correlationId: 'relay-event', tabId: 1,
       youtubeVideoId: 'dQw4w9WgXcQ', occurredAtUtc: '2026-09-20T00:00:00Z', payload: { currentTimeMs: 1000 },
     };
     const internal = bus as unknown as {

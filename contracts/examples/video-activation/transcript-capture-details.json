@@ -3,7 +3,7 @@
     "transcriptCaptureId": "018f4f0d-9f11-7dd1-b0a1-6c53ef4a0001",
     "youtubeVideoId": "dQw4w9WgXcQ",
     "language": "en",
-    "source": "tabAudioStt",
+    "source": "youtubeCaption",
     "status": "available",
     "availableCueCount": 2,
     "version": 2

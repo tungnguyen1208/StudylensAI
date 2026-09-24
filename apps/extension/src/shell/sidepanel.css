@@ -509,20 +509,26 @@ button {
 .transcript-preview__cues {
   display: grid;
   gap: 7px;
-  max-height: 260px;
+  max-height: 360px;
   margin: 0;
   padding: 0;
   overflow-y: auto;
   list-style: none;
 }
 
-.transcript-preview__cues li {
+.transcript-preview__cue {
   display: grid;
-  gap: 3px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
   padding: 8px;
-  border-left: 3px solid var(--primary);
-  border-radius: 0 7px 7px 0;
+  border-left: 3px solid transparent;
+  border-radius: 7px;
   background: var(--surface-muted);
+}
+
+.transcript-preview__cue--active {
+  border-left-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 13%, var(--surface-muted));
 }
 
 .transcript-preview__cues time {

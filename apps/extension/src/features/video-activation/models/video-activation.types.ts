@@ -26,26 +26,14 @@ export interface CreateTranscriptSnapshotRequest {
 export interface CreateTranscriptCaptureRequest {
   idempotencyKey: string;
   youtubeVideoId: string;
-  languageHint?: string;
+  language: string;
+  source: 'youtubeCaption';
+  status: TranscriptSnapshotStatus;
+  contentHash?: string;
+  cues: TranscriptCueDto[];
 }
 
-export interface UploadTranscriptAudioChunkRequest {
-  captureId: string;
-  idempotencyKey: string;
-  chunkIndex: number;
-  startMs: number;
-  endMs: number;
-  mimeType: string;
-  audio: Blob;
-}
-
-export interface TranscriptCaptureProgress {
-  capture: TranscriptCaptureRef;
-  cueCount: number;
-  acceptedChunkIndex: number;
-}
-
-/** Side Panel read model: normalized STT cues only, never raw tab audio. */
+/** Side Panel read model: normalized YouTube caption cues only. */
 export interface TranscriptCaptureDetails {
   capture: TranscriptCaptureRef;
   cues: TranscriptCueDto[];

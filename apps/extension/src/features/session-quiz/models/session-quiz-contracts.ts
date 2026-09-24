@@ -16,7 +16,7 @@ export type {
   TranscriptCaptureRef,
 } from '../../../shared/contracts';
 
-export const SESSION_QUIZ_CONTRACT_VERSION = '0.3.0' as const;
+export const SESSION_QUIZ_CONTRACT_VERSION = '0.4.0' as const;
 
 export interface SessionSnapshot {
   sessionId: string;

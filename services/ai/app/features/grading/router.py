@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/ai/grading", tags=["Grading (Dev 3)"])
 class ShortAnswerGradeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    contractVersion: Literal["0.3.0"]
+    contractVersion: Literal["0.4.0"]
     questionId: str = Field(min_length=1)
     prompt: str = Field(min_length=1)
     referenceAnswer: str = Field(min_length=1)

@@ -4,117 +4,46 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
-const extensionRequire = createRequire(new URL('../../../apps/extension/package.json', import.meta.url));
-const Ajv = extensionRequire('ajv').default as typeof import('ajv').default;
-const addFormats = extensionRequire('ajv-formats').default as typeof import('ajv-formats').default;
-const parseYaml = extensionRequire('yaml').parse as (source: string) => unknown;
+const root = fileURLToPath(new URL('../../../', import.meta.url));
+const requireExtension = createRequire(new URL('../../../apps/extension/package.json', import.meta.url));
+const Ajv = requireExtension('ajv').default as typeof import('ajv').default;
+const addFormats = requireExtension('ajv-formats').default as typeof import('ajv-formats').default;
+const yaml = requireExtension('yaml').parse as (value: string) => { components: { schemas: Record<string, unknown> }; paths: Record<string, { post?: { operationId: string }; get?: { operationId: string } }> };
+const contract = yaml(readFileSync(`${root}/contracts/public-api/video-activation.yaml`, 'utf8'));
 
-interface OpenApiContract {
-  components: { schemas: Record<string, unknown> };
-  paths: Record<string, {
-    post?: { operationId: string; responses: Record<string, unknown> };
-    get?: { operationId: string; responses: Record<string, unknown> };
-  }>;
+function validate(name: string) {
+  const defs = JSON.parse(JSON.stringify(contract.components.schemas).replaceAll('#/components/schemas/', '#/$defs/'));
+  const ajv = new Ajv({ strict: false }); addFormats(ajv);
+  return ajv.compile({ $defs: defs, $ref: `#/$defs/${name}` });
 }
 
-const contract = parseYaml(
-  readFileSync(`${repoRoot}/contracts/public-api/video-activation.yaml`, 'utf8'),
-) as OpenApiContract;
-
-function validatorFor(schemaName: string) {
-  const definitions = JSON.parse(
-    JSON.stringify(contract.components.schemas).replaceAll('#/components/schemas/', '#/$defs/'),
-  );
-  const ajv = new Ajv({ strict: false });
-  addFormats(ajv);
-  return ajv.compile({ $defs: definitions, $ref: `#/$defs/${schemaName}` });
-}
-
-describe('video activation public API contract 0.3.0', () => {
-  it('defines the idempotent tab-audio capture and append-only chunk endpoints', () => {
-    const create = contract.paths['/api/video-activation/transcript-captures'].post!;
-    const append = contract.paths['/api/video-activation/transcript-captures/{captureId}/audio-chunks'].post!;
-    expect(create.operationId).toBe('createTranscriptCapture');
-    expect(append.operationId).toBe('appendTranscriptAudioChunk');
-    expect(Object.keys(append.responses)).toEqual(expect.arrayContaining(['200', '400', '404', '409', '502']));
+describe('video activation public API contract 0.4.0', () => {
+  it('defines JSON caption capture and read endpoints, with no audio upload endpoint', () => {
+    expect(contract.paths['/api/video-activation/transcript-captures'].post?.operationId).toBe('createTranscriptCapture');
+    expect(contract.paths['/api/video-activation/transcript-captures/{captureId}'].get?.operationId).toBe('getTranscriptCaptureDetails');
+    expect(Object.keys(contract.paths).join('\n')).not.toContain('audio-chunks');
   });
-
-  it('defines a cue-only transcript preview endpoint without raw audio', () => {
-    const operation = contract.paths['/api/video-activation/transcript-captures/{captureId}'].get!;
-    const fixture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/transcript-capture-details.json`, 'utf8'));
-    expect(operation.operationId).toBe('getTranscriptCaptureDetails');
-    expect(validatorFor('TranscriptCaptureDetails')(fixture)).toBe(true);
-    expect(JSON.stringify(fixture)).not.toContain('audio');
+  it('validates persisted capture references and cue-only preview data', () => {
+    const capture = JSON.parse(readFileSync(`${root}/contracts/examples/video-activation/transcript-capture-created.json`, 'utf8'));
+    const details = JSON.parse(readFileSync(`${root}/contracts/examples/video-activation/transcript-capture-details.json`, 'utf8'));
+    expect(validate('TranscriptCaptureRef')(capture)).toBe(true);
+    expect(validate('TranscriptCaptureDetails')(details)).toBe(true);
+    expect(JSON.stringify(details)).not.toContain('audio');
   });
-
-  it('validates capture creation and chunk-progress fixtures without an audio blob', () => {
-    const capture = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/transcript-capture-created.json`, 'utf8'));
-    const progress = JSON.parse(readFileSync(`${repoRoot}/contracts/examples/video-activation/audio-chunk-progress.json`, 'utf8'));
-    expect(validatorFor('TranscriptCaptureRef')(capture)).toBe(true);
-    expect(validatorFor('TranscriptCaptureProgress')(progress)).toBe(true);
-    expect(JSON.stringify(progress)).not.toContain('audio');
+  it.each(['transcript-valid-vi.request.json', 'transcript-valid-en.request.json', 'transcript-unavailable.request.json', 'transcript-insufficient.request.json'])('validates caption request %s', (name) => {
+    const item = JSON.parse(readFileSync(`${root}/contracts/examples/video-activation/${name}`, 'utf8'));
+    const result = validate('CreateTranscriptCaptureRequest');
+    expect(result(item), JSON.stringify(result.errors)).toBe(true);
+    expect(item.source).toBe('youtubeCaption');
   });
-
-  it('defines the idempotent transcript snapshot endpoint', () => {
-    const operation = contract.paths['/api/video-activation/transcript-snapshots'].post!;
-    expect(operation.operationId).toBe('createTranscriptSnapshot');
-    expect(Object.keys(operation.responses)).toEqual(expect.arrayContaining(['200', '400', '409']));
+  it('keeps available caption request identity based on normalized cues', () => {
+    const item = JSON.parse(readFileSync(`${root}/contracts/examples/video-activation/transcript-valid-en.request.json`, 'utf8'));
+    const canonical = item.cues.map((cue: { startMs: number; endMs: number; text: string }) => `${cue.startMs}|${cue.endMs}|${cue.text}`).join('\n');
+    expect(createHash('sha256').update(canonical).digest('hex')).toBe(item.contentHash);
   });
-
-  it.each([
-    'transcript-valid-vi.request.json',
-    'transcript-valid-en.request.json',
-    'transcript-unavailable.request.json',
-    'transcript-insufficient.request.json',
-    'transcript-idempotency-conflict.request.json',
-  ])('validates request fixture %s', (fixtureName) => {
-    const validate = validatorFor('CreateTranscriptSnapshotRequest');
-    const fixture = JSON.parse(
-      readFileSync(`${repoRoot}/contracts/examples/video-activation/${fixtureName}`, 'utf8'),
-    );
-    expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
-  });
-
-  it('validates the public transcript snapshot reference', () => {
-    const validate = validatorFor('TranscriptSnapshotRef');
-    const fixture = JSON.parse(
-      readFileSync(
-        `${repoRoot}/contracts/examples/video-activation/transcript-valid.response.json`,
-        'utf8',
-      ),
-    );
-    expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
-  });
-
-  it.each(['transcript-valid-vi.request.json', 'transcript-valid-en.request.json'])(
-    'keeps contentHash consistent with normalized cues in %s',
-    (fixtureName) => {
-      const fixture = JSON.parse(
-        readFileSync(`${repoRoot}/contracts/examples/video-activation/${fixtureName}`, 'utf8'),
-      );
-      const canonical = fixture.cues
-        .map(
-          (cue: { startMs: number; endMs: number; text: string }) =>
-            `${cue.startMs}|${cue.endMs}|${cue.text}`,
-        )
-        .join('\n');
-      expect(createHash('sha256').update(canonical).digest('hex')).toBe(fixture.contentHash);
-      expect(fixture.idempotencyKey).toBe(
-        `transcript:${fixture.youtubeVideoId}:${fixture.contentHash}`,
-      );
-    },
-  );
-
-  it('rejects extra request fields', () => {
-    const validate = validatorFor('CreateTranscriptSnapshotRequest');
-    const fixture = JSON.parse(
-      readFileSync(
-        `${repoRoot}/contracts/examples/video-activation/transcript-valid-vi.request.json`,
-        'utf8',
-      ),
-    );
-    fixture.secret = 'must-not-pass';
-    expect(validate(fixture)).toBe(false);
+  it('rejects private or audio fields', () => {
+    const item = JSON.parse(readFileSync(`${root}/contracts/examples/video-activation/transcript-valid-en.request.json`, 'utf8'));
+    const result = validate('CreateTranscriptCaptureRequest'); item.audio = 'never persisted';
+    expect(result(item)).toBe(false);
   });
 });

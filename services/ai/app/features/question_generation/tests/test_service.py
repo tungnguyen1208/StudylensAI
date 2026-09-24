@@ -21,8 +21,8 @@ LONG_CUE = "TCP chia dữ liệu thành các segment có thứ tự và truyền
 
 def request_for(question_type: str = "multipleChoice", text: str = LONG_CUE) -> QuestionGenerationRequest:
     return QuestionGenerationRequest(
-        contractVersion="0.3.0",
-        promptVersion="0.3.0",
+        contractVersion="0.4.0",
+        promptVersion="0.4.0",
         segmentId="11111111-1111-4111-8111-111111111111",
         youtubeVideoId="dQw4w9WgXcQ",
         startMs=0,

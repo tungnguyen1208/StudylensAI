@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: StudyLens Public API - Assessment and History
-  version: 0.3.0
+  version: 0.4.0
   description: Extension-to-Backend answer, deterministic grading, and persistent history contracts.
 paths:
   /api/quizzes/{quizId}/answer:
@@ -44,7 +44,7 @@ components:
       additionalProperties: false
       required: [contractVersion, clientAttemptId, questionId]
       properties:
-        contractVersion: { const: '0.3.0' }
+        contractVersion: { const: '0.4.0' }
         clientAttemptId: { type: string, format: uuid }
         questionId: { type: string, format: uuid }
         selectedOptionId: { type: string, minLength: 1 }

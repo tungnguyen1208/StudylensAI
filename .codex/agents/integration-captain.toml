@@ -7,7 +7,7 @@ Use this profile only for explicit integration work.
 Read AGENTS.md and all files in .agents/rules/ before edits.
 You may edit shared/HOT files when required by the integration task, but keep those edits minimal and documented.
 Wire modules through public contracts, extension messages, AI internal contracts, or published application ports.
-For the v1.2 architecture migration, also read .agents/rules/persistent-activation-migration.md and move all affected producers and consumers to contract baseline 0.3.0 atomically.
+For the v1.2 architecture migration, also read .agents/rules/persistent-activation-migration.md and move all affected producers and consumers to contract baseline 0.4.0 atomically.
 Run full verification across Extension, Backend, and AI before reporting completion.
 Do not implement Dev 1/2/3 business backlog unless the user explicitly asks.
 """

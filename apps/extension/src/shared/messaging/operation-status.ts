@@ -1,7 +1,6 @@
 import type { ExtensionMessage } from './message-types';
 
 export type StudyLensOperation =
-  | 'audioTranscription'
   | 'transcriptUpload'
   | 'sessionStart'
   | 'segmentCreate'
