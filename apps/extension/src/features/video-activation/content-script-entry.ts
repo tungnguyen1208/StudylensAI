@@ -9,6 +9,7 @@ import { operationFailure, type OperationStatusPayload } from '../../shared/mess
 import { DEFAULT_LEARNING_PREFERENCES, isLearningPreferences, type LearningPreferences } from './models/learning-preferences';
 import { ManualActivationManager } from './services/activation-manager';
 import { TranscriptService } from './services/transcript-service';
+import type { TranscriptCaptureRef } from './models/video-activation.types';
 import { PAGE_CAPTION_TRACKS_MESSAGE } from './services/youtube-page-caption-tracks';
 import { createBrowserYoutubeSpaTransitionObserver, type YoutubeSpaTransitionObserver } from './services/youtube-spa-transition-observer';
 
@@ -31,6 +32,10 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   let enabled = false;
   let source: ActivationSource = 'user';
   let disposed = false;
+  // The panel can be closed while caption ingestion succeeds. Keep only the
+  // public capture reference in the content-script runtime so a reopened Side
+  // Panel can reload the persisted cues from the Backend for this video.
+  let latestTranscriptCapture: TranscriptCaptureRef | null = null;
 
   const current = (id: string, value: number) => !disposed && enabled && activeId === id && generation === value;
   const publishStatus = (youtubeVideoId: string, correlationId: string, payload: OperationStatusPayload) => publish(createVideoActivationMessage('OPERATION_STATUS_CHANGED', payload, { correlationId, tabId: options.tabId, youtubeVideoId }));
@@ -43,6 +48,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
       const capture = await transcriptService.upload(target.youtubeVideoId, read);
       if (!current(target.youtubeVideoId, value)) return;
       if (capture.status === 'available') {
+        latestTranscriptCapture = capture;
         await manager.setTranscriptCapture(capture);
         await publishStatus(target.youtubeVideoId, correlationId, { operation: 'transcriptUpload', state: 'succeeded', message: 'Đã nhận và lưu phụ đề YouTube.', retryable: false });
       } else await publishStatus(target.youtubeVideoId, correlationId, { operation: 'transcriptUpload', state: 'failed', code: capture.status === 'insufficient' ? 'transcriptInsufficient' : 'transcriptUnavailable', message: 'Phụ đề không đủ điều kiện để tạo phiên học.', retryable: false });
@@ -57,7 +63,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     activationSource: ActivationSource,
     isReplacement = false,
   ) => {
-    const value = generation + 1; generation = value; activeId = target.youtubeVideoId; source = activationSource;
+    const value = generation + 1; generation = value; activeId = target.youtubeVideoId; source = activationSource; latestTranscriptCapture = null;
     manager.setPreferences(await preferences());
     if (!current(target.youtubeVideoId, value)) return;
     await manager.setContext({ tabId: options.tabId, youtubeVideoId: target.youtubeVideoId, title: target.title }, correlationId);
@@ -100,7 +106,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     observer = createBrowserYoutubeSpaTransitionObserver({ onSupportedChange: (previous, next) => { void transition(previous, next); }, onUnsupportedPage: (previous) => { void unsupported(previous); } });
     observer.start(initial);
   };
-  const stop = async (correlationId: string) => { enabled = false; observer?.dispose(); observer = null; if (activeId) await manager.request('off', activeId, correlationId, 'user'); disposePage(); activeId = null; };
+  const stop = async (correlationId: string) => { enabled = false; observer?.dispose(); observer = null; if (activeId) await manager.request('off', activeId, correlationId, 'user'); disposePage(); activeId = null; latestTranscriptCapture = null; };
   const start = async (correlationId: string, activationSource: ActivationSource) => {
     const target = captureLearningTarget(window.location.href, document.title); enabled = true;
     if (target.status !== 'supported') { watch(null); return { ok: true, code: target.code }; }
@@ -116,7 +122,13 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
       if (target.status !== 'supported') {
         respond({ ok: false, code: target.code });
       } else {
-        respond({ ok: true, context: { tabId: options.tabId, youtubeVideoId: target.target.youtubeVideoId, title: target.target.title } });
+        respond({
+          ok: true,
+          context: { tabId: options.tabId, youtubeVideoId: target.target.youtubeVideoId, title: target.target.title },
+          ...(latestTranscriptCapture?.youtubeVideoId === target.target.youtubeVideoId
+            ? { transcriptCapture: latestTranscriptCapture }
+            : {}),
+        });
       }
       return;
     }
@@ -126,7 +138,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   };
   chrome.runtime.onMessage.addListener(onMessage);
   void chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVATION_STATE' }).then((state: { enabled?: boolean; correlationId?: string } | undefined) => { if (state?.enabled && !disposed) void start(state.correlationId ?? crypto.randomUUID(), 'storageRestore'); }).catch(() => undefined);
-  return { getPlayerPort: () => player, dispose: () => { disposed = true; enabled = false; observer?.dispose(); disposePage(); activeId = null; chrome.runtime.onMessage.removeListener(onMessage); } };
+  return { getPlayerPort: () => player, dispose: () => { disposed = true; enabled = false; observer?.dispose(); disposePage(); activeId = null; latestTranscriptCapture = null; chrome.runtime.onMessage.removeListener(onMessage); } };
 }
 
 async function preferences(): Promise<LearningPreferences> {

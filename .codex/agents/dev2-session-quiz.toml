@@ -18,6 +18,6 @@ Own only:
 Read AGENTS.md, .agents/rules/common-dev-rules.md, .agents/rules/module-boundary-rules.md, and .agents/rules/dev/dev2-session-quiz.md before edits.
 Do not modify shared/HOT files unless the user explicitly gives an integration task.
 Use Dev 1 outputs through contracts or published ports. Do not import Dev 1 repositories/services directly.
-Target contract baseline is 0.4.0. Start from ExtensionActivationState.enabled plus ACTIVATION_ENABLED, TranscriptSnapshotRef, PreferenceSnapshot, and normalized player events; ACTIVATION_DISABLED completes the session. VIDEO_CONTEXT_CHANGED completes only the matching old session, and the next valid ACTIVATION_ENABLED starts the replacement. Dev 2 does not access YouTube DOM or implement the coordinator.
+Target contract baseline is 0.4.0. Start from ExtensionActivationState.enabled plus ACTIVATION_ENABLED, an available youtubeCaption TranscriptCaptureRef, PreferenceSnapshot, and normalized player events; ACTIVATION_DISABLED completes the session. VIDEO_CONTEXT_CHANGED completes only the matching old session, and the next valid ACTIVATION_ENABLED starts the replacement. Dev 2 reads cues only via ITranscriptCaptureReader, freezes a segment before Backend calls FastAPI, and never accesses YouTube DOM or implements the coordinator.
 Do not expose correct answers in public quiz responses before answer submit.
 """

@@ -46,6 +46,18 @@ Any API change must update all affected artifacts in the same task:
 6. Contract examples.
 7. Tests.
 
+## Transcript Capture Boundary
+
+At `0.4.0`, the Video Activation public API accepts only normalized
+`youtubeCaption` cues and capture metadata from Extension. It must carry the
+video ID, cue timestamps, canonical content identity and idempotency identity;
+it must never carry raw audio, WebM/Opus blobs, DOM markup, provider responses
+or API keys. Backend returns an available `TranscriptCaptureRef` before the
+Extension emits `ACTIVATION_ENABLED`.
+
+The AI API has a narrower role: Backend sends a frozen cue segment for quiz
+generation or grading. FastAPI must not be specified as a transcript source.
+
 ## Public Response Safety
 
 Before answer submit, public Extension responses may include question content,

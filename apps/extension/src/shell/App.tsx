@@ -10,7 +10,6 @@ import {
   type QuizAvailable,
 } from '../features/assessment-history';
 import {
-  ActivationStatus,
   ActivationToggle,
   DEFAULT_LEARNING_PREFERENCES,
   LearningPreferencesForm,
@@ -22,12 +21,12 @@ import {
   type LearningPreferences,
   type TranscriptCaptureDetails,
 } from '../features/video-activation';
+import type { TranscriptCaptureRef } from '../shared/contracts/activation-handoff';
 import { VideoActivationApi } from '../features/video-activation/api/video-activation-api';
 import { httpClient } from '../shared/http/http-client';
 import { messageBus } from '../shared/messaging/message-bus';
 import type { ExtensionMessage } from '../shared/messaging/message-types';
 import { isOperationStatusMessage, type OperationStatusPayload, type StudyLensOperation } from '../shared/messaging/operation-status';
-import { initializeFeatureRegistry, type RegisteredFeatures } from './feature-registry';
 
 interface BackendHealthResponse {
   status: string;
@@ -39,16 +38,21 @@ interface BackendHealthResponse {
 }
 
 type BackendStatus = 'idle' | 'checking' | 'connected' | 'error';
-type ThemeMode = 'light' | 'dark';
 type SidePanelTab = 'study' | 'history' | 'settings';
 type ActiveYoutubeContext = NonNullable<ActivationState['context']>;
+type SessionProgress = {
+  status: 'idle' | 'starting' | 'active' | 'completing' | 'completed' | 'error';
+  activeStudyMs: number;
+  segmentStatus: 'idle' | 'creating' | 'created' | 'retryable' | 'blocked';
+  segmentError?: string;
+  sessionId?: string;
+  youtubeVideoId?: string;
+};
 
-const THEME_STORAGE_KEY = 'studylensTheme';
 const assessmentHistoryApi = new AssessmentHistoryApi();
 const videoActivationApi = new VideoActivationApi();
 
 export const App: React.FC = () => {
-  const [features, setFeatures] = useState<RegisteredFeatures | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('idle');
   const [backendData, setBackendData] = useState<BackendHealthResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,7 +61,6 @@ export const App: React.FC = () => {
   const [activationCommandStatus, setActivationCommandStatus] = useState<'idle' | 'sending' | 'error'>('idle');
   const [activationCommandError, setActivationCommandError] = useState<string | null>(null);
   const [activationCommandNotice, setActivationCommandNotice] = useState<string | null>(null);
-  const [theme, setTheme] = useState<ThemeMode>('dark');
   const [activeTab, setActiveTab] = useState<SidePanelTab>('study');
   const [latestGrade, setLatestGrade] = useState<GradeView | null>(null);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntryReadModel[]>([]);
@@ -71,6 +74,9 @@ export const App: React.FC = () => {
   const [transcriptPreviewLoading, setTranscriptPreviewLoading] = useState(false);
   const [transcriptPreviewError, setTranscriptPreviewError] = useState<string | null>(null);
   const [playerTimeMs, setPlayerTimeMs] = useState<number | null>(null);
+  const [sessionProgress, setSessionProgress] = useState<SessionProgress | null>(null);
+  const [quizStarted, setQuizStarted] = useState(false);
+  const [seekError, setSeekError] = useState<string | null>(null);
   const activeVideoContextRef = useRef<ActiveYoutubeContext | null>(null);
   const transcriptCaptureIdRef = useRef<string | null>(null);
 
@@ -82,6 +88,9 @@ export const App: React.FC = () => {
     setTranscriptPreviewError(null);
     setTranscriptPreviewLoading(false);
     setPlayerTimeMs(null);
+    setSessionProgress(null);
+    setQuizStarted(false);
+    setSeekError(null);
     setActivationCommandError(null);
     setActivationCommandNotice(null);
   };
@@ -102,18 +111,24 @@ export const App: React.FC = () => {
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
     try {
       const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_YOUTUBE_CONTEXT' }) as {
-        ok?: unknown; context?: unknown;
+        ok?: unknown; context?: unknown; transcriptCapture?: unknown;
       } | undefined;
       const context = response?.context;
       if (response?.ok !== true || !isActiveYoutubeContext(context)) return;
       presentVideoContext(context);
+      const capture = response.transcriptCapture;
+      if (isTranscriptCaptureForContext(capture, context.youtubeVideoId)) {
+        setActivationState((state) => state.context?.tabId === context.tabId &&
+          state.context.youtubeVideoId === context.youtubeVideoId
+          ? { ...state, transcriptCapture: capture }
+          : state);
+      }
     } catch {
       // The Side Panel remains usable while no ready YouTube tab is selected.
     }
   };
 
   useEffect(() => {
-    setFeatures(initializeFeatureRegistry());
     void checkHealth();
     void refreshActiveYoutubeContext();
   }, []);
@@ -145,6 +160,35 @@ export const App: React.FC = () => {
       window.clearInterval(intervalId);
     };
   }, [transcriptCaptureId, activationState.context?.tabId, activationState.context?.youtubeVideoId]);
+
+  useEffect(() => {
+    const context = activationState.context;
+    if (!context || activationState.status !== 'active') {
+      setSessionProgress(null);
+      return;
+    }
+    let disposed = false;
+    const refreshProgress = async () => {
+      const progress = await getActiveSessionProgress();
+      if (!disposed && progress?.youtubeVideoId === context.youtubeVideoId) setSessionProgress(progress);
+    };
+    void refreshProgress();
+    const intervalId = window.setInterval(() => void refreshProgress(), 1_000);
+    return () => { disposed = true; window.clearInterval(intervalId); };
+  }, [activationState.context?.tabId, activationState.context?.youtubeVideoId, activationState.status]);
+
+  useEffect(() => {
+    const videoId = activationState.context?.youtubeVideoId;
+    if (!videoId) return;
+    let disposed = false;
+    void loadPersistedPanelQuiz(videoId).then((persistedQuiz) => {
+      if (!disposed && persistedQuiz) {
+        setQuiz(persistedQuiz);
+        setQuizStarted(false);
+      }
+    });
+    return () => { disposed = true; };
+  }, [activationState.context?.youtubeVideoId]);
 
   const refreshTranscriptPreview = async () => {
     const requestedCaptureId = transcriptCaptureId;
@@ -197,20 +241,6 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-    void loadThemePreference().then((preference) => {
-      if (mounted) setTheme(preference);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
-  useEffect(() => {
     const onActivationMessage = (message: ExtensionMessage) => {
       const activeContext = activeVideoContextRef.current;
       if (activeContext && message.tabId !== activeContext.tabId) return;
@@ -230,7 +260,10 @@ export const App: React.FC = () => {
       messageBus.subscribe('QUIZ_AVAILABLE', (message) => {
         if (!belongsToActiveVideo(message, activeVideoContextRef.current)) return;
         const payload = message.payload as QuizAvailable;
-        if (Array.isArray(payload?.questions) && payload.questions.length > 0) setQuiz(payload);
+        if (Array.isArray(payload?.questions) && payload.questions.length > 0) {
+          setQuiz(payload);
+          setQuizStarted(false);
+        }
       }),
       messageBus.subscribe('OPERATION_STATUS_CHANGED', (message) => {
         if (!isOperationStatusMessage(message) || !belongsToActiveVideo(message, activeVideoContextRef.current)) return;
@@ -271,6 +304,14 @@ export const App: React.FC = () => {
   const submitAssessmentAnswer = async (submission: LocalAnswerSubmission, clientAttemptId: string): Promise<GradeView> => {
     if (!quiz) throw new Error('quizQuestionUnavailable');
     return assessmentHistoryApi.submitAnswer(quiz, submission, clientAttemptId);
+  };
+
+  const seekToTranscriptCue = async (timestampMs: number): Promise<void> => {
+    const context = activationState.context;
+    if (!context) return;
+    setSeekError(null);
+    const result = await seekActivePlayer(context.youtubeVideoId, timestampMs);
+    if (!result.ok) setSeekError(`Không thể tua video đến mốc đã chọn (${result.code ?? 'seekFailed'}).`);
   };
 
   const refreshHistoryTab = async () => {
@@ -335,12 +376,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const toggleTheme = () => {
-    const nextTheme: ThemeMode = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    void saveThemePreference(nextTheme);
-  };
-
   const saveLearningPreferences = async (preferences: LearningPreferences): Promise<void> => {
     setPreferencesStatus('saving');
     setPreferencesError(null);
@@ -358,8 +393,8 @@ export const App: React.FC = () => {
     <main className="studylens-app">
       <header className="app-header">
         <div>
-          <h1 className="app-title">StudyLens AI</h1>
-          <p className="app-subtitle">Khung ứng dụng học tập (v0.4.0)</p>
+          <h1 className="app-title">StudyLens</h1>
+          <p className="app-subtitle">Tập trung vào nội dung video</p>
         </div>
         <nav className="panel-tabs" aria-label="Điều hướng StudyLens" role="tablist">
           <button
@@ -390,110 +425,73 @@ export const App: React.FC = () => {
           <button
             id="settings-tab"
             type="button"
-            className={`panel-tab panel-tab--settings ${activeTab === 'settings' ? 'panel-tab--active' : ''}`}
+            className={`panel-tab ${activeTab === 'settings' ? 'panel-tab--active' : ''}`}
             role="tab"
             aria-selected={activeTab === 'settings'}
             aria-controls="settings-panel"
-            aria-label="Cài đặt"
-            title="Cài đặt"
             onClick={() => setActiveTab('settings')}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M9.67 3.31a1 1 0 0 1 .98-.8h2.7a1 1 0 0 1 .98.8l.4 1.88c.47.2.91.45 1.31.76l1.83-.6a1 1 0 0 1 1.18.43l1.35 2.34a1 1 0 0 1-.2 1.24l-1.43 1.3a6.8 6.8 0 0 1 0 1.52l1.43 1.3a1 1 0 0 1 .2 1.24l-1.35 2.34a1 1 0 0 1-1.18.43l-1.83-.6c-.4.31-.84.56-1.31.76l-.4 1.88a1 1 0 0 1-.98.8h-2.7a1 1 0 0 1-.98-.8l-.4-1.88a6.3 6.3 0 0 1-1.31-.76l-1.83.6a1 1 0 0 1-1.18-.43L4.3 15.72a1 1 0 0 1 .2-1.24l1.43-1.3a6.8 6.8 0 0 1 0-1.52L4.5 10.36a1 1 0 0 1-.2-1.24l1.35-2.34a1 1 0 0 1 1.18-.43l1.83.6c.4-.31.84-.56 1.31-.76l.4-1.88ZM12 9a3.42 3.42 0 1 0 0 6.84A3.42 3.42 0 0 0 12 9Z" />
-            </svg>
+            Cài đặt
           </button>
         </nav>
       </header>
 
       {activeTab === 'study' ? (
         <div id="study-panel" role="tabpanel" aria-labelledby="study-tab">
-      <section className="panel-section" aria-labelledby="health-heading">
-        <h2 id="health-heading" className="section-heading">Trạng thái hệ thống</h2>
-        <div className="health-row">
-          <span className="health-label">ASP.NET Core Backend</span>
-          <span className={`health-badge health-badge--${backendStatus}`}>{healthStatusLabel(backendStatus)}</span>
-        </div>
+          <section className="learning-hero" aria-labelledby="learning-now-heading">
+            <div className="learning-hero__play" aria-hidden="true"><span /></div>
+            <div className="learning-hero__content">
+              <h2 id="learning-now-heading">Bài giảng: {activationState.context?.title ?? 'Chưa mở video YouTube hợp lệ'}</h2>
+              <p>{activationState.context ? `YouTube · ${sessionProgress?.status === 'active' ? 'Phiên học đang hoạt động' : 'Đang chờ transcript hợp lệ'}` : 'Mở trang YouTube /watch để bắt đầu.'}</p>
+            </div>
+          </section>
 
-        {backendData && (
-          <div className="health-service">
-            <div>Dịch vụ: {backendData.service}</div>
-            {backendData.aiService && (
-              <div>FastAPI AI: {backendData.aiService.status} ({backendData.aiService.service})</div>
-            )}
-          </div>
-        )}
+          <StudyCycleCard
+            preferences={learningPreferences}
+            progress={sessionProgress}
+            activationState={activationState}
+          />
 
-        {errorMessage && <div className="health-error">Lỗi: {errorMessage}</div>}
-
-        <button
-          type="button"
-          className="primary-button"
-          onClick={() => void checkHealth()}
-          disabled={backendStatus === 'checking'}
-        >
-          {backendStatus === 'checking' ? 'Đang kiểm tra...' : 'Kiểm tra Backend'}
-        </button>
-      </section>
-
-      <section className="panel-section" aria-labelledby="activation-heading">
-        <h2 id="activation-heading" className="section-heading">Điều khiển StudyLens</h2>
-        {activationState.context ? (
-          <p className="section-copy">Video: {activationState.context.title}</p>
-        ) : (
-          <p className="section-copy section-copy--warning">Bật StudyLens khi bạn đang mở một trang xem video YouTube.</p>
-        )}
-        <ActivationStatus state={activationState} />
-        <ActivationToggle
-          active={activationState.status === 'active'}
-          disabled={activationCommandStatus === 'sending'}
-          onRequest={requestManualActivation}
-        />
-        {activationCommandError && <p role="alert" className="health-error">Lỗi: {activationCommandError}</p>}
-        {activationCommandNotice && <p role="status" className="section-copy section-copy--warning">{activationCommandNotice}</p>}
-      </section>
-
-      <section className="panel-section" aria-labelledby="study-flow-heading">
-        <h2 id="study-flow-heading" className="section-heading">Luồng học tập</h2>
-        <p className="flow-copy">Bật thủ công → phiên học và bộ đếm → phân đoạn transcript → Backend → AI → bài kiểm tra.</p>
-        {!quiz && <p className="section-copy" role="status">Bật StudyLens, xem đủ một chu kỳ và bài kiểm tra sẽ xuất hiện tại đây.</p>}
-        {quiz && (
-          <div className="quiz-panel">
-            <div className="quiz-panel__title">Bài kiểm tra {quiz.quizId.slice(0, 8)} — dữ liệu công khai</div>
-            <AssessmentPanel
-              quiz={quiz}
-              submitAnswer={submitAssessmentAnswer}
-              onOperationStatus={recordOperationStatus}
-              onGrade={handleGradeReceived}
+          <section className="panel-section" aria-labelledby="transcript-preview-heading">
+            <TranscriptPreview
+              details={transcriptPreview}
+              loading={transcriptPreviewLoading}
+              error={transcriptPreviewError}
+              currentTimeMs={playerTimeMs}
+              onRefresh={() => void refreshTranscriptPreview()}
+              onSeek={(timestampMs) => void seekToTranscriptCue(timestampMs)}
             />
-          </div>
-        )}
-      </section>
+            {seekError ? <p className="health-error" role="alert">{seekError}</p> : null}
+          </section>
 
-      <section className="panel-section" aria-labelledby="transcript-preview-heading">
-        <TranscriptPreview
-          details={transcriptPreview}
-          loading={transcriptPreviewLoading}
-          error={transcriptPreviewError}
-          currentTimeMs={playerTimeMs}
-          onRefresh={() => void refreshTranscriptPreview()}
-        />
-      </section>
+          <section className="panel-section" aria-labelledby="operations-heading">
+            <h2 id="operations-heading" className="section-heading">Trạng thái xử lý</h2>
+            <ProcessingStages activationState={activationState} quiz={quiz} operationStatuses={operationStatuses} />
+            <p className="section-copy">{learningStateSummary(activationState, operationStatuses, quiz)}</p>
+            <OperationStatusList statuses={operationStatuses} onRetry={retryContentOperation} />
+          </section>
 
-      <section className="panel-section" aria-labelledby="operations-heading">
-        <h2 id="operations-heading" className="section-heading">Trạng thái xử lý</h2>
-        <OperationStatusList statuses={operationStatuses} onRetry={retryContentOperation} />
-      </section>
+          {quiz ? (
+            <section className="quiz-ready-card" aria-labelledby="quiz-ready-heading">
+              {!quizStarted ? (
+                <>
+                  <div className="quiz-ready-card__badge">ĐÃ SẴN SÀNG</div>
+                  <h2 id="quiz-ready-heading">Quiz đã sẵn sàng</h2>
+                  <p>{quiz.questions.length} câu hỏi thật đã được Backend tạo từ segment transcript đã đóng băng.</p>
+                  <button type="button" className="primary-button" onClick={() => setQuizStarted(true)}>Bắt đầu làm bài</button>
+                </>
+              ) : (
+                <>
+                  <div className="section-heading-row">
+                    <div><div className="quiz-ready-card__badge">ĐANG LÀM BÀI</div><h2 id="quiz-ready-heading" className="section-heading">Bài kiểm tra</h2></div>
+                    <button type="button" className="secondary-button" onClick={() => setQuizStarted(false)}>Quay lại</button>
+                  </div>
+                  <AssessmentPanel quiz={quiz} submitAnswer={submitAssessmentAnswer} onOperationStatus={recordOperationStatus} onGrade={handleGradeReceived} />
+                </>
+              )}
+            </section>
+          ) : null}
 
-      <section className="panel-section" aria-labelledby="modules-heading">
-        <h2 id="modules-heading" className="section-heading">Các mô-đun hệ thống</h2>
-        {features && (
-          <div className="module-list">
-            <ModuleCard className="module-card__title--dev1" title="Dev 1: Kích hoạt & thu nhận nội dung" module={features.videoActivation} />
-            <ModuleCard className="module-card__title--dev2" title="Dev 2: Phiên học & bài kiểm tra" module={features.sessionQuiz} />
-            <ModuleCard className="module-card__title--dev3" title="Dev 3: Đánh giá & lịch sử" module={features.assessmentHistory} />
-          </div>
-        )}
-      </section>
         </div>
       ) : activeTab === 'history' ? (
         <div id="history-panel" role="tabpanel" aria-labelledby="history-tab" className="history-view">
@@ -523,21 +521,21 @@ export const App: React.FC = () => {
         </div>
       ) : (
         <div id="settings-panel" role="tabpanel" aria-labelledby="settings-tab" className="settings-view">
-          <section className="panel-section" aria-labelledby="appearance-heading">
-            <h2 id="appearance-heading" className="section-heading">Giao diện</h2>
-            <p className="section-copy">Chọn chế độ hiển thị phù hợp với môi trường học tập của bạn.</p>
-            <button
-              type="button"
-              className="theme-toggle"
-              aria-pressed={theme === 'light'}
-              onClick={toggleTheme}
-            >
-              Chuyển sang chế độ {theme === 'dark' ? 'sáng' : 'tối'}
-            </button>
+          <header className="settings-intro">
+            <h2>Cài đặt học tập</h2>
+            <p>Điều chỉnh một lần, áp dụng cho mọi video.</p>
+          </header>
+          <section className="panel-section" aria-labelledby="activation-heading">
+            <div className="setting-toggle-row">
+              <div><h2 id="activation-heading" className="section-heading">StudyLens đang {activationState.status === 'active' ? 'bật' : 'tắt'}</h2><p className="section-copy">Giữ trạng thái này khi chuyển video hoặc khởi động lại trình duyệt.</p></div>
+              <ActivationToggle active={activationState.status === 'active'} disabled={activationCommandStatus === 'sending'} onRequest={requestManualActivation} />
+            </div>
+            {activationCommandError && <p role="alert" className="health-error">Lỗi: {activationCommandError}</p>}
+            {activationCommandNotice && <p role="status" className="section-copy section-copy--warning">{activationCommandNotice}</p>}
           </section>
 
           <section className="panel-section" aria-labelledby="preferences-heading">
-            <h2 id="preferences-heading" className="section-heading">Tùy chọn học tập</h2>
+            <h2 id="preferences-heading" className="section-heading">Cấu hình quiz</h2>
             {preferencesStatus === 'loading' ? (
               <p className="section-copy" role="status">Đang tải tùy chọn học tập...</p>
             ) : (
@@ -549,22 +547,54 @@ export const App: React.FC = () => {
               />
             )}
           </section>
+
+          <section className="panel-section" aria-labelledby="transcript-source-heading">
+            <h2 id="transcript-source-heading" className="section-heading">Nguồn transcript</h2>
+            <p className="section-copy"><strong>YouTube captions</strong> · `captionTracks` → Timedtext JSON3/XML → DOM fallback khi cần.</p>
+            <p className="learning-preferences__hint">Nguồn runtime được cố định bởi contract 0.4.0; Extension không gửi audio hoặc gọi AI Service trực tiếp.</p>
+          </section>
+
+          <section className="panel-section" aria-labelledby="health-heading">
+            <div className="section-heading-row"><h2 id="health-heading" className="section-heading">Kết nối & chẩn đoán</h2><span className={`health-badge health-badge--${backendStatus}`}>{healthStatusLabel(backendStatus)}</span></div>
+            <div className="health-service">
+              <div>Backend: {backendData?.service ?? 'Chưa kiểm tra'}</div>
+              {backendData?.aiService ? <div>AI Service: {backendData.aiService.status} ({backendData.aiService.service})</div> : null}
+              {activationState.context ? <div>Video: {activationState.context.youtubeVideoId}</div> : <div>Video: chưa có trang xem hợp lệ</div>}
+            </div>
+            {errorMessage && <p className="health-error" role="alert">Lỗi Backend: {errorMessage}</p>}
+            <button type="button" className="secondary-button" onClick={() => void checkHealth()} disabled={backendStatus === 'checking'}>{backendStatus === 'checking' ? 'Đang kiểm tra...' : 'Kiểm tra Backend'}</button>
+          </section>
         </div>
       )}
     </main>
   );
 };
 
-function ModuleCard({ className, title, module }: {
-  className: string;
-  title: string;
-  module: { name: string; version: string };
+function StudyCycleCard({ preferences, progress, activationState }: {
+  preferences: LearningPreferences;
+  progress: SessionProgress | null;
+  activationState: ActivationState;
 }) {
+  const intervalMs = preferences.quizIntervalMinutes * 60_000;
+  const activeStudyMs = progress?.activeStudyMs ?? 0;
+  const percent = Math.min(100, Math.round((activeStudyMs / intervalMs) * 100));
+  const caption = activationState.status !== 'active'
+    ? 'Bật StudyLens trong Cài đặt để bắt đầu một phiên học.'
+    : activationState.transcriptCapture?.status === 'unavailable'
+      ? 'Video này không có transcript YouTube phù hợp; chưa thể tạo quiz.'
+      : activationState.transcriptCapture?.status === 'insufficient'
+        ? 'Transcript chưa đủ điều kiện xác thực từ Backend.'
+        : progress?.status === 'active'
+          ? `Đang tích lũy thời gian học thực tế cho chu kỳ ${preferences.quizIntervalMinutes} phút.`
+          : 'Đang chờ transcript hợp lệ và Backend tạo phiên học.';
   return (
-    <div className="module-card">
-      <div className={`module-card__title ${className}`}>{title}</div>
-      <div className="module-card__meta">Mô-đun: {module.name} (v{module.version})</div>
-    </div>
+    <section className="panel-section study-cycle" aria-labelledby="study-cycle-heading">
+      <div className="section-heading-row"><h2 id="study-cycle-heading" className="section-heading">Tiến độ chu kỳ học</h2><strong>{formatDuration(activeStudyMs)} / {preferences.quizIntervalMinutes}:00</strong></div>
+      <div className="study-cycle__track" role="progressbar" aria-label="Tiến độ chu kỳ học" aria-valuemin={0} aria-valuemax={intervalMs} aria-valuenow={Math.min(activeStudyMs, intervalMs)}><span style={{ width: `${percent}%` }} /></div>
+      <p className="section-copy">{caption}</p>
+      {progress?.segmentStatus === 'creating' ? <p className="study-cycle__stage">Backend đang đóng băng segment transcript…</p> : null}
+      {progress?.segmentError ? <p className="health-error" role="alert">Phân đoạn: {progress.segmentError}</p> : null}
+    </section>
   );
 }
 
@@ -595,6 +625,46 @@ function operationLabel(operation: StudyLensOperation): string {
     transcriptUpload: 'Phụ đề YouTube', sessionStart: 'Phiên học', segmentCreate: 'Phân đoạn',
     quizGenerate: 'Bài kiểm tra', answerSubmit: 'Câu trả lời', historyLoad: 'Lịch sử',
   }[operation];
+}
+
+function ProcessingStages({ activationState, quiz, operationStatuses }: {
+  activationState: ActivationState;
+  quiz: QuizAvailable | null;
+  operationStatuses: Partial<Record<StudyLensOperation, OperationStatusPayload>>;
+}) {
+  const captureReady = activationState.transcriptCapture?.status === 'available';
+  const collecting = activationState.status === 'active' && !captureReady;
+  const generating = operationStatuses.quizGenerate?.state === 'pending' || operationStatuses.segmentCreate?.state === 'pending';
+  return (
+    <div className="processing-stages" aria-label="Tiến trình tạo quiz">
+      <span className={collecting ? 'processing-stage processing-stage--active' : captureReady ? 'processing-stage processing-stage--done' : 'processing-stage'}>
+        {captureReady ? '✓ Đã thu thập phụ đề' : '1 · Thu thập phụ đề'}
+      </span>
+      <span className={quiz ? 'processing-stage processing-stage--done' : generating ? 'processing-stage processing-stage--active' : 'processing-stage'}>
+        {quiz ? '✓ Đã tạo câu hỏi' : '2 · Tạo câu hỏi →'}
+      </span>
+    </div>
+  );
+}
+function learningStateSummary(
+  state: ActivationState,
+  statuses: Partial<Record<StudyLensOperation, OperationStatusPayload>>,
+  quiz: QuizAvailable | null,
+): string {
+  if (!state.context) return 'Chưa mở video YouTube hợp lệ.';
+  if (state.status !== 'active') return 'StudyLens đang tắt. Bạn có thể bật lại trong Cài đặt.';
+  if (state.transcriptCapture?.status === 'unavailable') return 'Transcript không khả dụng cho video này; StudyLens vẫn giữ trạng thái ON.';
+  if (state.transcriptCapture?.status === 'insufficient') return 'Transcript chưa đủ nội dung theo điều kiện Backend; chưa tạo phiên học.';
+  if (statuses.quizGenerate?.state === 'pending') return 'AI Service đang tạo câu hỏi từ segment đã được Backend đóng băng.';
+  if (quiz) return 'Quiz đã sẵn sàng từ dữ liệu Backend thật.';
+  if (statuses.transcriptUpload?.state === 'pending') return 'Đang gửi và xác thực transcript tại Backend.';
+  if (!state.transcriptCapture) return 'Đang thu thập transcript YouTube có timestamp.';
+  return 'Transcript đã sẵn sàng; StudyLens đang chờ đủ thời gian học thực tế để tạo segment.';
+}
+
+function formatDuration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
 function isActiveYoutubeContext(value: unknown): value is ActiveYoutubeContext {
@@ -653,6 +723,58 @@ async function getActivePlayerTime(): Promise<{ youtubeVideoId: string; currentT
   }
 }
 
+function isTranscriptCaptureForContext(value: unknown, youtubeVideoId: string): value is TranscriptCaptureRef & { status: 'available' } {
+  const capture = value as Partial<TranscriptCaptureRef>;
+  return Boolean(capture) && typeof capture.transcriptCaptureId === 'string' && capture.transcriptCaptureId.length > 0 &&
+    capture.youtubeVideoId === youtubeVideoId && typeof capture.language === 'string' && capture.language.length > 0 &&
+    capture.source === 'youtubeCaption' && capture.status === 'available' &&
+    typeof capture.availableCueCount === 'number' && Number.isInteger(capture.availableCueCount) && capture.availableCueCount > 0 &&
+    typeof capture.version === 'number' && Number.isInteger(capture.version) && capture.version >= 1;
+}
+
+async function getActiveSessionProgress(): Promise<SessionProgress | null> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_SESSION_PROGRESS' }) as { ok?: unknown; state?: unknown } | undefined;
+    return response?.ok === true && isSessionProgress(response.state) ? response.state : null;
+  } catch {
+    return null;
+  }
+}
+
+async function seekActivePlayer(youtubeVideoId: string, timestampMs: number): Promise<{ ok: boolean; code?: string }> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return { ok: false, code: 'extensionRuntimeUnavailable' };
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_SEEK_ACTIVE_PLAYER', youtubeVideoId, timestampMs }) as { ok?: unknown; code?: unknown } | undefined;
+    return response?.ok === true ? { ok: true } : { ok: false, code: typeof response?.code === 'string' ? response.code : 'seekFailed' };
+  } catch {
+    return { ok: false, code: 'seekFailed' };
+  }
+}
+
+async function loadPersistedPanelQuiz(youtubeVideoId: string): Promise<QuizAvailable | null> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_PERSISTED_PANEL_QUIZ' }) as { ok?: unknown; quiz?: unknown; youtubeVideoId?: unknown } | undefined;
+    return response?.ok === true && response.youtubeVideoId === youtubeVideoId && isQuizAvailable(response.quiz) ? response.quiz : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSessionProgress(value: unknown): value is SessionProgress {
+  const state = value as Partial<SessionProgress>;
+  return Boolean(state) && typeof state.activeStudyMs === 'number' && Number.isFinite(state.activeStudyMs) &&
+    (state.status === 'idle' || state.status === 'starting' || state.status === 'active' || state.status === 'completing' || state.status === 'completed' || state.status === 'error') &&
+    (state.segmentStatus === 'idle' || state.segmentStatus === 'creating' || state.segmentStatus === 'created' || state.segmentStatus === 'retryable' || state.segmentStatus === 'blocked');
+}
+
+function isQuizAvailable(value: unknown): value is QuizAvailable {
+  const quiz = value as Partial<QuizAvailable>;
+  return Boolean(quiz) && typeof quiz.quizId === 'string' && typeof quiz.sessionId === 'string' &&
+    typeof quiz.segmentId === 'string' && typeof quiz.createdAtUtc === 'string' && Array.isArray(quiz.questions) && quiz.questions.length > 0;
+}
+
 async function getLearningPreferences(): Promise<LearningPreferences> {
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return { ...DEFAULT_LEARNING_PREFERENCES };
   const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_LEARNING_PREFERENCES' }) as {
@@ -663,7 +785,6 @@ async function getLearningPreferences(): Promise<LearningPreferences> {
   if (response?.ok && isLearningPreferences(response.preferences)) return { ...response.preferences };
   throw new Error(response?.code ?? 'learningPreferencesUnavailable');
 }
-
 async function persistLearningPreferences(preferences: LearningPreferences): Promise<LearningPreferences> {
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) throw new Error('extensionRuntimeUnavailable');
   const response = await chrome.runtime.sendMessage({
@@ -672,23 +793,4 @@ async function persistLearningPreferences(preferences: LearningPreferences): Pro
   }) as { ok?: boolean; preferences?: unknown; code?: string } | undefined;
   if (response?.ok && isLearningPreferences(response.preferences)) return { ...response.preferences };
   throw new Error(response?.code ?? 'learningPreferencesUnavailable');
-}
-
-async function loadThemePreference(): Promise<ThemeMode> {
-  if (typeof chrome === 'undefined' || !chrome.storage?.local) return 'dark';
-  try {
-    const stored = await chrome.storage.local.get(THEME_STORAGE_KEY) as Record<string, unknown>;
-    return stored[THEME_STORAGE_KEY] === 'light' ? 'light' : 'dark';
-  } catch {
-    return 'dark';
-  }
-}
-
-async function saveThemePreference(theme: ThemeMode): Promise<void> {
-  if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
-  try {
-    await chrome.storage.local.set({ [THEME_STORAGE_KEY]: theme });
-  } catch {
-    // A visual preference must never block activation or the rest of the panel.
-  }
 }

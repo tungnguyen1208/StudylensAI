@@ -10,7 +10,8 @@ MediaRecorder or direct AI call.
 ```text
 chrome.storage.local extensionEnabled
   -> supported YouTube watch page + PlayerPort
-  -> captionTracks Timedtext -> DOM transcript fallback
+  -> captionTracks -> manual/ASR language selection
+  -> Timedtext JSON3, then XML -> DOM transcript fallback when unavailable
   -> Backend caption capture -> TranscriptCaptureRef
   -> Dev 2 SessionQuiz
 ```
@@ -32,17 +33,23 @@ tests/contract/video-activation/**
 1. Persist only the learner's explicit global toggle; restore it on browser
    start. A restored ON must run the normal caption acquisition path.
 2. While ON, read `captionTracks`, select the preferred manual/ASR language,
-   request Timedtext JSON3 then XML, normalize cues, and send cue-only JSON to
-   Backend. If direct retrieval fails, Dev 1 may open YouTube's transcript UI
-   and observe its rendered segments with a debounced `MutationObserver`.
-3. Cancel stale fetch/DOM work on OFF, A -> B, and leaving `/watch`. Publish
+   request Timedtext JSON3 then XML, decode/normalize/deduplicate
+   `{ startMs, endMs, text }` cues, and send cue-only JSON to Backend. Direct
+   Timedtext is the Full Text path because it returns the selected YouTube
+   track; do not depend on the currently visible video subtitle line.
+3. If and only if direct retrieval is unavailable, Dev 1 may open YouTube's
+   transcript UI and observe its rendered segments with a debounced
+   `MutationObserver`. DOM rows are volatile/possibly partial. Once Backend
+   accepts a direct capture, ignore later DOM mutations for that acquisition so
+   they cannot create a second capture with a different language or hash.
+4. Cancel stale fetch/DOM work on OFF, A -> B, and leaving `/watch`. Publish
    `VIDEO_CONTEXT_CHANGED` once before replacement work. Do not publish
    `ACTIVATION_ENABLED` until Backend returns an available `youtubeCaption`
    `TranscriptCaptureRef`.
-4. `unavailable` and `insufficient` are explicit non-retryable states: global
+5. `unavailable` and `insufficient` are explicit non-retryable states: global
    ON remains, but no session, segment or quiz is created. Backend/network
    failure is retryable and reuses the same caption idempotency key.
-5. Only explicit OFF publishes `ACTIVATION_DISABLED`. Never pause, seek, play,
+6. Only explicit OFF publishes `ACTIVATION_DISABLED`. Never pause, seek, play,
    or otherwise alter YouTube on any normal/error path.
 
 ## Handoff rules
@@ -50,9 +57,11 @@ tests/contract/video-activation/**
 - Contract baseline is `0.4.0`; camelCase, integer video milliseconds and UTC
   timestamps apply.
 - `TranscriptCaptureRef.source` is only `youtubeCaption`; it contains no raw
-  DOM payload, audio, quiz answer, or secret.
+  DOM payload, audio, quiz answer, or secret. Backend owns canonical cue hash,
+  idempotency and persistence.
 - Dev 2 reads persisted cues through `ITranscriptCaptureReader` and freezes a
-  segment before Backend calls FastAPI to generate a quiz.
+  segment before Backend calls FastAPI to generate a quiz. FastAPI does not
+  fetch captions or otherwise acquire a YouTube transcript.
 - Keep `PreferenceSnapshot` immutable for each activation.
 
 ## Acceptance evidence

@@ -7,8 +7,9 @@ YouTube watch page into a learning session, quiz, result and history flow.
 
 ```text
 Learner ON
-  -> YouTube captionTracks -> Timedtext JSON3, then XML
-  -> auto-opened YouTube Transcript DOM fallback
+  -> YouTube captionTracks -> preferred manual/ASR track
+  -> Timedtext JSON3, then XML -> normalized `{ startMs, endMs, text }` cues
+  -> auto-opened YouTube Transcript DOM fallback only if direct fetch is unavailable
   -> ASP.NET Core Backend validates + stores normalized cues in SQLite
   -> ACTIVATION_ENABLED -> session/timer -> frozen segment
   -> Backend -> FastAPI question generation -> quiz -> grade/history
@@ -20,14 +21,25 @@ AI service is used only by Backend after a valid transcript segment is frozen.
 ### Transcript policy
 
 - `youtubeCaption` is the sole runtime transcript source.
-- Direct Timedtext retrieval is preferred; DOM transcript observation is a
-  fallback and runs only while StudyLens is ON.
+- Direct Timedtext retrieval is the Full Text path: it reads the selected
+  YouTube caption track, preserves timestamps and completes before a quiz can
+  be considered. DOM transcript observation is a fallback, runs only while
+  StudyLens is ON, and may be partial because YouTube virtualizes rows.
+- A direct capture accepted by Backend wins for that acquisition. Later DOM
+  mutations must not upload a second capture with a different track/language
+  or idempotency hash.
 - Missing or insufficient captions leave global ON enabled and show an
   explicit status. No session or quiz is fabricated.
 - StudyLens does not use microphone, STT, `tabCapture`, offscreen documents,
   MediaRecorder, audio upload or `youtube-transcript-api`.
 - Historical SQLite audio-capture rows are retained as legacy data, but no new
   audio records are written.
+
+Backend checks the video ID, timestamp bounds, normalized cue content,
+canonical hash and idempotency key before persisting a cue-only capture. When
+the configured learning interval is met, it freezes the relevant cues in a
+segment and only then calls FastAPI for quiz generation. FastAPI never fetches
+or reconstructs a YouTube transcript.
 
 ### Persistent activation
 

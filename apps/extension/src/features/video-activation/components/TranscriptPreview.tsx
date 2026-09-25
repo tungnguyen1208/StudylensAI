@@ -7,13 +7,15 @@ export interface TranscriptPreviewProps {
   error: string | null;
   currentTimeMs: number | null;
   onRefresh: () => void;
+  onSeek: (timestampMs: number) => void;
 }
 
 /** Read-only, time-synchronised subtitle view backed by persisted caption cues. */
-export function TranscriptPreview({ details, loading, error, currentTimeMs, onRefresh }: TranscriptPreviewProps) {
+export function TranscriptPreview({ details, loading, error, currentTimeMs, onRefresh, onSeek }: TranscriptPreviewProps) {
   const cues = details?.cues ?? [];
   const activeCueIndex = useMemo(() => findActiveCueIndex(cues, currentTimeMs), [cues, currentTimeMs]);
   const activeCueRef = useRef<HTMLLIElement | null>(null);
+  const cueStatus = details ? `${cues.length} đoạn` : loading ? 'Đang tải' : null;
 
   useEffect(() => {
     activeCueRef.current?.scrollIntoView({ block: 'nearest' });
@@ -26,20 +28,15 @@ export function TranscriptPreview({ details, loading, error, currentTimeMs, onRe
           <h2 id="transcript-preview-heading" className="section-heading">Transcript</h2>
           <p className="section-copy">Subtitles có timestamp. Dòng tô sáng là nội dung đang phát.</p>
         </div>
-        <button type="button" className="secondary-button" onClick={onRefresh} disabled={loading}>
-          {loading ? 'Đang tải...' : 'Làm mới'}
-        </button>
+        <div className="transcript-preview__actions">
+          {cueStatus ? <span className="transcript-preview__status">{cueStatus}</span> : null}
+          {error ? <button type="button" className="secondary-button" onClick={onRefresh} disabled={loading}>Thử lại</button> : null}
+        </div>
       </div>
 
       {error ? <p className="health-error" role="alert">Không thể tải transcript: {error}</p> : null}
       {details ? (
         <>
-          <dl className="transcript-preview__meta">
-            <div><dt>Ngôn ngữ</dt><dd>{details.capture.language}</dd></div>
-            <div><dt>Video ID</dt><dd>{details.capture.youtubeVideoId}</dd></div>
-            <div><dt>Cue đã ghi</dt><dd>{details.cues.length}</dd></div>
-            <div><dt>Phiên bản</dt><dd>{details.capture.version}</dd></div>
-          </dl>
           {cues.length > 0 ? (
             <ol className="transcript-preview__cues" aria-label="Transcript theo thời gian">
               {cues.map((cue, index) => {
@@ -51,8 +48,15 @@ export function TranscriptPreview({ details, loading, error, currentTimeMs, onRe
                   className={isActive ? 'transcript-preview__cue transcript-preview__cue--active' : 'transcript-preview__cue'}
                   aria-current={isActive ? 'true' : undefined}
                 >
-                  <time dateTime={`PT${cue.startMs / 1000}S`}>{formatTimestamp(cue.startMs)}</time>
-                  <span>{cue.text}</span>
+                  <button
+                    type="button"
+                    className="transcript-preview__cue-button"
+                    onClick={() => onSeek(cue.startMs)}
+                    aria-label={`Tua video đến ${formatTimestamp(cue.startMs)}: ${cue.text}`}
+                  >
+                    <time dateTime={`PT${cue.startMs / 1000}S`}>{formatTimestamp(cue.startMs)}</time>
+                    <span>{cue.text}</span>
+                  </button>
                 </li>
                 );
               })}

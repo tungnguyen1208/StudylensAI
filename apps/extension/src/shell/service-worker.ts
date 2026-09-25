@@ -36,7 +36,12 @@ type PreferencesSaveRequest = { type: 'STUDYLENS_SAVE_LEARNING_PREFERENCES'; pre
 type PageCaptionTracksRequest = { type: typeof PAGE_CAPTION_TRACKS_MESSAGE; youtubeVideoId: string };
 type ActiveYoutubeContextRequest = { type: 'STUDYLENS_GET_ACTIVE_YOUTUBE_CONTEXT' };
 type ActivePlayerTimeRequest = { type: 'STUDYLENS_GET_ACTIVE_PLAYER_TIME' };
+type ActiveSessionProgressRequest = { type: 'STUDYLENS_GET_ACTIVE_SESSION_PROGRESS' };
+type SeekActivePlayerRequest = { type: 'STUDYLENS_SEEK_ACTIVE_PLAYER'; youtubeVideoId: string; timestampMs: number };
 type ActiveYoutubeContext = { tabId: number; youtubeVideoId: string; title: string };
+type PersistedPanelQuiz = { youtubeVideoId: string; quiz: unknown; savedAtUtc: string };
+
+const PANEL_QUIZ_STORAGE_KEY = 'studylensPanelQuiz';
 
 const relayableMessageTypes = new Set([
   'PLAYER_PLAYING', 'PLAYER_PAUSED', 'PLAYER_BUFFERING', 'PLAYER_SEEKED', 'PLAYER_ENDED',
@@ -97,6 +102,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void readActivePlayerTime().then(sendResponse);
     return true;
   }
+  if (isActiveSessionProgressRequest(message)) {
+    void readActiveSessionProgress().then(sendResponse);
+    return true;
+  }
+  if (isSeekActivePlayerRequest(message)) {
+    void seekActivePlayer(message.youtubeVideoId, message.timestampMs).then(sendResponse);
+    return true;
+  }
+  if ((message as { type?: unknown })?.type === 'STUDYLENS_GET_PERSISTED_PANEL_QUIZ') {
+    void readPersistedPanelQuiz().then(sendResponse);
+    return true;
+  }
   if (message?.type === 'STUDYLENS_RESOLVE_TAB_ID') {
     sendResponse({ tabId: sender.tab?.id });
     return;
@@ -131,6 +148,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (!sender.tab?.id || !isRelayableContentMessage(message)) return;
+  if (message.type === 'QUIZ_AVAILABLE') {
+    void chrome.storage.local.set({
+      [PANEL_QUIZ_STORAGE_KEY]: {
+        youtubeVideoId: message.youtubeVideoId,
+        quiz: message.payload,
+        savedAtUtc: new Date().toISOString(),
+      } satisfies PersistedPanelQuiz,
+    }).catch(() => undefined);
+  }
   void chrome.runtime.sendMessage(message).catch(() => undefined);
 });
 
@@ -202,17 +228,23 @@ async function retryForActiveTab(operation: string): Promise<{ ok: boolean; code
 }
 
 /** Reads title/ID only; opening the Side Panel never starts activation. */
-async function readActiveYoutubeContext(): Promise<{ ok: boolean; context?: ActiveYoutubeContext; code?: string }> {
+async function readActiveYoutubeContext(): Promise<{ ok: boolean; context?: ActiveYoutubeContext; transcriptCapture?: unknown; code?: string }> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab?.id || !isYoutubeUrl(tab.url)) return { ok: false, code: 'youtubeTabUnavailable' };
 
   try {
     await ensureContentScriptReady(tab.id);
     const response = await chrome.tabs.sendMessage(tab.id, { type: 'STUDYLENS_GET_VIDEO_CONTEXT' }) as {
-      ok?: unknown; context?: unknown; code?: unknown;
+      ok?: unknown; context?: unknown; transcriptCapture?: unknown; code?: unknown;
     } | undefined;
     if (response?.ok === true && isActiveYoutubeContext(response.context, tab.id)) {
-      return { ok: true, context: response.context };
+      return {
+        ok: true,
+        context: response.context,
+        ...(isTranscriptCaptureForVideo(response.transcriptCapture, response.context.youtubeVideoId)
+          ? { transcriptCapture: response.transcriptCapture }
+          : {}),
+      };
     }
     return { ok: false, code: typeof response?.code === 'string' ? response.code : 'youtubeContextUnavailable' };
   } catch {
@@ -235,6 +267,53 @@ async function readActivePlayerTime(): Promise<{ ok: boolean; youtubeVideoId?: s
   } catch {
     return { ok: false };
   }
+}
+
+async function readActiveSessionProgress(): Promise<{ ok: boolean; state?: unknown; code?: string }> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const youtubeVideoId = youtubeVideoIdFromUrl(tab?.url);
+  if (!tab?.id || !youtubeVideoId) return { ok: false, code: 'youtubeTabUnavailable' };
+  try {
+    await ensureContentScriptReady(tab.id);
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'STUDYLENS_GET_SESSION_PROGRESS' }) as {
+      ok?: unknown; state?: unknown; code?: unknown;
+    } | undefined;
+    return response?.ok === true ? { ok: true, state: response.state } : {
+      ok: false,
+      code: typeof response?.code === 'string' ? response.code : 'sessionRuntimeUnavailable',
+    };
+  } catch {
+    return { ok: false, code: 'contentScriptUnavailable' };
+  }
+}
+
+async function seekActivePlayer(youtubeVideoId: string, timestampMs: number): Promise<{ ok: boolean; code?: string }> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab?.id || !youtubeUrlMatchesVideo(tab.url, youtubeVideoId) || !Number.isInteger(timestampMs) || timestampMs < 0) {
+    return { ok: false, code: 'seekTargetUnavailable' };
+  }
+  try {
+    await ensureContentScriptReady(tab.id);
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'STUDYLENS_SEEK_TO_TIMESTAMP', youtubeVideoId, timestampMs,
+    }) as { ok?: unknown; code?: unknown } | undefined;
+    return response?.ok === true ? { ok: true } : {
+      ok: false,
+      code: typeof response?.code === 'string' ? response.code : 'seekFailed',
+    };
+  } catch {
+    return { ok: false, code: 'contentScriptUnavailable' };
+  }
+}
+
+async function readPersistedPanelQuiz(): Promise<{ ok: boolean; quiz?: unknown; youtubeVideoId?: string }> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const youtubeVideoId = youtubeVideoIdFromUrl(tab?.url);
+  if (!youtubeVideoId) return { ok: false };
+  const stored = (await chrome.storage.local.get(PANEL_QUIZ_STORAGE_KEY))[PANEL_QUIZ_STORAGE_KEY] as Partial<PersistedPanelQuiz> | undefined;
+  return stored?.youtubeVideoId === youtubeVideoId && stored.quiz
+    ? { ok: true, quiz: stored.quiz, youtubeVideoId }
+    : { ok: false };
 }
 
 async function ensureContentScriptReady(tabId: number): Promise<void> {
@@ -355,6 +434,17 @@ function isActivePlayerTimeRequest(value: unknown): value is ActivePlayerTimeReq
     (value as Partial<ActivePlayerTimeRequest>).type === 'STUDYLENS_GET_ACTIVE_PLAYER_TIME';
 }
 
+function isActiveSessionProgressRequest(value: unknown): value is ActiveSessionProgressRequest {
+  return Boolean(value) && typeof value === 'object' && (value as Partial<ActiveSessionProgressRequest>).type === 'STUDYLENS_GET_ACTIVE_SESSION_PROGRESS';
+}
+
+function isSeekActivePlayerRequest(value: unknown): value is SeekActivePlayerRequest {
+  const item = value as Partial<SeekActivePlayerRequest>;
+  return Boolean(item) && item.type === 'STUDYLENS_SEEK_ACTIVE_PLAYER' &&
+    typeof item.youtubeVideoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(item.youtubeVideoId) &&
+    typeof item.timestampMs === 'number' && Number.isInteger(item.timestampMs) && item.timestampMs >= 0;
+}
+
 function isActiveYoutubeContext(value: unknown, expectedTabId: number): value is ActiveYoutubeContext {
   const item = value as Partial<ActiveYoutubeContext>;
   return Boolean(item) && item.tabId === expectedTabId &&
@@ -362,10 +452,23 @@ function isActiveYoutubeContext(value: unknown, expectedTabId: number): value is
     typeof item.title === 'string' && item.title.trim().length > 0;
 }
 
-function isRelayableContentMessage(value: unknown): value is { type: string; contractVersion: '0.4.0'; tabId: number; youtubeVideoId: string } {
-  const item = value as Partial<{ type: string; contractVersion: string; tabId: number; youtubeVideoId: string }>;
+function isRelayableContentMessage(value: unknown): value is { type: string; contractVersion: '0.4.0'; tabId: number; youtubeVideoId: string; payload: unknown } {
+  const item = value as Partial<{ type: string; contractVersion: string; tabId: number; youtubeVideoId: string; payload: unknown }>;
   return Boolean(item) && typeof item.type === 'string' && relayableMessageTypes.has(item.type) &&
-    item.contractVersion === '0.4.0' && Number.isInteger(item.tabId) && typeof item.youtubeVideoId === 'string';
+    item.contractVersion === '0.4.0' && Number.isInteger(item.tabId) && typeof item.youtubeVideoId === 'string' && 'payload' in item;
+}
+
+/** Validate the public capture projection before returning it to the Side Panel. */
+function isTranscriptCaptureForVideo(value: unknown, youtubeVideoId: string): boolean {
+  const item = value as Partial<{
+    transcriptCaptureId: string; youtubeVideoId: string; language: string; source: string;
+    status: string; availableCueCount: number; version: number;
+  }>;
+  return Boolean(item) && typeof item.transcriptCaptureId === 'string' && item.transcriptCaptureId.length > 0 &&
+    item.youtubeVideoId === youtubeVideoId && typeof item.language === 'string' && item.language.length > 0 &&
+    item.source === 'youtubeCaption' && item.status === 'available' &&
+    typeof item.availableCueCount === 'number' && Number.isInteger(item.availableCueCount) && item.availableCueCount > 0 &&
+    typeof item.version === 'number' && Number.isInteger(item.version) && item.version >= 1;
 }
 
 if (chrome.sidePanel?.setPanelBehavior) {

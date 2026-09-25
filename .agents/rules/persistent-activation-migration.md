@@ -15,8 +15,8 @@ shared contracts, message routing, shell wiring, and multiple module seams.
 chrome.storage.local extensionEnabled
   -> ExtensionActivationState enabled
   -> `VIDEO_CONTEXT_CHANGED` before each supported replacement page
-  -> one `ACTIVATION_ENABLED` event after each captured page has valid transcript evidence
-  -> TranscriptSnapshotRef + PreferenceSnapshot
+  -> one `ACTIVATION_ENABLED` event after Backend accepts a valid caption capture
+  -> TranscriptCaptureRef + PreferenceSnapshot
   -> Dev 2 session and quiz flow
 ```
 
@@ -34,8 +34,10 @@ chrome.storage.local extensionEnabled
    Extension-message schemas, and JSON examples.
 2. Replace `ActivationDecision` as the Dev 1 to Dev 2 entry seam with
    `ExtensionActivationState` and `ACTIVATION_ENABLED` / `ACTIVATION_DISABLED`.
-3. Publish `VIDEO_CONTEXT_CHANGED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, and
-   `ITranscriptSnapshotReader` through versioned public ports.
+3. Publish `VIDEO_CONTEXT_CHANGED`, `TranscriptCaptureRef`, `PreferenceSnapshot`, player events, and
+   `ITranscriptCaptureReader` through versioned public ports. The runtime source
+   is `youtubeCaption`: captionTracks -> Timedtext JSON3 -> XML, with DOM
+   transcript observation only as a direct-fetch fallback.
 4. Update every Extension producer and consumer: content script, service
    worker relay, Side Panel, SessionQuiz runtime, and AssessmentHistory
    consumers where affected.

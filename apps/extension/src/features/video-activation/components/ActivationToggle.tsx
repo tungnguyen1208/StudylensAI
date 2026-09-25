@@ -10,13 +10,14 @@ export function ActivationToggle({
   return (
     <button
       type="button"
-      className={`activation-toggle ${active ? 'activation-toggle--active' : ''}`}
-      aria-pressed={active}
+      className={active ? 'activation-toggle activation-toggle--on' : 'activation-toggle activation-toggle--off'}
+      role="switch"
+      aria-checked={active}
+      aria-label={active ? 'Tắt StudyLens' : 'Bật StudyLens'}
       disabled={disabled}
       onClick={() => onRequest(active ? 'off' : 'on')}
     >
       <span className="activation-toggle__indicator" aria-hidden="true" />
-      <span>{active ? 'Tắt StudyLens' : 'Bật StudyLens'}</span>
     </button>
   );
 }

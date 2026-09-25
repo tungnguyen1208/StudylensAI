@@ -31,6 +31,14 @@ change never changes the persisted ON/OFF setting. It closes only the matching
 old flow, and Dev 2 starts the replacement only after its later valid
 `ACTIVATION_ENABLED` handoff.
 
+Transcript evidence at contract `0.4.0` means a Backend-accepted
+`youtubeCaption` capture. Dev 1 first selects a YouTube `captionTracks` entry
+and fetches timestamped Timedtext JSON3, then XML. It may open and observe the
+YouTube Transcript DOM only when direct Timedtext is unavailable. A successful
+direct capture is definitive for that acquisition; later DOM mutations cannot
+create a second capture. Backend persists cue-only data and freezes a segment
+before it calls FastAPI. FastAPI is not a caption or transcription service.
+
 ## Consequences
 
 - Dev 2 starts only from `ACTIVATION_ENABLED`; it completes the matching old

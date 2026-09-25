@@ -23,11 +23,16 @@ export async function createTranscriptCaptureRequest(
   youtubeVideoId: string,
   transcript: TranscriptReadResult,
 ): Promise<CreateTranscriptCaptureRequest> {
+  // Backend idempotency compares every persisted caption field, including
+  // language. Keep the language canonical and make it part of the key so a
+  // later direct/DOM read cannot replay a different language payload through
+  // a key derived only from cue text.
+  const language = transcript.language.trim().toLowerCase() || 'und';
   if (transcript.status !== 'available') {
     return {
-      idempotencyKey: `caption:${youtubeVideoId}:${transcript.status}:${transcript.language}`,
+      idempotencyKey: `caption:${youtubeVideoId}:${transcript.status}:${language}`,
       youtubeVideoId,
-      language: transcript.language,
+      language,
       source: 'youtubeCaption',
       status: transcript.status,
       cues: [],
@@ -35,9 +40,9 @@ export async function createTranscriptCaptureRequest(
   }
   const contentHash = await hashTranscript(transcript.cues);
   return {
-    idempotencyKey: `caption:${youtubeVideoId}:${contentHash}`,
+    idempotencyKey: `caption:${youtubeVideoId}:${language}:${contentHash}`,
     youtubeVideoId,
-    language: transcript.language,
+    language,
     source: 'youtubeCaption',
     status: 'available',
     contentHash,

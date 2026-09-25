@@ -34,6 +34,7 @@ export class YoutubeTranscriptDomAdapter {
   private scheduled = false;
   private refreshing = false;
   private directAttempted = false;
+  private directAvailable = false;
   private domFallbackRequested = false;
   private disposed = false;
   private lastFingerprint: string | null = null;
@@ -55,6 +56,7 @@ export class YoutubeTranscriptDomAdapter {
   public retry(): void {
     if (this.disposed) return;
     this.directAttempted = false;
+    this.directAvailable = false;
     this.domFallbackRequested = false;
     this.scheduleRefresh();
   }
@@ -78,6 +80,10 @@ export class YoutubeTranscriptDomAdapter {
 
   private async refresh(): Promise<void> {
     if (this.disposed || !this.listener || this.refreshing) return;
+    // Timedtext is definitive for this acquisition. MutationObserver events
+    // from YouTube's virtualized transcript drawer must never submit a second
+    // cue set after Backend has accepted the direct source.
+    if (this.directAvailable) return;
     this.refreshing = true;
     try {
       if (!this.directAttempted && this.environment.readDirectTranscript) {
@@ -85,6 +91,7 @@ export class YoutubeTranscriptDomAdapter {
         const direct = await this.environment.readDirectTranscript();
         if (this.disposed || !this.listener) return;
         if (direct?.status === 'available') {
+          this.directAvailable = true;
           this.emit(direct);
           return;
         }

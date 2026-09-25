@@ -64,6 +64,28 @@ describe('YoutubeTranscriptDomAdapter', () => {
     expect(openedDom).toBe(false);
   });
 
+  it('does not fall back to a DOM transcript after direct timedtext succeeded', async () => {
+    const environment = new FakeTranscriptEnvironment();
+    environment.readDirectTranscript = async () => ({
+      status: 'available',
+      language: 'en',
+      cues: availableCues.map((cue) => ({ startMs: cue.startMs, endMs: cue.endMs!, text: cue.text })),
+    });
+    const updates: string[] = [];
+    new YoutubeTranscriptDomAdapter(environment).start((result) => updates.push(result.status));
+
+    environment.flush();
+    await Promise.resolve();
+    environment.cues = [
+      { startMs: 0, endMs: 10_000, text: 'This rendered panel must not create another capture after direct timedtext succeeded.' },
+      { startMs: 10_000, endMs: 20_000, text: 'The public capture and its idempotency key belong to the direct transcript.' },
+    ];
+    environment.triggerDomChange();
+    environment.flush();
+
+    expect(updates).toEqual(['available']);
+  });
+
   it('does not emit or upload again when rendered transcript content is unchanged', () => {
     const environment = new FakeTranscriptEnvironment();
     environment.cues = availableCues;

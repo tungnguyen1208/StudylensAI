@@ -7,6 +7,7 @@ import type {
 } from '../models/video-activation.types';
 import {
   TranscriptService,
+  createTranscriptCaptureRequest,
   type TranscriptCaptureApiPort,
 } from '../services/transcript-service';
 import type { TranscriptReadResult } from '../../../platform/youtube/transcript-reader';
@@ -55,8 +56,19 @@ describe('TranscriptService retry semantics', () => {
 
     expect(api.requests).toHaveLength(2);
     expect(api.requests[1]).toEqual(api.requests[0]);
-    expect(api.requests[0].idempotencyKey).toMatch(/^caption:dQw4w9WgXcQ:[a-f0-9]{64}$/);
+    expect(api.requests[0].idempotencyKey).toMatch(/^caption:dQw4w9WgXcQ:en:[a-f0-9]{64}$/);
     expect(api.requests[0].contentHash).toHaveLength(64);
+  });
+
+  it('uses a canonical language in an available transcript key', async () => {
+    const upperCaseLanguage = await createTranscriptCaptureRequest(youtubeVideoId, {
+      ...availableTranscript,
+      language: 'EN',
+    });
+    const lowerCaseLanguage = await createTranscriptCaptureRequest(youtubeVideoId, availableTranscript);
+
+    expect(upperCaseLanguage.language).toBe('en');
+    expect(upperCaseLanguage.idempotencyKey).toBe(lowerCaseLanguage.idempotencyKey);
   });
 
   it('keeps unavailable transcript evidence explicit and without a content hash', async () => {

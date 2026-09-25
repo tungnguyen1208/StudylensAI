@@ -5,7 +5,7 @@
 Dev 2 owns the study-session lifecycle and quiz creation. It consumes Dev 1's persistent activation, video-transition, and enabled-page/transcript handoffs; it never accesses YouTube DOM directly.
 
 ```text
-ExtensionActivationState enabled + VIDEO_CONTEXT_CHANGED + ACTIVATION_ENABLED + TranscriptSnapshotRef
+ExtensionActivationState enabled + VIDEO_CONTEXT_CHANGED + ACTIVATION_ENABLED + TranscriptCaptureRef
   -> StudySession and activeStudyMs
   -> PlaybackSpan and StudySegment
   -> Backend to FastAPI question generation
@@ -33,7 +33,10 @@ tests/e2e/session-quiz/**
 
 - Contract baseline is `0.4.0`; migrate legacy `0.1.0` artifacts only through an Integration Captain task.
 - Start only when `ExtensionActivationState.enabled` is true and an `ACTIVATION_ENABLED` handoff has a valid captured YouTube ID; close only the matching session on `VIDEO_CONTEXT_CHANGED` or `VIDEO_CONTEXT_UNAVAILABLE`.
-- Persist an immutable transcript/preference snapshot with the session. Read evidence only through Dev 1's `ITranscriptSnapshotReader`, never through YouTube DOM or Dev 1 internals.
+- Persist immutable preference and capture references with the session. Read
+  cue evidence only through Dev 1's `ITranscriptCaptureReader`, never through
+  YouTube DOM or Dev 1 internals. Freeze the selected cues into the segment
+  before Backend requests FastAPI quiz generation.
 - Count active study time only while enabled and the player is actually playing. Pause, buffering, seek, ended, stale events, and unobserved service-worker downtime do not add time.
 - A 5/10/15-minute threshold creates exactly one idempotent segment and one idempotent quiz request.
 - Backend owns quiz orchestration and passes only the stored segment evidence to FastAPI. The Extension calls only ASP.NET Core.

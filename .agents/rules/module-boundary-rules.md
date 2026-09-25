@@ -20,7 +20,9 @@ Dev 1 owns global persistent ON/OFF, current-page capture, a controlled
 supported-video transition coordinator while ON, player adapter, transcript
 acquisition, preferences, and the `ExtensionActivationState` /
 `VIDEO_CONTEXT_CHANGED` / `VIDEO_CONTEXT_UNAVAILABLE` / `ACTIVATION_ENABLED` handoff. Dev 1 does not own AI
-classification.
+classification. Its only runtime transcript source is `youtubeCaption`: direct
+Timedtext first, YouTube DOM transcript fallback only when direct retrieval is
+unavailable.
 
 ## Dev 2 - Session Quiz
 
@@ -62,7 +64,7 @@ history read models.
 
 Use published contracts or ports:
 
-- Dev 1 -> Dev 2: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `VIDEO_CONTEXT_UNAVAILABLE`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptSnapshotRef`, `PreferenceSnapshot`, player events, `ITranscriptSnapshotReader`.
+- Dev 1 -> Dev 2: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `VIDEO_CONTEXT_UNAVAILABLE`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptCaptureRef`, `PreferenceSnapshot`, player events, `ITranscriptCaptureReader`. A capture is usable only after Backend returns `source: youtubeCaption` with status `available`.
 - Dev 2 -> Dev 3: `QuizAvailable`, `QuestionPublic`, `QuestionSourceRef`, `SessionSnapshot`, `QuestionForAssessment`, `IQuestionAssessmentReader`.
 - Dev 3 -> Dev 1: `SEEK_REQUEST` with `{ "timestampMs": number }`.
 

@@ -29,16 +29,19 @@ Rules:
 - Extension never calls FastAPI or an LLM provider directly.
 - Extension never contains LLM API keys, database secrets, or private prompts.
 - Backend owns business persistence and orchestration.
-- FastAPI is stateless and validates AI output before returning it.
+- Backend validates and persists YouTube caption cues, then freezes a segment
+  before requesting AI work.
+- FastAPI is stateless, is not a transcript source, and validates AI output
+  before returning it.
 - Backend and AI failures must not break YouTube playback.
 
 ## Contract Baseline
 
 Current architecture baseline: `0.4.0`.
 
-`0.1.0` remains a legacy implementation baseline only until the explicit
-Persistent Activation migration is merged. Do not mix `0.1.0` and `0.4.0`
-envelopes, DTOs, or fixtures inside one runtime flow.
+`0.1.0` artifacts are migration-history inputs only. New runtime work uses
+`0.4.0`; do not emit or mix `0.1.0` and `0.4.0` envelopes, DTOs, or fixtures
+inside one feature flow.
 
 Shared API rules:
 
@@ -52,6 +55,9 @@ Shared API rules:
 - The MVP does not classify videos as educational or non-educational. While `extensionEnabled` is ON, Dev 1 uses a controlled YouTube SPA transition coordinator for supported video-ID changes; it is not a classification gate.
 - A supported video-ID change publishes `VIDEO_CONTEXT_CHANGED`, lets Dev 2 complete the old session idempotently, then permits a replacement `ACTIVATION_ENABLED` only after the new transcript is available. It must never silently persist OFF.
 - Leaving a supported watch page while ON publishes `VIDEO_CONTEXT_UNAVAILABLE` so Dev 2 can close only the old session; global ON remains active and waits for a later supported page.
+- Caption acquisition is `captionTracks` -> Timedtext JSON3 -> XML. YouTube
+  transcript DOM observation is allowed only as its fallback; it must not
+  duplicate a successful direct-caption capture.
 
 ## HOT Files
 

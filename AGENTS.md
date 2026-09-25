@@ -10,8 +10,10 @@ an LLM provider, or the database directly.
 Contract baseline is **0.4.0**:
 
 ```text
-ON -> captionTracks Timedtext (JSON3, then XML) -> Transcript DOM fallback
-   -> Backend validates and stores caption cues -> ACTIVATION_ENABLED
+ON -> captionTracks -> preferred manual/ASR track
+   -> Timedtext JSON3, then XML -> normalized caption cues
+   -> Transcript DOM fallback only when direct Timedtext is unavailable
+   -> Backend validates and stores cue-only capture -> ACTIVATION_ENABLED
    -> Session -> frozen segment -> Backend -> FastAPI quiz/grading
 ```
 
@@ -19,9 +21,12 @@ ON -> captionTracks Timedtext (JSON3, then XML) -> Transcript DOM fallback
 - There is no classification, Auto mode, microphone, STT, tabCapture,
   MediaRecorder, offscreen document, or direct FastAPI call from Extension.
 - The only runtime `TranscriptCaptureRef.source` is `youtubeCaption`.
-- Direct timedtext is preferred. While ON, the DOM fallback may open YouTube's
-  transcript UI and observe it. A missing/insufficient caption keeps global ON
-  but publishes no activation/session/quiz.
+- Direct Timedtext is preferred because it returns YouTube's caption track with
+  timestamps. While ON, the DOM fallback may open YouTube's transcript UI and
+  observe rendered rows only when direct Timedtext is unavailable. A successful
+  direct capture must suppress later DOM uploads for the same acquisition; DOM
+  is a fallback, not a second transcript source. A missing/insufficient caption
+  keeps global ON but publishes no activation/session/quiz.
 - A YouTube SPA A -> B transition publishes one `VIDEO_CONTEXT_CHANGED`,
   cancels stale A work, and enables B only after Backend returns an available
   caption capture. Leaving `/watch` keeps global ON and publishes
@@ -68,9 +73,12 @@ contracts/                       # integration source of truth
 - `OPERATION_STATUS_CHANGED` covers `transcriptUpload`, `sessionStart`,
   `segmentCreate`, `quizGenerate`, `answerSubmit`, `historyLoad`. Offer retry
   only for retryable errors; retry uses the same idempotency key.
-- Backend validates caption video ID/cues/hash and persists only cues and
-  metadata. Existing historical audio tables are legacy data and must not be
-  deleted by a feature change.
+- Backend validates caption video ID, cue bounds/content, canonical hash and
+  idempotency key; it persists only cues and capture metadata. It freezes the
+  selected cue segment before calling FastAPI. Existing historical audio tables
+  are legacy data and must not be deleted by a feature change.
+- FastAPI is never a YouTube transcript source: it receives only a frozen
+  Backend segment for quiz generation or answer grading.
 - Public quiz data and browser messages must never include answers, rubrics,
   prompts, API keys, raw audio, or provider secrets.
 - Settings stay local for the unauthenticated MVP: interval `5|10|15`, type
