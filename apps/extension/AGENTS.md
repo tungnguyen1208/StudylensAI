@@ -14,3 +14,5 @@ These rules apply when Codex starts inside `apps/extension`.
   provider secrets, or private AI prompts.
 - Internal messages must follow the contract envelope in `contracts/extension-messages/`.
 - Run `npm run typecheck` and `npm run build` after TypeScript changes.
+- For visual side-panel work, also follow `.agents/rules/ui-design-rules.md`.
+  Keep UI-only changes separate from runtime and contract changes.
