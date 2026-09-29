@@ -279,6 +279,17 @@ describe('question generation contract 0.4.0', () => {
     expect(validate({ ...timeout, status: 503 })).toBe(false);
   });
 
+  it('separates a retryable provider outage from blocked provider content', () => {
+    const validate = aiValidator('AiErrorEnvelope');
+    const blocked = loadFixture<ErrorEnvelopeFixture>('ai-provider-blocked.error.json');
+    const timeout = loadFixture<ErrorEnvelopeFixture>('ai-provider-timeout.error.json');
+    expect(validate(blocked), JSON.stringify(validate.errors)).toBe(true);
+    expect(blocked.code).toBe('providerBlockedContent');
+    expect(blocked.retryable).toBe(false);
+    expect(timeout.retryable).toBe(true);
+    expect(blocked.message).not.toMatch(/key|token|prompt/i);
+  });
+
   it('declares the retryable and non-retryable AI responses in the contract', () => {
     const contract = parseYaml(readFileSync(`${repoRoot}/contracts/ai-api/question-generation.yaml`, 'utf8'));
     const responses = contract.paths['/api/ai/question-generation/generate'].post?.responses ?? {};

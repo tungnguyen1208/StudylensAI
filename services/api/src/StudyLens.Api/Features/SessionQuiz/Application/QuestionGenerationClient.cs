@@ -16,7 +16,9 @@ public sealed class QuestionGenerationClient : IQuestionGenerationGateway
         _httpClient = httpClient;
         var baseUrl = configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
         _httpClient.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
-        _httpClient.Timeout = TimeSpan.FromSeconds(5);
+        // A real LLM provider needs more than a local fake: the AI service waits up to 22s,
+        // so this client must outlast it to receive the contract-shaped failure instead of cancelling.
+        _httpClient.Timeout = TimeSpan.FromSeconds(25);
     }
 
     public async Task<QuestionGenerationResponse?> GenerateAsync(QuestionGenerationRequest request, CancellationToken cancellationToken)

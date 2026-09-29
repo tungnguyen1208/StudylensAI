@@ -71,6 +71,6 @@ async def generate_questions(
     except InvalidAiOutputError as error:
         return _envelope(422, error.code, error.message, False)
     except ProviderUnavailableError as error:
-        return _envelope(503, error.code, error.message, True)
+        return _envelope(503, error.code, error.message, error.retryable)
 
     return JSONResponse(status_code=200, content=response.model_dump(exclude_none=True))

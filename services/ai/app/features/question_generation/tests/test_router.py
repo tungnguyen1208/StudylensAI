@@ -2,6 +2,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
+from app.features.question_generation.providers import ProviderCallError
 from app.features.question_generation.router import get_service, router
 from app.features.question_generation.service import QuestionGenerationService
 from app.main import app
@@ -36,6 +37,11 @@ class StubProvider:
         if self.delay:
             await asyncio.sleep(self.delay)
         return self.payload
+
+
+class BlockedProvider:
+    async def generate(self, prompt: str) -> str:
+        raise ProviderCallError("providerBlockedContent", "The provider blocked the generated question.", retryable=False)
 
 
 def override_provider(payload: str = "", delay: float = 0.0, timeout: float = 3.0) -> None:
@@ -145,4 +151,19 @@ def test_provider_timeout_returns_a_retryable_503() -> None:
         "code": "providerTimeout",
         "message": "The question provider did not answer in time.",
         "retryable": True,
+    }
+
+
+def test_blocked_provider_content_returns_a_non_retryable_503() -> None:
+    app.dependency_overrides[get_service] = lambda: QuestionGenerationService(
+        provider=BlockedProvider(), timeout_seconds=1.0
+    )
+
+    response = post()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "code": "providerBlockedContent",
+        "message": "The provider blocked the generated question.",
+        "retryable": False,
     }

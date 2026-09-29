@@ -131,9 +131,10 @@ def test_malformed_provider_output_is_not_masked_as_a_provider_outage() -> None:
 
 
 def test_unknown_configured_provider_is_reported_instead_of_silently_faking(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.features.question_generation.service.settings.llm_provider", "gemini")
+    monkeypatch.setattr("app.features.question_generation.service.settings.llm_provider", "vllm")
 
     with pytest.raises(ProviderUnavailableError) as error:
         resolve_provider()
 
     assert error.value.code == "providerNotConfigured"
+    assert error.value.retryable is True
