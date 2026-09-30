@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from app.platform.config import settings
+from app.platform.llm.provider import LlmProviderError
 
 
 class GeminiConfigurationError(RuntimeError):
@@ -22,15 +23,18 @@ class GeminiJsonProvider:
         self._response_schema = response_schema
 
     async def generate(self, prompt: str) -> str:
-        interaction = await self._client.aio.interactions.create(
-            model=settings.gemini_model,
-            input=prompt,
-            response_format={
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": self._response_schema,
-            },
-        )
+        try:
+            interaction = await self._client.aio.interactions.create(
+                model=settings.gemini_model,
+                input=prompt,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": self._response_schema,
+                },
+            )
+        except Exception as error:  # The SDK exception classes vary between versions.
+            raise _provider_error(error) from error
         return _response_text(interaction)
 
 
@@ -48,18 +52,21 @@ class GeminiYoutubeTranscriptProvider:
         self._response_schema = response_schema
 
     async def generate(self, youtube_url: str, prompt: str) -> str:
-        interaction = await self._client.aio.interactions.create(
-            model=settings.gemini_model,
-            input=[
-                {"type": "text", "text": prompt},
-                {"type": "video", "uri": youtube_url},
-            ],
-            response_format={
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": self._response_schema,
-            },
-        )
+        try:
+            interaction = await self._client.aio.interactions.create(
+                model=settings.gemini_model,
+                input=[
+                    {"type": "text", "text": prompt},
+                    {"type": "video", "uri": youtube_url},
+                ],
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": self._response_schema,
+                },
+            )
+        except Exception as error:  # The SDK exception classes vary between versions.
+            raise _provider_error(error) from error
         return _response_text(interaction)
 
 
@@ -95,3 +102,18 @@ def _find_text(value: Any) -> str | None:
                 if found:
                     return found
     return None
+
+
+def _provider_error(error: Exception) -> LlmProviderError:
+    """Normalise SDK failures into the AI contract without returning provider secrets."""
+    status_code = getattr(error, "status_code", None)
+    response = getattr(error, "response", None)
+    status_code = status_code or getattr(response, "status_code", None)
+    detail = str(error).casefold()
+    if any(marker in detail for marker in ("safety", "recitation", "blocklist", "prohibited", "blocked")):
+        return LlmProviderError("providerBlockedContent", "The provider blocked this content.", retryable=False)
+    if status_code in {400, 401, 403, 404}:
+        return LlmProviderError("providerNotConfigured", "The question provider rejected its server configuration.", retryable=False)
+    if "timeout" in detail or "deadline" in detail:
+        return LlmProviderError("providerTimeout", "The question provider did not answer in time.")
+    return LlmProviderError("providerFailed", "The question provider failed.")

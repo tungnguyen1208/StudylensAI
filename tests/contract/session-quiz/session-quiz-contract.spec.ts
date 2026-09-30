@@ -121,4 +121,13 @@ describe('Backend-to-AI full-video contract 0.5.0', () => {
       }
     }
   });
+
+  it('keeps blocked provider content non-retryable and secret-safe', () => {
+    const validate = aiValidator('AiErrorEnvelope').validate;
+    const blocked = fixture('ai-provider-blocked.error.json');
+    expect(validate(blocked), JSON.stringify(validate.errors)).toBe(true);
+    expect(blocked.code).toBe('providerBlockedContent');
+    expect(blocked.retryable).toBe(false);
+    expect(blocked.message).not.toMatch(/key|token|prompt/i);
+  });
 });

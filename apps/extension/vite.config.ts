@@ -22,8 +22,11 @@ export default defineConfig({
     emptyOutDir: false,
     rollupOptions: {
       input: {
-        sidepanel: resolve(__dirname, 'sidepanel.html'),
-        'service-worker': resolve(__dirname, 'src/shell/service-worker.ts'),
+        // Vite/Rollup treats object input names as output asset names on
+        // Windows; source-root-relative entries prevent an absolute path from
+        // being emitted as an asset name.
+        sidepanel: 'sidepanel.html',
+        'service-worker': 'src/shell/service-worker.ts',
       },
       output: {
         entryFileNames: (chunkInfo) =>

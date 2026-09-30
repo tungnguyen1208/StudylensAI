@@ -1,12 +1,18 @@
 import json
 
 from app.features.question_generation.prompt import read_evidence
+from app.platform.llm.provider import LlmProviderError
 
 MIN_EVIDENCE_CHARS = 40
 
 
 class InsufficientEvidenceError(Exception):
     """Raised when transcript evidence cannot support a grounded question."""
+
+
+# Kept as the feature-level import point for provider-specific tests and router
+# mappings. The implementation stays platform-neutral.
+ProviderCallError = LlmProviderError
 
 
 class DeterministicQuestionProvider:

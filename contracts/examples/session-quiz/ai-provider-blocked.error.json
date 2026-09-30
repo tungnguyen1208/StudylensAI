@@ -1,0 +1,5 @@
+{
+  "code": "providerBlockedContent",
+  "message": "The provider blocked the generated question.",
+  "retryable": false
+}
