@@ -11,12 +11,14 @@ from app.features.question_generation.schemas import QuestionGenerationRequest
 
 def request_for(question_type: str = "multipleChoice") -> QuestionGenerationRequest:
     return QuestionGenerationRequest(
-        contractVersion="0.4.0",
-        promptVersion="0.4.0",
-        segmentId="11111111-1111-4111-8111-111111111111",
+        contractVersion="0.5.0",
+        promptVersion="0.5.0",
+        sessionId="11111111-1111-4111-8111-111111111111",
+        transcriptCaptureId="22222222-2222-4222-8222-222222222222",
         youtubeVideoId="dQw4w9WgXcQ",
         startMs=0,
         endMs=300_000,
+        questionCount=3,
         questionType=question_type,
         difficulty="medium",
         cues=[{"startMs": 0, "endMs": 30_000, "text": "TCP chia dữ liệu thành các segment có thứ tự."}],
@@ -33,6 +35,7 @@ def mcq(**overrides) -> str:
             {"optionId": "option-c", "text": "Tăng độ phân giải"},
         ],
         "correctOptionId": "option-a",
+        "explanation": "Grounded in the cited transcript cue.",
         "sourceStartMs": 0,
         "sourceEndMs": 30_000,
     }
@@ -45,6 +48,7 @@ def short_answer(**overrides) -> str:
         "type": "shortAnswer",
         "prompt": "Tóm tắt vai trò của TCP.",
         "referenceAnswer": "TCP chia dữ liệu thành các segment có thứ tự.",
+        "explanation": "Grounded in the cited transcript cue.",
         "sourceStartMs": 0,
         "sourceEndMs": 30_000,
     }
@@ -65,8 +69,8 @@ def code_of(raw: str, request: QuestionGenerationRequest) -> str:
 def test_accepts_a_valid_multiple_choice_question() -> None:
     response = validate_output(mcq(), request_for())
 
-    assert response.contractVersion == "0.4.0"
-    assert response.promptVersion == "0.4.0"
+    assert response.contractVersion == "0.5.0"
+    assert response.promptVersion == "0.5.0"
     assert response.questions[0].correctOptionId == "option-a"
 
 

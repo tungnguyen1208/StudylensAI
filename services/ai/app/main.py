@@ -5,6 +5,7 @@ from app.platform.config import settings
 from app.platform.health import router as health_router
 from app.features.question_generation.router import router as question_generation_router
 from app.features.grading.router import router as grading_router
+from app.features.transcript_generation.router import router as transcript_generation_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -24,9 +25,10 @@ app.add_middleware(
 # Register Health Router
 app.include_router(health_router)
 
-# Register only AI-owned quiz generation and grading. Caption collection is
-# owned by Extension and Backend, never FastAPI.
+# Caption collection stays in Extension. FastAPI is used only as the public
+# YouTube-video fallback after Backend has persisted a failed caption state.
 app.include_router(question_generation_router)
+app.include_router(transcript_generation_router)
 app.include_router(grading_router)
 
 if __name__ == "__main__":

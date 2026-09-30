@@ -1,25 +1,35 @@
 openapi: 3.0.3
 info:
-  title: StudyLens AI API - Question Generation
-  version: 0.4.0
-  description: Backend-to-FastAPI only. Never called by the Extension.
+  title: StudyLens AI API - Full-video Question Generation
+  version: 0.5.0
+  description: Backend-to-FastAPI only. Generates a complete quiz from one validated full transcript.
 paths:
   /api/ai/question-generation/generate:
     post:
-      operationId: generateQuestions
+      operationId: generateFullVideoQuestions
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/QuestionGenerationRequest' } } }
       responses:
-        '200': { description: Valid internal questions, content: { application/json: { schema: { $ref: '#/components/schemas/QuestionGenerationResponse' } } } }
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '422': { $ref: '#/components/responses/InvalidOutputError' }
-        '503': { $ref: '#/components/responses/ProviderUnavailableError' }
+        '200': { description: Validated private questions, content: { application/json: { schema: { $ref: '#/components/schemas/QuestionGenerationResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/ai/transcripts/generate:
+    post:
+      operationId: generateTranscriptFromYoutubeVideo
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TranscriptGenerationRequest' } } }
+      responses:
+        '200': { description: Timestamped transcript generated from a public video, content: { application/json: { schema: { $ref: '#/components/schemas/TranscriptGenerationResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
 components:
   responses:
-    ValidationError: { description: Segment input is invalid or insufficient, content: { application/json: { schema: { $ref: '#/components/schemas/AiErrorEnvelope' } } } }
-    InvalidOutputError: { description: LLM output fails validation, content: { application/json: { schema: { $ref: '#/components/schemas/AiErrorEnvelope' } } } }
-    ProviderUnavailableError: { description: Retryable provider failure, content: { application/json: { schema: { $ref: '#/components/schemas/AiErrorEnvelope' } } } }
+    Error: { description: Contract-shaped AI error, content: { application/json: { schema: { $ref: '#/components/schemas/AiErrorEnvelope' } } } }
   schemas:
     QuestionType: { type: string, enum: [multipleChoice, shortAnswer] }
     Difficulty: { type: string, enum: [easy, medium, hard] }
@@ -28,20 +38,40 @@ components:
       additionalProperties: false
       required: [startMs, endMs, text]
       properties:
-        startMs: { type: integer, minimum: 0 }
-        endMs: { type: integer, minimum: 1 }
+        startMs: { type: integer, format: int64, minimum: 0 }
+        endMs: { type: integer, format: int64, minimum: 1 }
         text: { type: string, minLength: 1 }
+    TranscriptGenerationRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, youtubeVideoId]
+      properties:
+        contractVersion: { type: string, const: 0.5.0 }
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+    TranscriptGenerationResponse:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, youtubeVideoId, source, language, cues]
+      properties:
+        contractVersion: { type: string, const: 0.5.0 }
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        source: { type: string, const: geminiVideo }
+        language: { type: string, minLength: 2 }
+        durationMs: { type: integer, minimum: 0 }
+        cues: { type: array, minItems: 1, items: { $ref: '#/components/schemas/TranscriptCue' } }
     QuestionGenerationRequest:
       type: object
       additionalProperties: false
-      required: [contractVersion, promptVersion, segmentId, youtubeVideoId, startMs, endMs, questionType, difficulty, cues]
+      required: [contractVersion, promptVersion, sessionId, transcriptCaptureId, youtubeVideoId, startMs, endMs, questionCount, questionType, difficulty, cues]
       properties:
-        contractVersion: { type: string, const: 0.4.0 }
-        promptVersion: { type: string, const: 0.4.0 }
-        segmentId: { type: string, format: uuid }
+        contractVersion: { type: string, const: 0.5.0 }
+        promptVersion: { type: string, const: 0.5.0 }
+        sessionId: { type: string, format: uuid }
+        transcriptCaptureId: { type: string, format: uuid }
         youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
         startMs: { type: integer, minimum: 0 }
         endMs: { type: integer, minimum: 1 }
+        questionCount: { type: integer, minimum: 3, maximum: 15 }
         questionType: { $ref: '#/components/schemas/QuestionType' }
         difficulty: { $ref: '#/components/schemas/Difficulty' }
         cues: { type: array, minItems: 1, items: { $ref: '#/components/schemas/TranscriptCue' } }
@@ -49,17 +79,20 @@ components:
       type: object
       additionalProperties: false
       required: [optionId, text]
-      properties: { optionId: { type: string, minLength: 1 }, text: { type: string, minLength: 1 } }
+      properties:
+        optionId: { type: string, minLength: 1 }
+        text: { type: string, minLength: 1 }
     GeneratedQuestion:
       type: object
       additionalProperties: false
-      required: [type, prompt, sourceStartMs, sourceEndMs]
+      required: [type, prompt, explanation, sourceStartMs, sourceEndMs]
       properties:
         type: { $ref: '#/components/schemas/QuestionType' }
         prompt: { type: string, minLength: 1 }
         options: { type: array, minItems: 2, items: { $ref: '#/components/schemas/GeneratedOption' } }
         correctOptionId: { type: string, minLength: 1 }
         referenceAnswer: { type: string, minLength: 1 }
+        explanation: { type: string, minLength: 1 }
         sourceStartMs: { type: integer, minimum: 0 }
         sourceEndMs: { type: integer, minimum: 1 }
     QuestionGenerationResponse:
@@ -67,11 +100,14 @@ components:
       additionalProperties: false
       required: [contractVersion, promptVersion, questions]
       properties:
-        contractVersion: { type: string, const: 0.4.0 }
-        promptVersion: { type: string, const: 0.4.0 }
-        questions: { type: array, minItems: 1, items: { $ref: '#/components/schemas/GeneratedQuestion' } }
+        contractVersion: { type: string, const: 0.5.0 }
+        promptVersion: { type: string, const: 0.5.0 }
+        questions: { type: array, minItems: 1, maxItems: 15, items: { $ref: '#/components/schemas/GeneratedQuestion' } }
     AiErrorEnvelope:
       type: object
       additionalProperties: false
       required: [code, message, retryable]
-      properties: { code: { type: string }, message: { type: string }, retryable: { type: boolean } }
+      properties:
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }

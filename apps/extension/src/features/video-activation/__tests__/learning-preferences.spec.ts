@@ -29,7 +29,7 @@ describe('learning preferences storage', () => {
   });
 
   it('restores a valid browser-local preference snapshot', async () => {
-    const preferences = { quizIntervalMinutes: 15 as const, questionType: 'shortAnswer' as const, difficulty: 'hard' as const };
+    const preferences = { questionType: 'shortAnswer' as const, difficulty: 'hard' as const };
     const { storage, writes } = createStorage({ [LEARNING_PREFERENCES_STORAGE_KEY]: preferences });
     await expect(loadLearningPreferences(storage)).resolves.toEqual(preferences);
     expect(writes).toEqual([]);
@@ -38,17 +38,10 @@ describe('learning preferences storage', () => {
   it('persists only supported values and rejects invalid data without a write', async () => {
     const { storage, writes } = createStorage();
     await expect(saveLearningPreferences(storage, {
-      quizIntervalMinutes: 5,
       questionType: 'multipleChoice',
       difficulty: 'easy',
-    })).resolves.toEqual({ quizIntervalMinutes: 5, questionType: 'multipleChoice', difficulty: 'easy' });
+    })).resolves.toEqual({ questionType: 'multipleChoice', difficulty: 'easy' });
     await expect(saveLearningPreferences(storage, {
-      quizIntervalMinutes: 7,
-      questionType: 'multipleChoice',
-      difficulty: 'easy',
-    })).rejects.toBeInstanceOf(LearningPreferencesValidationError);
-    await expect(saveLearningPreferences(storage, {
-      quizIntervalMinutes: 10,
       questionType: 'trueFalse',
       difficulty: 'medium',
     })).rejects.toBeInstanceOf(LearningPreferencesValidationError);

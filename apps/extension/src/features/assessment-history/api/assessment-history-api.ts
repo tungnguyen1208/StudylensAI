@@ -1,5 +1,5 @@
 import { httpClient, type HttpClient } from '../../../shared/http/http-client';
-import type { GradeView, HistoryEntryReadModel, LocalAnswerSubmission, QuizAvailable } from '../types/assessment-types';
+import type { GradeView, HistoryEntryReadModel, LocalAnswerSubmission, QuizAttemptView, QuizAvailable } from '../types/assessment-types';
 
 interface HistoryResponse { items: HistoryEntryReadModel[]; }
 
@@ -8,10 +8,23 @@ export class AssessmentHistoryApi {
 
   public async submitAnswer(quiz: QuizAvailable, submission: LocalAnswerSubmission, clientAttemptId: string): Promise<GradeView> {
     return this.client.post<GradeView>(`api/quizzes/${encodeURIComponent(quiz.quizId)}/answer`, {
-      contractVersion: '0.4.0',
+      contractVersion: '0.5.0',
       clientAttemptId,
       questionId: submission.questionId,
       ...(submission.type === 'multipleChoice' ? { selectedOptionId: submission.selectedOptionId } : { answerText: submission.answerText }),
+    });
+  }
+
+  public async submitAttempt(quiz: QuizAvailable, submissions: LocalAnswerSubmission[], clientAttemptId: string): Promise<QuizAttemptView> {
+    return this.client.post<QuizAttemptView>(`api/quizzes/${encodeURIComponent(quiz.quizId)}/attempts`, {
+      contractVersion: '0.5.0',
+      clientAttemptId,
+      answers: submissions.map((submission) => ({
+        questionId: submission.questionId,
+        ...(submission.type === 'multipleChoice'
+          ? { selectedOptionId: submission.selectedOptionId }
+          : { answerText: submission.answerText }),
+      })),
     });
   }
 

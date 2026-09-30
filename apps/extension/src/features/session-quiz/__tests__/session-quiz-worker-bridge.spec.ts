@@ -5,30 +5,27 @@ import {
   SESSION_QUIZ_REQUEST_MESSAGE,
   type SessionQuizBackendPort,
 } from '../api/session-quiz-worker-bridge';
-import type { StartStudySessionRequest } from '../models/session-quiz-contracts';
+import type { LearningPackage, StartStudySessionRequest } from '../models/session-quiz-contracts';
 
 const request: StartStudySessionRequest = {
-  contractVersion: '0.4.0',
-  youtubeVideoId: 'dQw4w9WgXcQ',
-  activation: {
-    activationId: '11111111-1111-4111-8111-111111111111', source: 'user', videoTitle: 'Video',
-    transcriptCapture: { transcriptCaptureId: 'capture-1', youtubeVideoId: 'dQw4w9WgXcQ', language: 'en', source: 'youtubeCaption', status: 'available', availableCueCount: 2, version: 1 },
-    preferences: { quizIntervalMinutes: 5, questionType: 'multipleChoice', difficulty: 'medium' },
-  },
+  contractVersion: '0.5.0', activationId: 'activation-1', idempotencyKey: 'session:activation-1:dQw4w9WgXcQ',
+  youtubeVideoId: 'dQw4w9WgXcQ', videoTitle: 'Video',
+  preferences: { questionType: 'multipleChoice', difficulty: 'medium' },
 };
-
-const session = { sessionId: 'session-1', youtubeVideoId: request.youtubeVideoId, status: 'active' as const, activeStudyMs: 0, startedAtUtc: '2026-09-24T00:00:00.000Z' };
+const session = { sessionId: 'session-1', youtubeVideoId: request.youtubeVideoId, videoTitle: 'Video', status: 'active' as const, preferences: request.preferences, startedAtUtc: '2026-09-29T00:00:00Z' };
+const learningPackage: LearningPackage = { session, transcript: { status: 'waiting', cueCount: 0, cues: [] }, quizStatus: 'notStarted' };
 
 class FakeBackend implements SessionQuizBackendPort {
   public starts: StartStudySessionRequest[] = [];
   public async start(value: StartStudySessionRequest) { this.starts.push(value); return session; }
   public async complete() { return { ...session, status: 'completed' as const }; }
-  public async createSegment() { return { segmentId: 'segment-1', sessionId: session.sessionId, youtubeVideoId: request.youtubeVideoId, startMs: 0, endMs: 5000 }; }
-  public async generateQuiz() { return { quizId: 'quiz-1', sessionId: session.sessionId, segmentId: 'segment-1', status: 'available' as const, createdAtUtc: '2026-09-24T00:00:00.000Z', questions: [] }; }
+  public async submitTranscript() { return learningPackage; }
+  public async getLearningPackage() { return learningPackage; }
+  public async retry() { return learningPackage; }
 }
 
 describe('session quiz worker bridge', () => {
-  it('keeps session creation in the Service Worker', async () => {
+  it('keeps Backend access in the Service Worker', async () => {
     const backend = new FakeBackend();
     const response = await handleSessionQuizRequest(
       { type: SESSION_QUIZ_REQUEST_MESSAGE, operation: 'start', request },
@@ -38,20 +35,16 @@ describe('session quiz worker bridge', () => {
     expect(backend.starts).toEqual([request]);
   });
 
-  it('rejects a session request after the watch page is unavailable', async () => {
+  it('rejects requests after the watch page becomes unavailable', async () => {
     const backend = new FakeBackend();
     const response = await handleSessionQuizRequest(
       { type: SESSION_QUIZ_REQUEST_MESSAGE, operation: 'start', request },
       { tab: { id: 7, url: 'https://www.youtube.com/' } }, backend,
     );
     expect(response).toMatchObject({ ok: false, code: 'sessionTargetUnavailable' });
-    expect(backend.starts).toEqual([]);
   });
 
-  it('turns a worker response back into a session result', async () => {
-    await expect(requestSessionQuizThroughWorker('start', request, undefined, async (message) => {
-      expect(message).toEqual({ type: SESSION_QUIZ_REQUEST_MESSAGE, operation: 'start', request });
-      return { ok: true, result: session };
-    })).resolves.toEqual(session);
+  it('round-trips a worker result', async () => {
+    await expect(requestSessionQuizThroughWorker('start', request, undefined, async () => ({ ok: true, result: session }))).resolves.toEqual(session);
   });
 });

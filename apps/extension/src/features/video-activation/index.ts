@@ -12,13 +12,12 @@ export interface VideoActivationFeatureMetadata {
 export function registerVideoActivationFeature(): VideoActivationFeatureMetadata {
   return {
     name: 'video-activation',
-    version: '0.4.0',
+    version: '0.5.0',
     owner: 'Dev 1',
   };
 }
 
 export type { PlayerPort } from '../../platform/youtube/youtube-player-adapter';
-export type { TranscriptSnapshotRef } from './models/video-activation.types';
 export { ActivationStatus } from './components/ActivationStatus';
 export { ActivationToggle } from './components/ActivationToggle';
 export { LearningPreferencesForm } from './components/LearningPreferencesForm';
@@ -33,4 +32,3 @@ export {
   isLearningPreferences,
 } from './models/learning-preferences';
 export type { LearningPreferences } from './models/learning-preferences';
-export type { TranscriptCaptureDetails } from './models/video-activation.types';

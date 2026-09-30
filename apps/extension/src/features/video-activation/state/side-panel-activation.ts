@@ -14,10 +14,6 @@ export function applyVideoActivationMessage(
       context: { tabId: message.tabId, youtubeVideoId: message.youtubeVideoId, title },
     });
     next = activationReducer(next, { type: 'manualOn' });
-    const transcriptCapture = getTranscriptCapture(message.payload);
-    if (transcriptCapture) {
-      next = activationReducer(next, { type: 'transcriptCaptureUpdated', transcriptCapture });
-    }
     return next;
   }
   if (message.type === 'ACTIVATION_DISABLED') {
@@ -29,36 +25,14 @@ export function applyVideoActivationMessage(
       type: 'contextChanged',
       context: { tabId: message.tabId, youtubeVideoId: message.youtubeVideoId, title },
     });
-    // The persistent global gate remains ON while the new transcript is captured.
+    // The persistent global gate remains ON while the replacement session is created.
     return activationReducer(next, { type: 'manualOn' });
   }
   if (message.type === 'VIDEO_CONTEXT_UNAVAILABLE') {
     // This is not a learner OFF. Keep the UI ON but explain that page flow waits.
-    return { ...state, context: null, transcriptCapture: null, status: 'active', errorCode: 'unsupportedWatchPage' };
+    return { ...state, context: null, status: 'active', errorCode: 'unsupportedWatchPage' };
   }
   return state;
-}
-
-function getTranscriptCapture(payload: unknown) {
-  if (!payload || typeof payload !== 'object') return null;
-  const capture = (payload as { transcriptCapture?: unknown }).transcriptCapture;
-  if (!capture || typeof capture !== 'object') return null;
-  const value = capture as {
-    transcriptCaptureId?: unknown; youtubeVideoId?: unknown; language?: unknown;
-    source?: unknown; status?: unknown; version?: unknown; availableCueCount?: unknown;
-  };
-  if (typeof value.transcriptCaptureId !== 'string' || typeof value.youtubeVideoId !== 'string' ||
-    typeof value.language !== 'string' || value.source !== 'youtubeCaption' || typeof value.version !== 'number' ||
-    typeof value.availableCueCount !== 'number' || !['available', 'unavailable', 'insufficient'].includes(String(value.status))) return null;
-  return {
-    transcriptCaptureId: value.transcriptCaptureId,
-    youtubeVideoId: value.youtubeVideoId,
-    language: value.language,
-    source: 'youtubeCaption' as const,
-    status: value.status as 'available' | 'unavailable' | 'insufficient',
-    version: value.version,
-    availableCueCount: value.availableCueCount,
-  };
 }
 
 function getVideoTitle(payload: unknown): string {

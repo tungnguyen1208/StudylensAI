@@ -28,6 +28,18 @@ export class HttpClient {
     });
   }
 
+  public async put<T>(path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>(path, {
+      ...options,
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
   private async request<T>(path: string, options: RequestOptions): Promise<T> {
     const url = `${this.baseUrl}/${path.replace(/^\/+/, '')}`;
     const timeoutMs = options.timeoutMs ?? 10000;

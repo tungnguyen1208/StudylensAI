@@ -1,8 +1,4 @@
-import type {
-  ActivationEnabledPayload,
-  Difficulty,
-  QuestionType,
-} from '../../../shared/contracts/activation-handoff';
+import type { PreferenceSnapshot, QuestionType } from '../../../shared/contracts/activation-handoff';
 
 export type {
   ActivationEnabledPayload,
@@ -12,25 +8,32 @@ export type {
   QuestionPublic,
   QuestionType,
   QuizPublic,
-  QuizIntervalMinutes,
-  TranscriptCaptureRef,
 } from '../../../shared/contracts';
 
-export const SESSION_QUIZ_CONTRACT_VERSION = '0.4.0' as const;
+export const SESSION_QUIZ_CONTRACT_VERSION = '0.5.0' as const;
+
+export type SessionStatus = 'active' | 'completed' | 'closed' | 'failed';
+export type TranscriptProcessingStatus = 'waiting' | 'validating' | 'generating' | 'ready' | 'unavailable' | 'failed';
+export type QuizProcessingStatus = 'notStarted' | 'queued' | 'generating' | 'ready' | 'failed';
+export type ProcessingOperation = 'transcriptGenerate' | 'quizGenerate';
 
 export interface SessionSnapshot {
   sessionId: string;
   youtubeVideoId: string;
-  status: 'active' | 'completed';
-  activeStudyMs: number;
+  videoTitle: string;
+  status: SessionStatus;
+  preferences: PreferenceSnapshot;
   startedAtUtc: string;
   completedAtUtc?: string;
 }
 
 export interface StartStudySessionRequest {
   contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
+  activationId: string;
+  idempotencyKey: string;
   youtubeVideoId: string;
-  activation: ActivationEnabledPayload;
+  videoTitle: string;
+  preferences: PreferenceSnapshot;
 }
 
 export interface TranscriptCue {
@@ -39,45 +42,65 @@ export interface TranscriptCue {
   text: string;
 }
 
-export interface GenerateQuizRequest {
+export interface SubmitFullTranscriptRequest {
   contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
-  sessionId: string;
-  segmentId: string;
-  youtubeVideoId: string;
-  questionType: QuestionType;
-  difficulty: Difficulty;
   idempotencyKey: string;
+  youtubeVideoId: string;
+  language: string;
+  source: 'youtubeCaption';
+  status: 'available' | 'unavailable' | 'insufficient';
+  contentHash?: string;
+  durationMs?: number;
+  cues: TranscriptCue[];
 }
 
-// ============================================================
-// segment contracts
-// ============================================================
-
-export interface PlaybackSpanPayload {
-  startMs: number;
-  endMs: number;
+export interface TranscriptView {
+  status: TranscriptProcessingStatus;
+  transcriptCaptureId?: string;
+  source?: 'youtubeCaption' | 'geminiVideo';
+  language?: string;
+  contentHash?: string;
+  cueCount: number;
+  cues: TranscriptCue[];
 }
 
-export interface CreateStudySegmentRequest {
+export interface LearningPackageQuestionOption { optionId: string; text: string; }
+export interface LearningPackageQuestion {
+  questionId: string;
+  type: QuestionType;
+  prompt: string;
+  options?: LearningPackageQuestionOption[];
+  source: { youtubeVideoId: string; startMs: number; endMs: number };
+}
+export interface LearningPackageQuiz {
+  quizId: string;
+  sessionId: string;
+  status: 'ready';
+  questions: LearningPackageQuestion[];
+  createdAtUtc: string;
+}
+export interface ProcessingError {
+  operation: ProcessingOperation;
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+export interface LearningPackage {
+  session: SessionSnapshot;
+  transcript: TranscriptView;
+  quizStatus: QuizProcessingStatus;
+  quiz?: LearningPackageQuiz;
+  error?: ProcessingError;
+}
+
+export interface RetryProcessingRequest {
   contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
-  clientSegmentId: string;
-  idempotencyKey: string;
-  activeStudyMs?: number;
-  playbackSpans: PlaybackSpanPayload[];
-}
-
-export interface StudySegmentRef {
-  segmentId: string;
-  sessionId: string;
-  youtubeVideoId: string;
-  startMs: number;
-  endMs: number;
+  operation: ProcessingOperation;
 }
 
 export interface CompleteStudySessionRequest {
   contractVersion: typeof SESSION_QUIZ_CONTRACT_VERSION;
   clientCompletionId: string;
-  reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged';
-  activeStudyMs: number;
+  reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged' | 'unsupportedWatchPage';
 }
 

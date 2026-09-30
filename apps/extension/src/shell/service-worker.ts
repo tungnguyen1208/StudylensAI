@@ -12,11 +12,6 @@ import {
   savePersistedActivationState,
   type PersistedActivationState,
 } from '../features/video-activation/models/persistent-activation';
-import { VideoActivationApi } from '../features/video-activation/api/video-activation-api';
-import {
-  handleTranscriptCaptureUpload,
-  TRANSCRIPT_CAPTURE_UPLOAD_MESSAGE,
-} from '../features/video-activation/services/transcript-worker-bridge';
 import {
   PAGE_CAPTION_TRACKS_MESSAGE,
   sanitizePageCaptionTracks,
@@ -37,24 +32,21 @@ type PageCaptionTracksRequest = { type: typeof PAGE_CAPTION_TRACKS_MESSAGE; yout
 type ActiveYoutubeContextRequest = { type: 'STUDYLENS_GET_ACTIVE_YOUTUBE_CONTEXT' };
 type ActivePlayerTimeRequest = { type: 'STUDYLENS_GET_ACTIVE_PLAYER_TIME' };
 type ActiveSessionProgressRequest = { type: 'STUDYLENS_GET_ACTIVE_SESSION_PROGRESS' };
+type ActiveLearningPackageRequest = { type: 'STUDYLENS_GET_ACTIVE_LEARNING_PACKAGE' };
 type SeekActivePlayerRequest = { type: 'STUDYLENS_SEEK_ACTIVE_PLAYER'; youtubeVideoId: string; timestampMs: number };
 type ActiveYoutubeContext = { tabId: number; youtubeVideoId: string; title: string };
-type PersistedPanelQuiz = { youtubeVideoId: string; quiz: unknown; savedAtUtc: string };
-
-const PANEL_QUIZ_STORAGE_KEY = 'studylensPanelQuiz';
-
 const relayableMessageTypes = new Set([
   'PLAYER_PLAYING', 'PLAYER_PAUSED', 'PLAYER_BUFFERING', 'PLAYER_SEEKED', 'PLAYER_ENDED',
   'ACTIVATION_ENABLED', 'ACTIVATION_DISABLED', 'VIDEO_CONTEXT_CHANGED', 'VIDEO_CONTEXT_UNAVAILABLE',
   'QUIZ_AVAILABLE', 'OPERATION_STATUS_CHANGED',
 ]);
-const transcriptCaptureApi = new VideoActivationApi();
 const panelRefreshTimers = new Map<number, number>();
 const sessionQuizBackend: SessionQuizBackendPort = {
   start: (request) => httpClient.post('api/sessions', request),
   complete: (sessionId, request) => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/complete`, request),
-  createSegment: (sessionId, request) => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/segments`, request),
-  generateQuiz: (request) => httpClient.post('api/quizzes/generate', request),
+  submitTranscript: (sessionId, request) => httpClient.put(`api/sessions/${encodeURIComponent(sessionId)}/transcript`, request),
+  getLearningPackage: (sessionId) => httpClient.get(`api/sessions/${encodeURIComponent(sessionId)}/learning-package`),
+  retry: (sessionId, request) => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/retry`, request),
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -84,12 +76,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
-  if ((message as { type?: unknown })?.type === TRANSCRIPT_CAPTURE_UPLOAD_MESSAGE) {
-    void handleTranscriptCaptureUpload(message, sender, transcriptCaptureApi).then((response) => {
-      if (response) sendResponse(response);
-    });
-    return true;
-  }
   if (isPageCaptionTracksRequest(message)) {
     void readPageCaptionTracks(sender.tab, message.youtubeVideoId).then(sendResponse);
     return true;
@@ -106,12 +92,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void readActiveSessionProgress().then(sendResponse);
     return true;
   }
-  if (isSeekActivePlayerRequest(message)) {
-    void seekActivePlayer(message.youtubeVideoId, message.timestampMs).then(sendResponse);
+  if (isActiveLearningPackageRequest(message)) {
+    void readActiveLearningPackage().then(sendResponse);
     return true;
   }
-  if ((message as { type?: unknown })?.type === 'STUDYLENS_GET_PERSISTED_PANEL_QUIZ') {
-    void readPersistedPanelQuiz().then(sendResponse);
+  if (isSeekActivePlayerRequest(message)) {
+    void seekActivePlayer(message.youtubeVideoId, message.timestampMs).then(sendResponse);
     return true;
   }
   if (message?.type === 'STUDYLENS_RESOLVE_TAB_ID') {
@@ -148,15 +134,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (!sender.tab?.id || !isRelayableContentMessage(message)) return;
-  if (message.type === 'QUIZ_AVAILABLE') {
-    void chrome.storage.local.set({
-      [PANEL_QUIZ_STORAGE_KEY]: {
-        youtubeVideoId: message.youtubeVideoId,
-        quiz: message.payload,
-        savedAtUtc: new Date().toISOString(),
-      } satisfies PersistedPanelQuiz,
-    }).catch(() => undefined);
-  }
   void chrome.runtime.sendMessage(message).catch(() => undefined);
 });
 
@@ -213,12 +190,23 @@ async function toggleForActiveTab(requestedState: 'on' | 'off') {
 }
 
 async function retryForActiveTab(operation: string): Promise<{ ok: boolean; code?: string }> {
+  if (operation === 'transcriptGenerate' || operation === 'quizGenerate') {
+    const progress = await readActiveSessionProgress();
+    const sessionId = sessionIdFromProgress(progress.state);
+    if (!sessionId) return { ok: false, code: 'sessionRuntimeUnavailable' };
+    try {
+      await sessionQuizBackend.retry(sessionId, { contractVersion: '0.5.0', operation });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, code: errorCode(error, 'retryFailed') };
+    }
+  }
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab?.id || !isYoutubeUrl(tab.url)) return { ok: false, code: 'youtubeTabUnavailable' };
   try {
     await ensureContentScriptReady(tab.id);
     await chrome.tabs.sendMessage(tab.id, {
-      type: 'OPERATION_RETRY_REQUEST', contractVersion: '0.4.0', correlationId: crypto.randomUUID(),
+      type: 'OPERATION_RETRY_REQUEST', contractVersion: '0.5.0', correlationId: crypto.randomUUID(),
       tabId: tab.id, youtubeVideoId: '', occurredAtUtc: new Date().toISOString(), payload: { operation },
     });
     return { ok: true };
@@ -227,29 +215,45 @@ async function retryForActiveTab(operation: string): Promise<{ ok: boolean; code
   }
 }
 
+async function readActiveLearningPackage(): Promise<{ ok: boolean; learningPackage?: unknown; code?: string }> {
+  const progress = await readActiveSessionProgress();
+  const sessionId = sessionIdFromProgress(progress.state);
+  if (!progress.ok || !sessionId) return { ok: false, code: progress.code ?? 'sessionRuntimeUnavailable' };
+  try {
+    return { ok: true, learningPackage: await sessionQuizBackend.getLearningPackage(sessionId) };
+  } catch (error) {
+    return { ok: false, code: errorCode(error, 'learningPackageUnavailable') };
+  }
+}
+
 /** Reads title/ID only; opening the Side Panel never starts activation. */
-async function readActiveYoutubeContext(): Promise<{ ok: boolean; context?: ActiveYoutubeContext; transcriptCapture?: unknown; code?: string }> {
+async function readActiveYoutubeContext(): Promise<{ ok: boolean; context?: ActiveYoutubeContext; localTranscript?: unknown; code?: string }> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab?.id || !isYoutubeUrl(tab.url)) return { ok: false, code: 'youtubeTabUnavailable' };
 
   try {
     await ensureContentScriptReady(tab.id);
     const response = await chrome.tabs.sendMessage(tab.id, { type: 'STUDYLENS_GET_VIDEO_CONTEXT' }) as {
-      ok?: unknown; context?: unknown; transcriptCapture?: unknown; code?: unknown;
+      ok?: unknown; context?: unknown; localTranscript?: unknown; code?: unknown;
     } | undefined;
     if (response?.ok === true && isActiveYoutubeContext(response.context, tab.id)) {
       return {
         ok: true,
         context: response.context,
-        ...(isTranscriptCaptureForVideo(response.transcriptCapture, response.context.youtubeVideoId)
-          ? { transcriptCapture: response.transcriptCapture }
-          : {}),
+        ...(isLocalTranscript(response.localTranscript) ? { localTranscript: response.localTranscript } : {}),
       };
     }
     return { ok: false, code: typeof response?.code === 'string' ? response.code : 'youtubeContextUnavailable' };
   } catch {
     return { ok: false, code: 'contentScriptUnavailable' };
   }
+}
+
+function isLocalTranscript(value: unknown): boolean {
+  const transcript = value as { status?: unknown; language?: unknown; cues?: unknown } | undefined;
+  return Boolean(transcript) &&
+    (transcript?.status === 'available' || transcript?.status === 'unavailable' || transcript?.status === 'insufficient') &&
+    typeof transcript.language === 'string' && Array.isArray(transcript.cues);
 }
 
 /** Internal Side Panel helper: read time only, without activating or altering playback. */
@@ -304,16 +308,6 @@ async function seekActivePlayer(youtubeVideoId: string, timestampMs: number): Pr
   } catch {
     return { ok: false, code: 'contentScriptUnavailable' };
   }
-}
-
-async function readPersistedPanelQuiz(): Promise<{ ok: boolean; quiz?: unknown; youtubeVideoId?: string }> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const youtubeVideoId = youtubeVideoIdFromUrl(tab?.url);
-  if (!youtubeVideoId) return { ok: false };
-  const stored = (await chrome.storage.local.get(PANEL_QUIZ_STORAGE_KEY))[PANEL_QUIZ_STORAGE_KEY] as Partial<PersistedPanelQuiz> | undefined;
-  return stored?.youtubeVideoId === youtubeVideoId && stored.quiz
-    ? { ok: true, quiz: stored.quiz, youtubeVideoId }
-    : { ok: false };
 }
 
 async function ensureContentScriptReady(tabId: number): Promise<void> {
@@ -438,6 +432,22 @@ function isActiveSessionProgressRequest(value: unknown): value is ActiveSessionP
   return Boolean(value) && typeof value === 'object' && (value as Partial<ActiveSessionProgressRequest>).type === 'STUDYLENS_GET_ACTIVE_SESSION_PROGRESS';
 }
 
+function isActiveLearningPackageRequest(value: unknown): value is ActiveLearningPackageRequest {
+  return Boolean(value) && typeof value === 'object' &&
+    (value as Partial<ActiveLearningPackageRequest>).type === 'STUDYLENS_GET_ACTIVE_LEARNING_PACKAGE';
+}
+
+function sessionIdFromProgress(value: unknown): string | null {
+  const state = value as { sessionId?: unknown } | undefined;
+  return typeof state?.sessionId === 'string' && state.sessionId.length > 0 ? state.sessionId : null;
+}
+
+function errorCode(error: unknown, fallback: string): string {
+  return error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : fallback;
+}
+
 function isSeekActivePlayerRequest(value: unknown): value is SeekActivePlayerRequest {
   const item = value as Partial<SeekActivePlayerRequest>;
   return Boolean(item) && item.type === 'STUDYLENS_SEEK_ACTIVE_PLAYER' &&
@@ -452,23 +462,10 @@ function isActiveYoutubeContext(value: unknown, expectedTabId: number): value is
     typeof item.title === 'string' && item.title.trim().length > 0;
 }
 
-function isRelayableContentMessage(value: unknown): value is { type: string; contractVersion: '0.4.0'; tabId: number; youtubeVideoId: string; payload: unknown } {
+function isRelayableContentMessage(value: unknown): value is { type: string; contractVersion: '0.5.0'; tabId: number; youtubeVideoId: string; payload: unknown } {
   const item = value as Partial<{ type: string; contractVersion: string; tabId: number; youtubeVideoId: string; payload: unknown }>;
   return Boolean(item) && typeof item.type === 'string' && relayableMessageTypes.has(item.type) &&
-    item.contractVersion === '0.4.0' && Number.isInteger(item.tabId) && typeof item.youtubeVideoId === 'string' && 'payload' in item;
-}
-
-/** Validate the public capture projection before returning it to the Side Panel. */
-function isTranscriptCaptureForVideo(value: unknown, youtubeVideoId: string): boolean {
-  const item = value as Partial<{
-    transcriptCaptureId: string; youtubeVideoId: string; language: string; source: string;
-    status: string; availableCueCount: number; version: number;
-  }>;
-  return Boolean(item) && typeof item.transcriptCaptureId === 'string' && item.transcriptCaptureId.length > 0 &&
-    item.youtubeVideoId === youtubeVideoId && typeof item.language === 'string' && item.language.length > 0 &&
-    item.source === 'youtubeCaption' && item.status === 'available' &&
-    typeof item.availableCueCount === 'number' && Number.isInteger(item.availableCueCount) && item.availableCueCount > 0 &&
-    typeof item.version === 'number' && Number.isInteger(item.version) && item.version >= 1;
+    item.contractVersion === '0.5.0' && Number.isInteger(item.tabId) && typeof item.youtubeVideoId === 'string' && 'payload' in item;
 }
 
 if (chrome.sidePanel?.setPanelBehavior) {

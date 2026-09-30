@@ -1,42 +1,23 @@
-import type { ActivationEnabledPayload, SessionSnapshot, StudySegmentRef } from '../models/session-quiz-contracts';
-
-// ============================================================
-// state
-// ============================================================
-
-export type SegmentStatus = 'idle' | 'creating' | 'created' | 'retryable' | 'blocked';
+import type { ActivationEnabledPayload, LearningPackage, SessionSnapshot } from '../models/session-quiz-contracts';
 
 export interface SessionState {
-  status: 'idle' | 'starting' | 'active' | 'completing' | 'completed' | 'error';
+  status: 'idle' | 'starting' | 'active' | 'completing' | 'completed' | 'closed' | 'error';
   session?: SessionSnapshot;
+  learningPackage?: LearningPackage;
   error?: string;
-  activeStudyMs: number;
-  segmentStatus: SegmentStatus;
-  lastSegment?: StudySegmentRef;
-  segmentError?: string;
 }
-
-// ============================================================
-// actions
-// ============================================================
 
 export type SessionAction =
   | { type: 'startRequested' }
   | { type: 'started'; session: SessionSnapshot }
+  | { type: 'packageChanged'; learningPackage: LearningPackage }
   | { type: 'completeRequested' }
   | { type: 'completed'; session: SessionSnapshot }
-  | { type: 'failed'; error: string }
-  | { type: 'activeStudyMsChanged'; activeStudyMs: number }
-  | { type: 'segmentRequested' }
-  | { type: 'segmentCreated'; segment: StudySegmentRef }
-  | { type: 'segmentRetryable'; error: string }
-  | { type: 'segmentBlocked'; code: string };
-
-// ============================================================
-// ports
-// ============================================================
+  | { type: 'reset' }
+  | { type: 'failed'; error: string };
 
 export interface SessionApiPort {
   start(request: { youtubeVideoId: string; activation: ActivationEnabledPayload }): Promise<SessionSnapshot>;
-  complete(sessionId: string, request: { clientCompletionId: string; reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged'; activeStudyMs: number }): Promise<SessionSnapshot>;
+  complete(sessionId: string, request: { clientCompletionId: string; reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged' | 'unsupportedWatchPage' }): Promise<SessionSnapshot>;
+  getLearningPackage(sessionId: string): Promise<LearningPackage>;
 }

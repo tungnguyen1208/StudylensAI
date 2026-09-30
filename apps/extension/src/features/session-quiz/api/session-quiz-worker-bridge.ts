@@ -1,11 +1,10 @@
 import type {
   CompleteStudySessionRequest,
-  CreateStudySegmentRequest,
-  GenerateQuizRequest,
-  QuizPublic,
+  LearningPackage,
+  RetryProcessingRequest,
   SessionSnapshot,
   StartStudySessionRequest,
-  StudySegmentRef,
+  SubmitFullTranscriptRequest,
 } from '../models/session-quiz-contracts';
 
 /** Internal message only: the worker owns Backend network access. */
@@ -14,11 +13,12 @@ export const SESSION_QUIZ_REQUEST_MESSAGE = 'STUDYLENS_SESSION_QUIZ_REQUEST';
 export interface SessionQuizBackendPort {
   start(request: StartStudySessionRequest): Promise<SessionSnapshot>;
   complete(sessionId: string, request: CompleteStudySessionRequest): Promise<SessionSnapshot>;
-  createSegment(sessionId: string, request: CreateStudySegmentRequest): Promise<StudySegmentRef>;
-  generateQuiz(request: GenerateQuizRequest): Promise<QuizPublic>;
+  submitTranscript(sessionId: string, request: SubmitFullTranscriptRequest): Promise<LearningPackage>;
+  getLearningPackage(sessionId: string): Promise<LearningPackage>;
+  retry(sessionId: string, request: RetryProcessingRequest): Promise<LearningPackage>;
 }
 
-type SessionQuizOperation = 'start' | 'complete' | 'createSegment' | 'generateQuiz';
+type SessionQuizOperation = 'start' | 'complete' | 'submitTranscript' | 'getLearningPackage' | 'retry';
 type WorkerRequest = {
   type: typeof SESSION_QUIZ_REQUEST_MESSAGE;
   operation: SessionQuizOperation;
@@ -73,10 +73,12 @@ export async function handleSessionQuizRequest(
         return { ok: true, result: await backend.start(message.request as StartStudySessionRequest) };
       case 'complete':
         return { ok: true, result: await backend.complete(message.sessionId!, message.request as CompleteStudySessionRequest) };
-      case 'createSegment':
-        return { ok: true, result: await backend.createSegment(message.sessionId!, message.request as CreateStudySegmentRequest) };
-      case 'generateQuiz':
-        return { ok: true, result: await backend.generateQuiz(message.request as GenerateQuizRequest) };
+      case 'submitTranscript':
+        return { ok: true, result: await backend.submitTranscript(message.sessionId!, message.request as SubmitFullTranscriptRequest) };
+      case 'getLearningPackage':
+        return { ok: true, result: await backend.getLearningPackage(message.sessionId!) };
+      case 'retry':
+        return { ok: true, result: await backend.retry(message.sessionId!, message.request as RetryProcessingRequest) };
     }
   } catch (error: unknown) {
     return failureFrom(error);
@@ -87,13 +89,14 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
   if (!value || typeof value !== 'object') return false;
   const request = value as Partial<WorkerRequest>;
   if (request.type !== SESSION_QUIZ_REQUEST_MESSAGE || !isOperation(request.operation) || !request.request || typeof request.request !== 'object') return false;
-  return (request.operation === 'complete' || request.operation === 'createSegment')
+  return request.operation === 'start' ? true
+    : (request.operation === 'complete' || request.operation === 'submitTranscript' || request.operation === 'getLearningPackage' || request.operation === 'retry')
     ? typeof request.sessionId === 'string' && request.sessionId.length > 0
-    : true;
+    : false;
 }
 
 function isOperation(value: unknown): value is SessionQuizOperation {
-  return value === 'start' || value === 'complete' || value === 'createSegment' || value === 'generateQuiz';
+  return value === 'start' || value === 'complete' || value === 'submitTranscript' || value === 'getLearningPackage' || value === 'retry';
 }
 
 function isYoutubeWatchSender(tab: { id?: number; url?: string } | undefined): boolean {

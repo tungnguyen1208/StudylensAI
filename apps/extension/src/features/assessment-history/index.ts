@@ -14,7 +14,7 @@ export interface AssessmentHistoryFeatureMetadata {
 export function registerAssessmentHistoryFeature(): AssessmentHistoryFeatureMetadata {
   return {
     name: 'assessment-history',
-    version: '0.4.0',
+    version: '0.5.0',
     owner: 'Dev 3',
   };
 }
@@ -33,6 +33,8 @@ export {
   type GradeView,
   type HistoryEntryReadModel,
   type LocalAnswerSubmission,
+  type AttemptAnswerView,
+  type QuizAttemptView,
   type QuestionOptionPublic,
   type QuestionPublic,
   type QuestionSourceRef,

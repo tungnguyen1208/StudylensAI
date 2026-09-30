@@ -17,23 +17,20 @@ function validator(name) {
   return ajv.compile({ $defs: definitions, $ref: `#/$defs/${name}` });
 }
 
-describe('assessment history contract 0.4.0', () => {
-  it('validates the answer request and requires one answer shape', () => {
-    const validate = validator('SubmitAnswerRequest');
-    const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/submit-answer.request.json`, 'utf8'));
+describe('assessment history contract 0.5.0', () => {
+  it('validates one atomic full-quiz attempt and one answer shape per question', () => {
+    const validate = validator('SubmitQuizAttemptRequest');
+    const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/submit-quiz-attempt.request.json`, 'utf8'));
     expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
-    expect(validate({ ...fixture, selectedOptionId: 'option-a', answerText: 'also supplied' })).toBe(false);
+    expect(validate({ ...fixture, answers: [{ ...fixture.answers[0], answerText: 'also supplied' }] })).toBe(false);
+    expect(validate({ ...fixture, answers: [] })).toBe(false);
   });
 
-  it('keeps answer keys out of the public grade contract while allowing post-submit reference text', () => {
-    const validate = validator('GradeView');
-    const grade = {
-      answerAttemptId: '33333333-3333-4333-8333-333333333333', questionId: '22222222-2222-4222-8222-222222222222',
-      outcome: 'correct', score: 1, referenceAnswer: 'Transcript-backed answer', explanation: 'Matches the source.',
-      source: { youtubeVideoId: 'dQw4w9WgXcQ', startMs: 0, endMs: 1000 }, gradedAtUtc: '2026-09-20T00:00:00Z',
-    };
-    expect(validate(grade), JSON.stringify(validate.errors)).toBe(true);
-    expect(validate({ ...grade, correctOptionId: 'option-a' })).toBe(false);
+  it('returns explanations and evidence only after the complete attempt is submitted', () => {
+    const validate = validator('QuizAttemptView');
+    const attempt = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/quiz-attempt.response.json`, 'utf8'));
+    expect(validate(attempt), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...attempt, results: [{ ...attempt.results[0], providerPrompt: 'hidden' }] })).toBe(false);
   });
 
   it('validates persistent history and a retryable safe error envelope', () => {

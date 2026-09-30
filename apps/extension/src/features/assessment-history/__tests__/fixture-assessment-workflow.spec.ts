@@ -56,12 +56,20 @@ describe('assessment view-model workflow', () => {
     const historyMarkup = renderToStaticMarkup(createElement(HistoryPage, { entries: workflow.getHistory().slice() }));
     const panelMarkup = renderToStaticMarkup(createElement(AssessmentPanel, {
       quiz: seedQuiz,
-      submitAnswer: async () => grade,
+      submitAttempt: async () => ({
+        quizAttemptId: 'attempt-1', quizId: seedQuiz.quizId, score: grade.score,
+        results: [{
+          questionId: grade.questionId, outcome: grade.outcome, score: grade.score,
+          submittedAnswer: 'IP', referenceAnswer: grade.referenceAnswer,
+          explanation: grade.explanation, source: grade.source,
+        }],
+        submittedAtUtc: grade.gradedAtUtc,
+      }),
     }));
 
     expect(resultMarkup).toContain('Đáp án tham khảo: IP');
     expect(historyMarkup).toContain('Lịch sử trả lời');
-    expect(panelMarkup).toContain('Đánh giá bài kiểm tra');
+    expect(panelMarkup).toContain('Bài kiểm tra toàn video');
     expect(panelMarkup).not.toContain('youtube-player');
   });
 });

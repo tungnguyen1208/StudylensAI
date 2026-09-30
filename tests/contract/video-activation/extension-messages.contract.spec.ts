@@ -13,14 +13,13 @@ const videoContextUnavailableFixture = JSON.parse(readFileSync(`${repoRoot}/cont
 const ajv = new Ajv({ strict: true });
 addFormats(ajv);
 const validate = ajv.compile(schema);
-const envelope = { contractVersion: '0.4.0', correlationId: 'c-1', tabId: 7, youtubeVideoId: 'dQw4w9WgXcQ', occurredAtUtc: '2026-09-20T10:00:00.000Z' };
+const envelope = { contractVersion: '0.5.0', correlationId: 'c-1', tabId: 7, youtubeVideoId: 'dQw4w9WgXcQ', occurredAtUtc: '2026-09-20T10:00:00.000Z' };
 
-describe('persistent activation extension message contract 0.4.0', () => {
+describe('persistent activation extension message contract 0.5.0', () => {
   it('validates explicit enable and disable envelopes', () => {
     expect(validate({ ...envelope, type: 'ACTIVATION_ENABLED', payload: {
       activationId: 'a-1', source: 'user', videoTitle: 'Networking lesson',
-      transcriptCapture: { transcriptCaptureId: 'capture-1', youtubeVideoId: 'dQw4w9WgXcQ', language: 'en', source: 'youtubeCaption', status: 'available', availableCueCount: 1, version: 1 },
-      preferences: { quizIntervalMinutes: 10, questionType: 'multipleChoice', difficulty: 'medium' },
+      preferences: { questionType: 'multipleChoice', difficulty: 'medium' },
     } }), JSON.stringify(validate.errors)).toBe(true);
     expect(validate({ ...envelope, type: 'ACTIVATION_DISABLED', payload: { reasonCode: 'userDisabled' } }), JSON.stringify(validate.errors)).toBe(true);
   });

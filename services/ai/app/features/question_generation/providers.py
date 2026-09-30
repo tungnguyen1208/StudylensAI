@@ -6,15 +6,11 @@ MIN_EVIDENCE_CHARS = 40
 
 
 class InsufficientEvidenceError(Exception):
-    """Raised when the transcript evidence cannot support a grounded question."""
+    """Raised when transcript evidence cannot support a grounded question."""
 
-
-# ============================================================
-# deterministic offline provider
-# ============================================================
 
 class DeterministicQuestionProvider:
-    """Satisfies the LlmProvider protocol without network access or an API key."""
+    """Offline provider used by tests and local development without an API key."""
 
     async def generate(self, prompt: str) -> str:
         evidence = read_evidence(prompt)
@@ -23,30 +19,36 @@ class DeterministicQuestionProvider:
         if len(joined) < MIN_EVIDENCE_CHARS:
             raise InsufficientEvidenceError("transcript evidence is too short for a grounded question")
 
-        anchor = cues[0]
-        if evidence["questionType"] == "multipleChoice":
-            question = {
-                "type": "multipleChoice",
-                "prompt": f"Theo transcript, ý chính của đoạn '{_shorten(anchor['text'])}' là gì?",
-                "options": [
-                    {"optionId": "option-a", "text": _shorten(anchor["text"])},
-                    {"optionId": "option-b", "text": "Một chi tiết không xuất hiện trong đoạn học"},
-                    {"optionId": "option-c", "text": "Một kết luận không có bằng chứng trong transcript"},
-                ],
-                "correctOptionId": "option-a",
-                "sourceStartMs": anchor["startMs"],
-                "sourceEndMs": anchor["endMs"],
-            }
-        else:
-            question = {
-                "type": "shortAnswer",
-                "prompt": "Hãy tóm tắt ý chính của đoạn transcript bằng lời của bạn.",
-                "referenceAnswer": _shorten(joined, limit=240),
-                "sourceStartMs": anchor["startMs"],
-                "sourceEndMs": cues[-1]["endMs"],
-            }
+        questions: list[dict] = []
+        count = min(int(evidence["questionCount"]), 15)
+        for index in range(count):
+            anchor = cues[min(len(cues) - 1, (index * len(cues)) // count)]
+            if evidence["questionType"] == "multipleChoice":
+                question = {
+                    "type": "multipleChoice",
+                    "prompt": f"Câu {index + 1}: Theo transcript, nội dung chính tại mốc này là gì?",
+                    "options": [
+                        {"optionId": "option-a", "text": _shorten(anchor["text"])},
+                        {"optionId": "option-b", "text": f"Chi tiết không xuất hiện trong nội dung {index + 1}"},
+                        {"optionId": "option-c", "text": f"Kết luận không có bằng chứng {index + 1}"},
+                    ],
+                    "correctOptionId": "option-a",
+                    "explanation": f"Đáp án được trích trực tiếp từ transcript tại {anchor['startMs']} ms.",
+                    "sourceStartMs": anchor["startMs"],
+                    "sourceEndMs": anchor["endMs"],
+                }
+            else:
+                question = {
+                    "type": "shortAnswer",
+                    "prompt": f"Câu {index + 1}: Hãy tóm tắt nội dung transcript tại mốc này.",
+                    "referenceAnswer": _shorten(anchor["text"], limit=240),
+                    "explanation": "Câu trả lời cần bám sát transcript được tham chiếu.",
+                    "sourceStartMs": anchor["startMs"],
+                    "sourceEndMs": anchor["endMs"],
+                }
+            questions.append(question)
 
-        return json.dumps({"questions": [question]}, ensure_ascii=False)
+        return json.dumps({"questions": questions}, ensure_ascii=False)
 
 
 def _shorten(value: str, limit: int = 120) -> str:

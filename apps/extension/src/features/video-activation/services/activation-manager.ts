@@ -8,7 +8,6 @@ import {
   type ActivationStoppedReason,
   type PreferenceSnapshot,
 } from '../models/activation.types';
-import type { TranscriptCaptureRef } from '../../../shared/contracts/activation-handoff';
 import { activationReducer, initialActivationState } from '../state/activation-reducer';
 
 export interface ManualActivationManagerOptions {
@@ -49,11 +48,6 @@ export class ManualActivationManager {
     this.currentActivationId = null;
   }
 
-  public setTranscriptCapture(transcriptCapture: TranscriptCaptureRef): void {
-    this.state = activationReducer(this.state, { type: 'transcriptCaptureUpdated', transcriptCapture });
-    void this.publishPendingActivation();
-  }
-
   /** Stops local page work without persisting or publishing a user OFF action. */
   public clearUnavailableContext(code = 'unsupportedWatchPage'): void {
     this.pendingActivation = null;
@@ -89,9 +83,8 @@ export class ManualActivationManager {
 
   private async publishPendingActivation(): Promise<void> {
     const context = this.state.context;
-    const transcriptCapture = this.state.transcriptCapture;
     const pending = this.pendingActivation;
-    if (this.state.status !== 'active' || !context || !transcriptCapture || transcriptCapture.status !== 'available' || !pending) return;
+    if (this.state.status !== 'active' || !context || !pending) return;
 
     this.pendingActivation = null;
     this.currentActivationId = pending.activationId;
@@ -100,7 +93,6 @@ export class ManualActivationManager {
       source: pending.source,
       videoTitle: context.title,
       preferences: { ...this.preferences },
-      transcriptCapture: transcriptCapture as TranscriptCaptureRef & { status: 'available' },
     };
     await this.options.publish(createVideoActivationMessage('ACTIVATION_ENABLED', payload, {
       correlationId: pending.correlationId,

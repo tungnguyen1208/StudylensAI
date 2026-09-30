@@ -1,57 +1,62 @@
 import type { TranscriptReadResult } from '../../../platform/youtube/transcript-reader';
-import type { TranscriptCaptureRef } from '../../../shared/contracts/activation-handoff';
-import type { CreateTranscriptCaptureRequest } from '../models/video-activation.types';
+import { SessionQuizApi } from '../../session-quiz/api/session-quiz-api';
 import {
-  uploadTranscriptCaptureThroughWorker,
-  type TranscriptCaptureBackendPort,
-} from './transcript-worker-bridge';
+  SESSION_QUIZ_CONTRACT_VERSION,
+  type LearningPackage,
+  type SubmitFullTranscriptRequest,
+} from '../../session-quiz/models/session-quiz-contracts';
 
-export type TranscriptCaptureApiPort = TranscriptCaptureBackendPort;
+export interface SessionTranscriptApiPort {
+  submitTranscript(sessionId: string, request: SubmitFullTranscriptRequest): Promise<LearningPackage>;
+}
 
-/** Sends normalized YouTube caption evidence to the Backend system of record. */
+/** Sends one immutable, full-video caption payload to the active Backend session. */
 export class TranscriptService {
-  public constructor(private readonly api: TranscriptCaptureApiPort = {
-    createTranscriptCapture: uploadTranscriptCaptureThroughWorker,
-  }) {}
+  public constructor(private readonly api: SessionTranscriptApiPort = new SessionQuizApi()) {}
 
-  public async upload(youtubeVideoId: string, transcript: TranscriptReadResult): Promise<TranscriptCaptureRef> {
-    return this.api.createTranscriptCapture(await createTranscriptCaptureRequest(youtubeVideoId, transcript));
+  public async upload(
+    sessionId: string,
+    youtubeVideoId: string,
+    transcript: TranscriptReadResult,
+  ): Promise<LearningPackage> {
+    return this.api.submitTranscript(
+      sessionId,
+      await createTranscriptRequest(sessionId, youtubeVideoId, transcript),
+    );
   }
 }
 
-export async function createTranscriptCaptureRequest(
+export async function createTranscriptRequest(
+  sessionId: string,
   youtubeVideoId: string,
   transcript: TranscriptReadResult,
-): Promise<CreateTranscriptCaptureRequest> {
-  // Backend idempotency compares every persisted caption field, including
-  // language. Keep the language canonical and make it part of the key so a
-  // later direct/DOM read cannot replay a different language payload through
-  // a key derived only from cue text.
-  const language = transcript.language.trim().toLowerCase() || 'und';
-  if (transcript.status !== 'available') {
-    return {
-      idempotencyKey: `caption:${youtubeVideoId}:${transcript.status}:${language}`,
-      youtubeVideoId,
-      language,
-      source: 'youtubeCaption',
-      status: transcript.status,
-      cues: [],
-    };
-  }
-  const contentHash = await hashTranscript(transcript.cues);
+): Promise<SubmitFullTranscriptRequest> {
+  const contentHash = transcript.status === 'available'
+    ? await hashTranscript(transcript.cues)
+    : undefined;
+  const durationMs = transcript.status === 'available'
+    ? transcript.cues.reduce((maximum, cue) => Math.max(maximum, cue.endMs), 0)
+    : undefined;
+  const identity = contentHash ?? transcript.status;
+
   return {
-    idempotencyKey: `caption:${youtubeVideoId}:${language}:${contentHash}`,
+    contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
+    idempotencyKey: `transcript:${sessionId}:${youtubeVideoId}:${identity}`,
     youtubeVideoId,
-    language,
+    language: transcript.language,
     source: 'youtubeCaption',
-    status: 'available',
-    contentHash,
+    status: transcript.status,
+    ...(contentHash ? { contentHash } : {}),
+    ...(durationMs && durationMs > 0 ? { durationMs } : {}),
     cues: transcript.cues,
   };
 }
 
-export async function hashTranscript(cues: ReadonlyArray<{ startMs: number; endMs: number; text: string }>): Promise<string> {
-  const canonical = cues.map((cue) => `${cue.startMs}|${cue.endMs}|${cue.text}`).join('\n');
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+export async function hashTranscript(
+  cues: readonly { startMs: number; endMs: number; text: string }[],
+): Promise<string> {
+  const canonical = cues.map((cue) => `${cue.startMs}|${cue.endMs}|${cue.text.replace(/\s+/g, ' ').trim()}`).join('\n');
+  const bytes = new TextEncoder().encode(canonical);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }

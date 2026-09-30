@@ -19,7 +19,7 @@ public static class AssessmentHistoryModule
     public static IEndpointRouteBuilder MapAssessmentHistoryEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/api/quizzes/{quizId}/answer", AssessmentHistoryEndpoints.Submit).WithName("SubmitQuizAnswer").WithTags("Assessment History");
+        endpoints.MapPost("/api/quizzes/{quizId}/attempts", AssessmentHistoryEndpoints.SubmitAttempt).WithName("SubmitQuizAttempt").WithTags("Assessment History");
         endpoints.MapGet("/api/history", AssessmentHistoryEndpoints.History).WithName("GetLearningHistory").WithTags("Assessment History");
         endpoints.MapGet("/api/history/videos/{videoId}", (string videoId, AssessmentHistoryService service, CancellationToken cancellationToken) =>
             AssessmentHistoryEndpoints.History(videoId, service, cancellationToken)).WithName("GetVideoLearningHistory").WithTags("Assessment History");

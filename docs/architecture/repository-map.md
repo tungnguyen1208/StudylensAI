@@ -1,4 +1,4 @@
-# StudyLens AI repository map - contract 0.4.0
+# StudyLens AI repository map - contract 0.5.0
 
 ```text
 apps/extension/src/
@@ -8,40 +8,44 @@ apps/extension/src/
     youtube-transcript-adapter.ts direct-first acquisition; DOM fallback coordinator
     youtube-player-adapter.ts     normalized playback events
   features/video-activation/     ON/OFF, preferences, caption upload/status
-  features/session-quiz/         session, timer, segment, quiz
+  features/session-quiz/         immediate session, full transcript, quiz
   features/assessment-history/   answer, grade, history
 
 services/api/src/StudyLens.Api/Features/
-  VideoActivation/               caption capture validation + SQLite cues
-  SessionQuiz/                    frozen cue segment and FastAPI quiz gateway
+  VideoActivation/               persistent activation/page boundaries
+  SessionQuiz/                    full transcript/job persistence and AI gateway
   AssessmentHistory/              grading/history persistence
 
 services/ai/app/features/
-  question_generation/            stateless quiz generation
+  question_generation/            stateless full-video quiz generation
+  transcript_generation/          public-video fallback cue generation
   grading/                        stateless short-answer grading
 
 contracts/
-  public-api/video-activation.yaml Extension-to-Backend caption capture API
+  public-api/session-quiz.yaml    Extension-to-Backend session/transcript API
   ai-api/                          Backend-to-FastAPI quiz/grading APIs
   extension-messages/              browser handoff schemas
   examples/                        contract fixtures
 ```
 
-The public caption API is:
+The public learning API is:
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/video-activation/transcript-captures` | Validate and idempotently persist normalized YouTube caption cues, hash and capture metadata |
-| `GET /api/video-activation/transcript-captures/{captureId}` | Side Panel cue preview |
+| `POST /api/sessions` | Create the immediate session for ON + a valid video |
+| `PUT /api/sessions/{sessionId}/transcript` | Validate and idempotently persist one normalized full transcript |
+| `GET /api/sessions/{sessionId}/learning-package` | Return transcript/quiz processing state and public quiz |
+| `POST /api/sessions/{sessionId}/retry` | Retry the failed fallback or quiz step without duplicating work |
 
 New records have `source: youtubeCaption` and status `available`,
 `unavailable`, or `insufficient`. The retained `TranscriptAudioChunks` SQLite
 table is legacy-only; no current route writes WebM/Opus or calls a
 transcription provider.
 
-Event ordering is `VIDEO_CONTEXT_CHANGED -> old session complete -> available
-caption capture -> ACTIVATION_ENABLED`. FastAPI is not a transcript source; it
-receives only a frozen segment from Backend to generate a quiz.
+Event ordering is `VIDEO_CONTEXT_CHANGED -> old session complete ->
+ACTIVATION_ENABLED -> immediate replacement session -> full transcript`.
+FastAPI receives a Backend-owned full transcript to generate a quiz and can
+receive a public YouTube URL only for fallback.
 
 `transcript-reader.ts` is the Full Text path. It reads `captionTracks`, ranks
 the requested-language manual track before ASR where available, fetches

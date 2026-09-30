@@ -28,11 +28,10 @@ export interface QuestionPublic {
 export interface QuizAvailable {
   quizId: string;
   sessionId: string;
-  segmentId: string;
   questions: QuestionPublic[];
   createdAtUtc: string;
 }
 
 export interface QuizPublic extends QuizAvailable {
-  status: 'available';
+  status: 'ready';
 }

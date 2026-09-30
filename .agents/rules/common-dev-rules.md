@@ -29,18 +29,19 @@ Rules:
 - Extension never calls FastAPI or an LLM provider directly.
 - Extension never contains LLM API keys, database secrets, or private prompts.
 - Backend owns business persistence and orchestration.
-- Backend validates and persists YouTube caption cues, then freezes a segment
-  before requesting AI work.
-- FastAPI is stateless, is not a transcript source, and validates AI output
-  before returning it.
+- Backend creates/persists sessions, validates full YouTube caption cues, and
+  coordinates durable transcript-fallback and full-video quiz jobs.
+- FastAPI is stateless and validates AI output before returning it. It may
+  request a transcript from a public YouTube URL only for the explicit
+  Backend-requested fallback.
 - Backend and AI failures must not break YouTube playback.
 
 ## Contract Baseline
 
-Current architecture baseline: `0.4.0`.
+Current architecture baseline: `0.5.0`.
 
-`0.1.0` artifacts are migration-history inputs only. New runtime work uses
-`0.4.0`; do not emit or mix `0.1.0` and `0.4.0` envelopes, DTOs, or fixtures
+`0.1.0` and `0.4.0` artifacts are migration-history inputs only. New runtime
+work uses `0.5.0`; do not emit or mix historical envelopes, DTOs, or fixtures
 inside one feature flow.
 
 Shared API rules:
@@ -50,14 +51,23 @@ Shared API rules:
 - Video timestamps use integer milliseconds.
 - System timestamps use ISO-8601 UTC.
 - Public Extension responses must not expose correct answers or grading rubrics before answer submit.
-- Mutations that can be retried need an idempotency key such as `clientRequestId`, `clientSegmentId`, or `clientAttemptId`.
+- Mutations that can be retried need an idempotency key such as `activationId`,
+  `transcriptHash`, or `clientAttemptId`.
 - Persistent activation is `extensionEnabled` in `chrome.storage.local`: first install is OFF, then the learner's setting is restored after browser restart.
 - The MVP does not classify videos as educational or non-educational. While `extensionEnabled` is ON, Dev 1 uses a controlled YouTube SPA transition coordinator for supported video-ID changes; it is not a classification gate.
-- A supported video-ID change publishes `VIDEO_CONTEXT_CHANGED`, lets Dev 2 complete the old session idempotently, then permits a replacement `ACTIVATION_ENABLED` only after the new transcript is available. It must never silently persist OFF.
+- A supported video-ID change publishes `VIDEO_CONTEXT_CHANGED`, lets Dev 2
+  complete the old session idempotently, then immediately permits a
+  replacement `ACTIVATION_ENABLED`. It must never silently persist OFF.
 - Leaving a supported watch page while ON publishes `VIDEO_CONTEXT_UNAVAILABLE` so Dev 2 can close only the old session; global ON remains active and waits for a later supported page.
 - Caption acquisition is `captionTracks` -> Timedtext JSON3 -> XML. YouTube
   transcript DOM observation is allowed only as its fallback; it must not
   duplicate a successful direct-caption capture.
+
+## Change log
+
+Read the relevant `docs/change-log/` entry before planning. Create or update a
+record after a verified material business, contract, data, architecture, core
+UX, or acceptance change; do not label it `implemented` without test evidence.
 
 ## HOT Files
 

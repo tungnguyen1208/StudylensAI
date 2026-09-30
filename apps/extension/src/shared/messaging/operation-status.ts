@@ -2,8 +2,8 @@ import type { ExtensionMessage } from './message-types';
 
 export type StudyLensOperation =
   | 'transcriptUpload'
+  | 'transcriptGenerate'
   | 'sessionStart'
-  | 'segmentCreate'
   | 'quizGenerate'
   | 'answerSubmit'
   | 'historyLoad';

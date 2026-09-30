@@ -1,17 +1,104 @@
 using Microsoft.EntityFrameworkCore;
 using StudyLens.Api.Features.AssessmentHistory.Infrastructure;
 using StudyLens.Api.Features.SessionQuiz.Application.Abstractions;
+using StudyLens.Api.Features.SessionQuiz.Infrastructure;
+using StudyLens.Api.Infrastructure.Persistence;
 
 namespace StudyLens.Api.Features.AssessmentHistory.Application;
 
 public sealed class AssessmentHistoryService(
     AssessmentHistoryDbContext db,
     IQuestionAssessmentReader questions,
-    IShortAnswerGradingGateway shortAnswers)
+    IShortAnswerGradingGateway shortAnswers,
+    StudyLensDbContext? rootDb = null)
 {
+    public async Task<QuizAttemptResult> SubmitAttemptAsync(SubmitQuizAttemptCommand command, CancellationToken cancellationToken)
+    {
+        if (command.ContractVersion != "0.5.0" || !Guid.TryParse(command.ClientAttemptId, out _) || command.Answers.Count == 0 ||
+            command.Answers.Select(item => item.QuestionId).Distinct(StringComparer.Ordinal).Count() != command.Answers.Count)
+            return QuizAttemptResult.Invalid("invalidAttemptRequest", "A complete 0.5.0 quiz attempt is required.");
+
+        var existing = await db.QuizAttempts.AsNoTracking().Include(item => item.Answers)
+            .SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
+        if (existing is not null)
+            return SameAttempt(existing, command) ? QuizAttemptResult.Success(ToAttemptView(existing)) : QuizAttemptResult.Conflict();
+
+        var database = rootDb ?? db.RootDb;
+        var quiz = await database.Set<QuizAssessmentEntity>().AsNoTracking().Include(item => item.Questions).ThenInclude(item => item.Options)
+            .SingleOrDefaultAsync(item => item.QuizId == command.QuizId, cancellationToken);
+        if (quiz is null) return QuizAttemptResult.NotFound("quizNotFound", "The quiz was not found.");
+        if (quiz.Questions.Count != command.Answers.Count || quiz.Questions.Any(question => command.Answers.All(answer => answer.QuestionId != question.QuestionId)))
+            return QuizAttemptResult.Invalid("incompleteAttempt", "Every quiz question must be answered exactly once.");
+
+        var attemptId = Guid.NewGuid().ToString();
+        var graded = new List<AttemptAnswerEntity>(quiz.Questions.Count);
+        foreach (var question in quiz.Questions)
+        {
+            var submitted = command.Answers.Single(item => item.QuestionId == question.QuestionId);
+            if (!ValidAnswer(question.Type, submitted))
+                return QuizAttemptResult.Invalid("invalidAnswer", "An answer does not match its question type.");
+            GradeData? grade;
+            if (question.Type == "multipleChoice")
+            {
+                var selected = question.Options.SingleOrDefault(item => item.OptionId == submitted.SelectedOptionId);
+                if (selected is null) return QuizAttemptResult.Invalid("invalidOption", "A selected option does not belong to its quiz question.");
+                var correct = submitted.SelectedOptionId == question.CorrectOptionId;
+                var reference = question.Options.SingleOrDefault(item => item.OptionId == question.CorrectOptionId)?.Text ?? string.Empty;
+                grade = new GradeData(correct ? "correct" : "incorrect", correct ? 1 : 0, reference,
+                    string.IsNullOrWhiteSpace(question.Explanation) ? (correct ? "The selected answer is correct." : "Review the referenced video passage.") : question.Explanation);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(question.ReferenceAnswer))
+                    return QuizAttemptResult.Invalid("missingReferenceAnswer", "The short-answer question cannot be graded.");
+                var response = await shortAnswers.GradeAsync(new("0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, submitted.AnswerText!), cancellationToken);
+                if (response is null || !IsValidShortAnswerGrade(response))
+                    return QuizAttemptResult.Unavailable("gradingUnavailable", "Short-answer grading is temporarily unavailable.");
+                grade = new GradeData(response.Outcome, response.Score, response.ReferenceAnswer, response.Explanation);
+            }
+
+            graded.Add(new AttemptAnswerEntity
+            {
+                AttemptAnswerId = Guid.NewGuid().ToString(), QuizAttemptId = attemptId, QuestionId = question.QuestionId,
+                YoutubeVideoId = question.YoutubeVideoId, QuestionPrompt = question.Prompt, QuestionType = question.Type,
+                SubmittedAnswer = submitted.SelectedOptionId ?? submitted.AnswerText!, Outcome = grade.Outcome, Score = grade.Score,
+                ReferenceAnswer = grade.ReferenceAnswer, Explanation = grade.Explanation,
+                SourceStartMs = question.SourceStartMs, SourceEndMs = question.SourceEndMs,
+            });
+        }
+
+        var attempt = new QuizAttemptEntity
+        {
+            QuizAttemptId = attemptId, ClientAttemptId = command.ClientAttemptId, QuizId = command.QuizId,
+            SessionId = quiz.SessionId, Score = graded.Average(item => item.Score), SubmittedAtUtc = DateTimeOffset.UtcNow, Answers = graded,
+        };
+        db.QuizAttempts.Add(attempt);
+        var session = await database.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == quiz.SessionId, cancellationToken);
+        if (session is not null && session.Status == "active")
+        {
+            session.Status = "completed";
+            session.CompletedAtUtc = attempt.SubmittedAtUtc;
+            session.CompletionReason = "quizSubmitted";
+        }
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            database.ChangeTracker.Clear();
+            existing = await db.QuizAttempts.AsNoTracking().Include(item => item.Answers)
+                .SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
+            if (existing is not null)
+                return SameAttempt(existing, command) ? QuizAttemptResult.Success(ToAttemptView(existing)) : QuizAttemptResult.Conflict();
+            throw;
+        }
+        return QuizAttemptResult.Success(ToAttemptView(attempt));
+    }
+
     public async Task<AssessmentResult> SubmitAsync(SubmitAnswerCommand command, CancellationToken cancellationToken)
     {
-        if (command.ContractVersion != "0.4.0" || string.IsNullOrWhiteSpace(command.ClientAttemptId) || string.IsNullOrWhiteSpace(command.QuestionId))
+        if (command.ContractVersion != "0.5.0" || string.IsNullOrWhiteSpace(command.ClientAttemptId) || string.IsNullOrWhiteSpace(command.QuestionId))
             return AssessmentResult.Invalid("invalidAnswerRequest", "A valid answer request is required.");
 
         var existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
@@ -69,11 +156,17 @@ public sealed class AssessmentHistoryService(
     {
         var query = db.AnswerAttempts.AsNoTracking().AsQueryable();
         if (!string.IsNullOrWhiteSpace(youtubeVideoId)) query = query.Where(item => item.YoutubeVideoId == youtubeVideoId);
-        var items = await query.Take(100).Select(item => new HistoryItem(
+        var legacyItems = await query.Take(100).Select(item => new HistoryItem(
             item.AnswerAttemptId, item.YoutubeVideoId, item.SessionId, item.QuestionId, item.QuestionPrompt,
             item.QuestionType, item.SubmittedAnswer, item.Outcome, item.Score, item.Explanation,
             item.SourceStartMs, item.GradedAtUtc)).ToArrayAsync(cancellationToken);
-        return items.OrderByDescending(item => item.SubmittedAtUtc).ToArray();
+        var currentQuery = db.AttemptAnswers.AsNoTracking().Include(item => item.QuizAttempt).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(youtubeVideoId)) currentQuery = currentQuery.Where(item => item.YoutubeVideoId == youtubeVideoId);
+        var currentItems = await currentQuery.Take(100).Select(item => new HistoryItem(
+            item.AttemptAnswerId, item.YoutubeVideoId, item.QuizAttempt!.SessionId, item.QuestionId, item.QuestionPrompt,
+            item.QuestionType, item.SubmittedAnswer, item.Outcome, item.Score, item.Explanation,
+            item.SourceStartMs, item.QuizAttempt.SubmittedAtUtc)).ToArrayAsync(cancellationToken);
+        return legacyItems.Concat(currentItems).OrderByDescending(item => item.SubmittedAtUtc).Take(100).ToArray();
     }
 
     private static bool SameSubmission(AnswerAttemptEntity existing, SubmitAnswerCommand command) =>
@@ -102,7 +195,7 @@ public sealed class AssessmentHistoryService(
     private async Task<GradeData?> GradeShortAnswerAsync(QuestionForAssessment question, string answerText, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(question.ReferenceAnswer)) return null;
-        var response = await shortAnswers.GradeAsync(new("0.4.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, answerText), cancellationToken);
+        var response = await shortAnswers.GradeAsync(new("0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, answerText), cancellationToken);
         return response is null || !IsValidShortAnswerGrade(response)
             ? null
             : new GradeData(response.Outcome, response.Score, response.ReferenceAnswer, response.Explanation);
@@ -117,6 +210,34 @@ public sealed class AssessmentHistoryService(
     private static GradeView ToGrade(AnswerAttemptEntity entity) => new(
         entity.AnswerAttemptId, entity.QuestionId, entity.Outcome, entity.Score, entity.ReferenceAnswer,
         entity.Explanation, new SourceRef(entity.YoutubeVideoId, entity.SourceStartMs, entity.SourceEndMs), entity.GradedAtUtc);
+
+    private static bool ValidAnswer(string questionType, SubmitAttemptAnswer command) => questionType switch
+    {
+        "multipleChoice" => !string.IsNullOrWhiteSpace(command.SelectedOptionId) && string.IsNullOrWhiteSpace(command.AnswerText),
+        "shortAnswer" => string.IsNullOrWhiteSpace(command.SelectedOptionId) && !string.IsNullOrWhiteSpace(command.AnswerText),
+        _ => false,
+    };
+
+    private static bool SameAttempt(QuizAttemptEntity existing, SubmitQuizAttemptCommand command) => existing.QuizId == command.QuizId &&
+        existing.Answers.Count == command.Answers.Count && existing.Answers.All(answer => command.Answers.Any(submitted =>
+            submitted.QuestionId == answer.QuestionId && (submitted.SelectedOptionId ?? submitted.AnswerText) == answer.SubmittedAnswer));
+
+    private static QuizAttemptView ToAttemptView(QuizAttemptEntity entity) => new(entity.QuizAttemptId, entity.QuizId, entity.Score,
+        entity.Answers.Select(answer => new AttemptAnswerView(answer.QuestionId, answer.Outcome, answer.Score, answer.SubmittedAnswer,
+            answer.ReferenceAnswer, answer.Explanation, new SourceRef(answer.YoutubeVideoId, answer.SourceStartMs, answer.SourceEndMs))).ToArray(), entity.SubmittedAtUtc);
+}
+
+public sealed record SubmitAttemptAnswer(string QuestionId, string? SelectedOptionId, string? AnswerText);
+public sealed record SubmitQuizAttemptCommand(string ContractVersion, string ClientAttemptId, string QuizId, IReadOnlyList<SubmitAttemptAnswer> Answers);
+public sealed record AttemptAnswerView(string QuestionId, string Outcome, double Score, string SubmittedAnswer, string ReferenceAnswer, string Explanation, SourceRef Source);
+public sealed record QuizAttemptView(string QuizAttemptId, string QuizId, double Score, IReadOnlyList<AttemptAnswerView> Results, DateTimeOffset SubmittedAtUtc);
+public sealed record QuizAttemptResult(QuizAttemptView? Attempt, string? ErrorCode, string? ErrorMessage, int StatusCode)
+{
+    public static QuizAttemptResult Success(QuizAttemptView attempt) => new(attempt, null, null, StatusCodes.Status200OK);
+    public static QuizAttemptResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest);
+    public static QuizAttemptResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound);
+    public static QuizAttemptResult Conflict() => new(null, "idempotencyConflict", "The client attempt ID was reused with different answers.", StatusCodes.Status409Conflict);
+    public static QuizAttemptResult Unavailable(string code, string message) => new(null, code, message, StatusCodes.Status503ServiceUnavailable);
 }
 
 public sealed record SubmitAnswerCommand(string ContractVersion, string ClientAttemptId, string QuizId, string QuestionId, string? SelectedOptionId, string? AnswerText);

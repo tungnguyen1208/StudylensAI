@@ -1,271 +1,164 @@
 openapi: 3.0.3
 info:
-  title: StudyLens Public API - Session and Quiz Module
-  version: 0.4.0
-  description: Extension-to-Backend contracts owned by Dev 2.
+  title: StudyLens Public API - Full-video Learning Package
+  version: 0.5.0
+  description: Extension-to-Backend contract for immediate sessions, full transcript ingestion, processing state and full-video quizzes.
 paths:
   /api/sessions:
     post:
       operationId: startStudySession
-      summary: Start or replay a study session from an activation decision
+      summary: Start or replay a session immediately for an enabled YouTube video
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/StartStudySessionRequest'
+        content: { application/json: { schema: { $ref: '#/components/schemas/StartStudySessionRequest' } } }
       responses:
-        '200':
-          description: Session created or replayed for the same activation decision
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SessionSnapshot'
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '409': { $ref: '#/components/responses/ConflictError' }
+        '200': { description: Session created or replayed, content: { application/json: { schema: { $ref: '#/components/schemas/SessionSnapshot' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/sessions/{sessionId}/transcript:
+    put:
+      operationId: submitFullTranscript
+      summary: Submit the full normalized YouTube transcript once for this session
+      parameters: [{ $ref: '#/components/parameters/SessionId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SubmitTranscriptRequest' } } }
+      responses:
+        '200': { description: Transcript accepted and processing queued, content: { application/json: { schema: { $ref: '#/components/schemas/LearningPackage' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/sessions/{sessionId}/learning-package:
+    get:
+      operationId: getLearningPackage
+      summary: Read persisted transcript and quiz processing state
+      parameters: [{ $ref: '#/components/parameters/SessionId' }]
+      responses:
+        '200': { description: Current learning package, content: { application/json: { schema: { $ref: '#/components/schemas/LearningPackage' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/sessions/{sessionId}/retry:
+    post:
+      operationId: retryLearningPackageStep
+      summary: Retry the failed transcript-generation or quiz-generation step
+      parameters: [{ $ref: '#/components/parameters/SessionId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RetryProcessingRequest' } } }
+      responses:
+        '200': { description: Processing step requeued, content: { application/json: { schema: { $ref: '#/components/schemas/LearningPackage' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /api/sessions/{sessionId}/complete:
     post:
       operationId: completeStudySession
-      summary: Complete or replay completion of a study session
       parameters: [{ $ref: '#/components/parameters/SessionId' }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CompleteStudySessionRequest' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/CompleteStudySessionRequest' } } }
       responses:
-        '200':
-          description: Completed session snapshot
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SessionSnapshot' }
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '404': { $ref: '#/components/responses/NotFoundError' }
-  /api/sessions/{sessionId}/segments:
-    post:
-      operationId: createStudySegment
-      summary: Create or replay an idempotent study segment
-      parameters: [{ $ref: '#/components/parameters/SessionId' }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CreateStudySegmentRequest' }
-      responses:
-        '200':
-          description: Segment created or replayed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/StudySegmentRef' }
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '409': { $ref: '#/components/responses/ConflictError' }
-  /api/quizzes/generate:
-    post:
-      operationId: generateQuiz
-      summary: Generate or replay a quiz for one study segment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/GenerateQuizRequest' }
-      responses:
-        '200':
-          description: Public quiz without answer keys
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/QuizPublic' }
-        '400': { $ref: '#/components/responses/ValidationError' }
-        '409': { $ref: '#/components/responses/ConflictError' }
-        '503': { $ref: '#/components/responses/ServiceUnavailableError' }
-  /api/quizzes/{quizId}:
-    get:
-      operationId: getQuiz
-      summary: Get a public quiz projection
-      parameters: [{ $ref: '#/components/parameters/QuizId' }]
-      responses:
-        '200':
-          description: Public quiz without answer keys
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/QuizPublic' }
-        '404': { $ref: '#/components/responses/NotFoundError' }
+        '200': { description: Closed session, content: { application/json: { schema: { $ref: '#/components/schemas/SessionSnapshot' } } } }
+        '404': { $ref: '#/components/responses/Error' }
 components:
   parameters:
-    SessionId:
-      name: sessionId
-      in: path
-      required: true
-      schema: { type: string, format: uuid }
-    QuizId:
-      name: quizId
-      in: path
-      required: true
-      schema: { type: string, format: uuid }
+    SessionId: { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
   responses:
-    ValidationError:
-      description: Request validation failed
-      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
-    ConflictError:
-      description: Idempotency key or business key conflicts with a different payload
-      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
-    NotFoundError:
-      description: Requested resource was not found
-      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
-    ServiceUnavailableError:
-      description: A retryable downstream service failure occurred
+    Error:
+      description: Contract-shaped error
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
   schemas:
-    ActivationState: { type: string, enum: [active, inactive] }
-    ActivationSource: { type: string, enum: [auto, manual] }
-    TranscriptSnapshotStatus: { type: string, enum: [available, unavailable, insufficient] }
-    QuizIntervalMinutes: { type: integer, enum: [5, 10, 15] }
     QuestionType: { type: string, enum: [multipleChoice, shortAnswer] }
     Difficulty: { type: string, enum: [easy, medium, hard] }
-    CompletionReason: { type: string, enum: [activationDisabled, videoEnded, videoContextChanged] }
-    SessionStatus: { type: string, enum: [active, completed] }
-    QuizStatus: { type: string, enum: [generating, available, failed] }
-    TranscriptSnapshotRef:
-      type: object
-      additionalProperties: false
-      required: [transcriptSnapshotId, youtubeVideoId, language, status, version]
-      properties:
-        transcriptSnapshotId: { type: string, format: uuid }
-        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
-        language: { type: string, minLength: 2 }
-        status: { $ref: '#/components/schemas/TranscriptSnapshotStatus' }
-        contentHash: { type: string, pattern: '^[a-f0-9]{64}$' }
-        version:
-          type: string
-          minLength: 1
-          description: Snapshot revision published by the Video Activation module, not the contract version.
+    SessionStatus: { type: string, enum: [active, completed, closed, failed] }
+    TranscriptProcessingStatus: { type: string, enum: [waiting, validating, generating, ready, unavailable, failed] }
+    QuizProcessingStatus: { type: string, enum: [notStarted, queued, generating, ready, failed] }
+    TranscriptSource: { type: string, enum: [youtubeCaption, geminiVideo] }
+    ProcessingOperation: { type: string, enum: [transcriptGenerate, quizGenerate] }
     PreferenceSnapshot:
       type: object
       additionalProperties: false
-      required: [quizIntervalMinutes, questionType, difficulty]
+      required: [questionType, difficulty]
       properties:
-        quizIntervalMinutes: { $ref: '#/components/schemas/QuizIntervalMinutes' }
         questionType: { $ref: '#/components/schemas/QuestionType' }
         difficulty: { $ref: '#/components/schemas/Difficulty' }
-    ActivationEnabled:
-      type: object
-      additionalProperties: false
-      required: [activationId, source, videoTitle, transcriptCapture, preferences]
-      properties:
-        activationId: { type: string, format: uuid }
-        source: { type: string, enum: [user, storageRestore] }
-        videoTitle: { type: string, minLength: 1 }
-        transcriptCapture: { $ref: '#/components/schemas/AvailableTranscriptCaptureRef' }
-        preferences: { $ref: '#/components/schemas/PreferenceSnapshot' }
-    AvailableTranscriptSnapshotRef:
-      type: object
-      additionalProperties: false
-      required: [transcriptSnapshotId, youtubeVideoId, language, status, contentHash, version]
-      properties:
-        transcriptSnapshotId: { type: string, format: uuid }
-        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
-        language: { type: string, minLength: 2 }
-        status: { const: available }
-        contentHash: { type: string, pattern: '^[a-f0-9]{64}$' }
-        version: { type: string, minLength: 1 }
-    AvailableTranscriptCaptureRef:
-      type: object
-      additionalProperties: false
-      required: [transcriptCaptureId, youtubeVideoId, language, source, status, availableCueCount, version]
-      properties:
-        transcriptCaptureId: { type: string, format: uuid }
-        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
-        language: { type: string, minLength: 2 }
-        source: { const: youtubeCaption }
-        status: { const: available }
-        availableCueCount: { type: integer, minimum: 1 }
-        version: { type: integer, minimum: 1 }
     StartStudySessionRequest:
       type: object
       additionalProperties: false
-      required: [contractVersion, youtubeVideoId, activation]
+      required: [contractVersion, activationId, idempotencyKey, youtubeVideoId, videoTitle, preferences]
       properties:
-        contractVersion: { type: string, const: 0.4.0 }
-        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
-        activation: { $ref: '#/components/schemas/ActivationEnabled' }
-    CompleteStudySessionRequest:
-      type: object
-      additionalProperties: false
-      required: [contractVersion, clientCompletionId, reason, activeStudyMs]
-      properties:
-        contractVersion: { type: string, const: 0.4.0 }
-        clientCompletionId: { type: string, format: uuid }
-        reason: { $ref: '#/components/schemas/CompletionReason' }
-        activeStudyMs: { type: integer, minimum: 0 }
-    PlaybackSpan:
-      type: object
-      additionalProperties: false
-      required: [startMs, endMs]
-      properties:
-        startMs: { type: integer, minimum: 0 }
-        endMs: { type: integer, minimum: 1 }
-    CreateStudySegmentRequest:
-      type: object
-      additionalProperties: false
-      required: [contractVersion, clientSegmentId, idempotencyKey, playbackSpans]
-      properties:
-        contractVersion: { type: string, const: 0.4.0 }
-        clientSegmentId: { type: string, format: uuid }
+        contractVersion: { type: string, const: 0.5.0 }
+        activationId: { type: string, format: uuid }
         idempotencyKey: { type: string, minLength: 1 }
-        activeStudyMs:
-          type: integer
-          minimum: 0
-          description: Wall-clock active study time of the closed interval. Optional because playback spans cannot express replayed video ranges.
-        playbackSpans:
-          type: array
-          minItems: 1
-          items: { $ref: '#/components/schemas/PlaybackSpan' }
-    StudySegmentRef:
-      type: object
-      additionalProperties: false
-      required: [segmentId, sessionId, youtubeVideoId, startMs, endMs]
-      properties:
-        segmentId: { type: string, format: uuid }
-        sessionId: { type: string, format: uuid }
         youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
-        startMs: { type: integer, minimum: 0 }
-        endMs: { type: integer, minimum: 1 }
-    GenerateQuizRequest:
-      type: object
-      additionalProperties: false
-      required: [contractVersion, sessionId, segmentId, youtubeVideoId, questionType, difficulty, idempotencyKey]
-      properties:
-        contractVersion: { type: string, const: 0.4.0 }
-        sessionId: { type: string, format: uuid }
-        segmentId: { type: string, format: uuid }
-        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
-        questionType: { $ref: '#/components/schemas/QuestionType' }
-        difficulty: { $ref: '#/components/schemas/Difficulty' }
-        idempotencyKey: { type: string, minLength: 1 }
+        videoTitle: { type: string, minLength: 1 }
+        preferences: { $ref: '#/components/schemas/PreferenceSnapshot' }
     TranscriptCue:
       type: object
       additionalProperties: false
       required: [startMs, endMs, text]
       properties:
-        startMs: { type: integer, minimum: 0 }
-        endMs: { type: integer, minimum: 1 }
+        startMs: { type: integer, format: int64, minimum: 0 }
+        endMs: { type: integer, format: int64, minimum: 1 }
         text: { type: string, minLength: 1 }
+    SubmitTranscriptRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, idempotencyKey, youtubeVideoId, language, source, status, cues]
+      properties:
+        contractVersion: { type: string, const: 0.5.0 }
+        idempotencyKey: { type: string, minLength: 1 }
+        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        language: { type: string, minLength: 2 }
+        source: { type: string, const: youtubeCaption }
+        status: { type: string, enum: [available, unavailable, insufficient] }
+        contentHash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        durationMs: { type: integer, format: int64, minimum: 0 }
+        cues: { type: array, items: { $ref: '#/components/schemas/TranscriptCue' } }
+    RetryProcessingRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, operation]
+      properties:
+        contractVersion: { type: string, const: 0.5.0 }
+        operation: { $ref: '#/components/schemas/ProcessingOperation' }
+    CompleteStudySessionRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, clientCompletionId, reason]
+      properties:
+        contractVersion: { type: string, const: 0.5.0 }
+        clientCompletionId: { type: string, format: uuid }
+        reason: { type: string, enum: [activationDisabled, videoEnded, videoContextChanged, unsupportedWatchPage] }
     SessionSnapshot:
       type: object
       additionalProperties: false
-      required: [sessionId, youtubeVideoId, status, activeStudyMs, startedAtUtc]
+      required: [sessionId, youtubeVideoId, videoTitle, status, preferences, startedAtUtc]
       properties:
         sessionId: { type: string, format: uuid }
         youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        videoTitle: { type: string }
         status: { $ref: '#/components/schemas/SessionStatus' }
-        activeStudyMs: { type: integer, minimum: 0 }
+        preferences: { $ref: '#/components/schemas/PreferenceSnapshot' }
         startedAtUtc: { type: string, format: date-time }
         completedAtUtc: { type: string, format: date-time }
+    TranscriptView:
+      type: object
+      additionalProperties: false
+      required: [status, cueCount, cues]
+      properties:
+        status: { $ref: '#/components/schemas/TranscriptProcessingStatus' }
+        transcriptCaptureId: { type: string, format: uuid }
+        source: { $ref: '#/components/schemas/TranscriptSource' }
+        language: { type: string }
+        contentHash: { type: string }
+        cueCount: { type: integer, minimum: 0 }
+        cues: { type: array, items: { $ref: '#/components/schemas/TranscriptCue' } }
     QuestionSourceRef:
       type: object
       additionalProperties: false
       required: [youtubeVideoId, startMs, endMs]
       properties:
-        youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        youtubeVideoId: { type: string }
         startMs: { type: integer, minimum: 0 }
         endMs: { type: integer, minimum: 1 }
     QuestionOptionPublic:
@@ -273,8 +166,8 @@ components:
       additionalProperties: false
       required: [optionId, text]
       properties:
-        optionId: { type: string, minLength: 1 }
-        text: { type: string, minLength: 1 }
+        optionId: { type: string }
+        text: { type: string }
     QuestionPublic:
       type: object
       additionalProperties: false
@@ -282,25 +175,38 @@ components:
       properties:
         questionId: { type: string, format: uuid }
         type: { $ref: '#/components/schemas/QuestionType' }
-        prompt: { type: string, minLength: 1 }
-        options:
-          type: array
-          minItems: 2
-          items: { $ref: '#/components/schemas/QuestionOptionPublic' }
+        prompt: { type: string }
+        options: { type: array, items: { $ref: '#/components/schemas/QuestionOptionPublic' } }
         source: { $ref: '#/components/schemas/QuestionSourceRef' }
     QuizPublic:
       type: object
       additionalProperties: false
-      required: [quizId, sessionId, segmentId, status, questions, createdAtUtc]
+      required: [quizId, sessionId, status, questions, createdAtUtc]
       properties:
         quizId: { type: string, format: uuid }
         sessionId: { type: string, format: uuid }
-        segmentId: { type: string, format: uuid }
-        status: { $ref: '#/components/schemas/QuizStatus' }
-        questions:
-          type: array
-          items: { $ref: '#/components/schemas/QuestionPublic' }
+        status: { type: string, const: ready }
+        questions: { type: array, minItems: 1, items: { $ref: '#/components/schemas/QuestionPublic' } }
         createdAtUtc: { type: string, format: date-time }
+    ProcessingError:
+      type: object
+      additionalProperties: false
+      required: [operation, code, message, retryable]
+      properties:
+        operation: { $ref: '#/components/schemas/ProcessingOperation' }
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }
+    LearningPackage:
+      type: object
+      additionalProperties: false
+      required: [session, transcript, quizStatus]
+      properties:
+        session: { $ref: '#/components/schemas/SessionSnapshot' }
+        transcript: { $ref: '#/components/schemas/TranscriptView' }
+        quizStatus: { $ref: '#/components/schemas/QuizProcessingStatus' }
+        quiz: { $ref: '#/components/schemas/QuizPublic' }
+        error: { $ref: '#/components/schemas/ProcessingError' }
     ErrorEnvelope:
       type: object
       additionalProperties: false

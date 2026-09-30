@@ -7,11 +7,14 @@ internal sealed class TranscriptCaptureEntity
 {
     public string TranscriptCaptureId { get; set; } = string.Empty;
     public string YoutubeVideoId { get; set; } = string.Empty;
+    public string? SessionId { get; set; }
     public string Language { get; set; } = "und";
     // Existing rows and the audio-chunk table are retained as legacy data.
     // New captures are immutable YouTube caption cue sets.
     public string Source { get; set; } = "youtubeCaption";
     public string Status { get; set; } = "unavailable";
+    public string? ContentHash { get; set; }
+    public long? DurationMs { get; set; }
     public int Version { get; set; }
     public string CreateIdempotencyKey { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }
@@ -49,11 +52,14 @@ internal sealed class TranscriptCaptureEntityConfiguration : IEntityTypeConfigur
         builder.HasKey(item => item.TranscriptCaptureId);
         builder.Property(item => item.TranscriptCaptureId).HasMaxLength(64);
         builder.Property(item => item.YoutubeVideoId).HasMaxLength(32).IsRequired();
+        builder.Property(item => item.SessionId).HasMaxLength(64);
         builder.Property(item => item.Language).HasMaxLength(16).IsRequired();
         builder.Property(item => item.Source).HasMaxLength(32).IsRequired();
         builder.Property(item => item.Status).HasMaxLength(16).IsRequired();
+        builder.Property(item => item.ContentHash).HasMaxLength(64);
         builder.Property(item => item.CreateIdempotencyKey).HasMaxLength(200).IsRequired();
         builder.HasIndex(item => item.CreateIdempotencyKey).IsUnique();
+        builder.HasIndex(item => item.SessionId);
         builder.HasMany(item => item.Cues).WithOne().HasForeignKey(item => item.TranscriptCaptureId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(item => item.Chunks).WithOne().HasForeignKey(item => item.TranscriptCaptureId).OnDelete(DeleteBehavior.Cascade);
     }

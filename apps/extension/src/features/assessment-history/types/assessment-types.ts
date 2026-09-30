@@ -1,7 +1,7 @@
 import type { QuestionSourceRef, QuestionType } from '../../../shared/contracts';
 
-/** Public quiz data consumed from Dev 2's SessionQuiz contract (v0.4.0). */
-export const ASSESSMENT_HISTORY_CONTRACT_VERSION = '0.4.0' as const;
+/** Public quiz data consumed from Dev 2's SessionQuiz contract (v0.5.0). */
+export const ASSESSMENT_HISTORY_CONTRACT_VERSION = '0.5.0' as const;
 
 export type {
   QuestionOptionPublic,
@@ -31,6 +31,24 @@ export interface GradeView {
   explanation: string;
   source: QuestionSourceRef;
   gradedAtUtc: string;
+}
+
+export interface AttemptAnswerView {
+  questionId: string;
+  outcome: GradeOutcome;
+  score: number;
+  submittedAnswer: string;
+  referenceAnswer: string;
+  explanation: string;
+  source: QuestionSourceRef;
+}
+
+export interface QuizAttemptView {
+  quizAttemptId: string;
+  quizId: string;
+  score: number;
+  results: AttemptAnswerView[];
+  submittedAtUtc: string;
 }
 
 /** Persistent Backend read model. It deliberately never includes private grading material. */

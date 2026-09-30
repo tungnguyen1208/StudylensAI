@@ -9,12 +9,14 @@ from app.main import app
 LONG_CUE = "TCP chia dữ liệu thành các segment có thứ tự và truyền lại phần bị mất."
 
 VALID_BODY = {
-    "contractVersion": "0.4.0",
-    "promptVersion": "0.4.0",
-    "segmentId": "11111111-1111-4111-8111-111111111111",
+    "contractVersion": "0.5.0",
+    "promptVersion": "0.5.0",
+    "sessionId": "11111111-1111-4111-8111-111111111111",
+    "transcriptCaptureId": "22222222-2222-4222-8222-222222222222",
     "youtubeVideoId": "dQw4w9WgXcQ",
     "startMs": 0,
     "endMs": 300000,
+    "questionCount": 3,
     "questionType": "multipleChoice",
     "difficulty": "medium",
     "cues": [{"startMs": 0, "endMs": 30000, "text": LONG_CUE}],
@@ -65,8 +67,8 @@ def test_returns_a_public_safe_multiple_choice_payload() -> None:
     body = response.json()
 
     assert response.status_code == 200
-    assert body["contractVersion"] == "0.4.0"
-    assert body["promptVersion"] == "0.4.0"
+    assert body["contractVersion"] == "0.5.0"
+    assert body["promptVersion"] == "0.5.0"
     assert body["questions"][0]["correctOptionId"] == "option-a"
     assert "referenceAnswer" not in body["questions"][0]
 
@@ -117,7 +119,7 @@ def test_insufficient_transcript_returns_a_non_retryable_400() -> None:
 
 
 def test_invalid_provider_output_returns_a_non_retryable_422() -> None:
-    override_provider(payload='{"questions": [{"type": "multipleChoice", "prompt": "x", "sourceStartMs": 0, "sourceEndMs": 5}]}')
+    override_provider(payload='{"questions": [{"type": "multipleChoice", "prompt": "x", "explanation": "x", "sourceStartMs": 0, "sourceEndMs": 5}]}')
 
     response = post()
 

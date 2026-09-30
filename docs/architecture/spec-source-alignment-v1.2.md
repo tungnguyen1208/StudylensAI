@@ -1,4 +1,4 @@
-# Specification-to-source alignment - persistent activation 0.4.0
+# Specification-to-source alignment - full transcript and quiz 0.5.0
 
 This document records the implemented update to the v1.2 persistent-activation
 design. Contract files under `contracts/` are the source of truth.
@@ -9,32 +9,34 @@ design. Contract files under `contracts/` are the source of truth.
 | No classifier / no direct Extension AI | Dev 1 boundaries, Backend gateway | Implemented |
 | Primary Full Text acquisition | `platform/youtube/transcript-reader.ts` | Implemented: track ranking (`manual`/ASR), `captionTracks`, JSON3 then XML, normalized timestamped cues |
 | Fallback acquisition | `youtube-transcript-adapter.ts` | Direct-first is implemented; DOM expansion + observer is fallback-only. A direct-success lock is required before the runtime can claim full conformance. |
-| Cue persistence/idempotency | `TranscriptCaptureEndpoints`, SQLite capture store | Implemented |
-| Session handoff | `TranscriptCaptureRef` source `youtubeCaption` | Implemented only after available capture |
+| Immediate session | `LearningPackageEndpoints`, `SessionQuizRuntime` | Implemented before transcript upload |
+| Cue persistence/idempotency | `LearningPackageService`, SQLite capture store | Implemented |
+| Transcript fallback | `transcript_generation`, durable Backend job | Implemented for public YouTube videos |
 | A -> B while ON | SPA observer and `VIDEO_CONTEXT_CHANGED` | Implemented |
-| Quiz AI boundary | Session segment -> Backend -> FastAPI question generation | Implemented |
+| Quiz AI boundary | Full transcript -> Backend job -> FastAPI question generation | Implemented |
 
 ## Final runtime
 
 ```text
-ON -> YouTube captionTracks -> preferred manual/ASR track
+ON + valid video -> immediate Backend session
+   -> YouTube captionTracks -> preferred manual/ASR track
    -> Timedtext JSON3/XML -> normalized timestamped cues
    -> DOM transcript fallback only if direct retrieval is unavailable
-   -> Backend validates/persists cue-only capture, hash and idempotency
-   -> ACTIVATION_ENABLED -> session/timer -> frozen segment
-   -> Backend -> FastAPI quiz generation -> answer/grade/history
+   -> Backend validates/persists full cue capture, hash and idempotency
+   -> public-video Gemini fallback when unavailable/insufficient
+   -> Backend job -> FastAPI full-video quiz -> batch answer/grade/history
 ```
 
-There is no runtime STT/audio capture pipeline in 0.4.0: no `tabCapture`,
+There is no runtime STT/audio capture pipeline in 0.5.0: no `tabCapture`,
 offscreen document, MediaRecorder, WebM/Opus upload, transcription router, or
-Gemini transcription configuration. Legacy SQLite audio tables are retained
+Gemini fallback is server-only. Legacy SQLite audio tables are retained
 for existing data only and receive no new writes.
 
-If captions are absent or too short, the Extension remains ON and reports
-`transcriptUnavailable`/`transcriptInsufficient`; it must not create a fake
-session or quiz. A retryable Backend error keeps the exact capture idempotency
+If captions are absent or too short, the Extension remains ON and Backend tries
+the public-video fallback. Private/unlisted videos stay unavailable; no quiz is
+fabricated. A retryable Backend error keeps the exact transcript idempotency
 key. Once direct Timedtext is accepted, DOM mutations cannot create a second
-caption capture for that acquisition. Neither path changes YouTube playback.
+caption upload for that acquisition. Neither path changes YouTube playback.
 
 ## Conformance follow-up
 

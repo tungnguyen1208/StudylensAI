@@ -11,7 +11,7 @@ import {
   extractCaptionTracksFromDom,
 } from '../transcript-reader';
 import {
-  createTranscriptCaptureRequest,
+  createTranscriptRequest,
   hashTranscript,
 } from '../../../features/video-activation/services/transcript-service';
 
@@ -103,20 +103,21 @@ describe('transcript request identity', () => {
     expect(await hashTranscript(cues)).toBe(await hashTranscript(cues));
 
     const transcript = { status: 'available' as const, language: 'en', cues };
-    const first = await createTranscriptCaptureRequest('dQw4w9WgXcQ', transcript);
-    const replay = await createTranscriptCaptureRequest('dQw4w9WgXcQ', transcript);
+    const first = await createTranscriptRequest('session-1', 'dQw4w9WgXcQ', transcript);
+    const replay = await createTranscriptRequest('session-1', 'dQw4w9WgXcQ', transcript);
     expect(replay.contentHash).toBe(first.contentHash);
     expect(replay.idempotencyKey).toBe(first.idempotencyKey);
   });
 
   it('never sends cues for non-available transcript states', async () => {
-    const request = await createTranscriptCaptureRequest('dQw4w9WgXcQ', {
+    const request = await createTranscriptRequest('session-1', 'dQw4w9WgXcQ', {
       status: 'insufficient',
       language: 'vi',
       cues: [],
     });
     expect(request).toEqual({
-      idempotencyKey: 'caption:dQw4w9WgXcQ:insufficient:vi',
+      contractVersion: '0.5.0',
+      idempotencyKey: 'transcript:session-1:dQw4w9WgXcQ:insufficient',
       youtubeVideoId: 'dQw4w9WgXcQ',
       language: 'vi',
       source: 'youtubeCaption',

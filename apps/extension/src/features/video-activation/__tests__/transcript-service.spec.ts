@@ -1,107 +1,53 @@
 import { describe, expect, it } from 'vitest';
-import { VideoActivationApiError } from '../api/video-activation-api';
-import { operationFailure } from '../../../shared/messaging/operation-status';
-import type {
-  CreateTranscriptCaptureRequest,
-  TranscriptCaptureRef,
-} from '../models/video-activation.types';
-import {
-  TranscriptService,
-  createTranscriptCaptureRequest,
-  type TranscriptCaptureApiPort,
-} from '../services/transcript-service';
 import type { TranscriptReadResult } from '../../../platform/youtube/transcript-reader';
+import type { LearningPackage, SubmitFullTranscriptRequest } from '../../session-quiz/models/session-quiz-contracts';
+import { TranscriptService, createTranscriptRequest, hashTranscript, type SessionTranscriptApiPort } from '../services/transcript-service';
 
+const sessionId = 'session-1';
 const youtubeVideoId = 'dQw4w9WgXcQ';
-const availableTranscript: TranscriptReadResult = {
-  status: 'available',
-  language: 'en',
-  cues: [
-    { startMs: 0, endMs: 10_000, text: 'A sufficiently detailed transcript sentence explains the first learning concept.' },
-    { startMs: 10_000, endMs: 20_000, text: 'A second detailed sentence preserves enough evidence for quiz generation.' },
+const available: TranscriptReadResult = {
+  status: 'available', language: 'en', cues: [
+    { startMs: 0, endMs: 10_000, text: 'A sufficiently detailed transcript sentence explains the first concept.' },
+    { startMs: 10_000, endMs: 20_000, text: 'A second sentence preserves enough evidence for full-video quiz generation.' },
   ],
 };
 
-class ScriptedTranscriptApi implements TranscriptCaptureApiPort {
-  public readonly requests: CreateTranscriptCaptureRequest[] = [];
-  private calls = 0;
+const packageFor = (request: SubmitFullTranscriptRequest): LearningPackage => ({
+  session: { sessionId, youtubeVideoId, videoTitle: 'Video', status: 'active', preferences: { questionType: 'multipleChoice', difficulty: 'medium' }, startedAtUtc: '2026-09-29T00:00:00Z' },
+  transcript: { status: request.status === 'available' ? 'ready' : 'generating', cueCount: request.cues.length, cues: request.cues },
+  quizStatus: request.status === 'available' ? 'queued' : 'notStarted',
+});
 
-  public async createTranscriptCapture(request: CreateTranscriptCaptureRequest): Promise<TranscriptCaptureRef> {
-    this.requests.push(request);
-    this.calls += 1;
-    if (this.calls === 1) {
-      throw new VideoActivationApiError('backendUnavailable', 503, 'Backend unavailable.', true, 'trace-upload-1');
-    }
-    return {
-      transcriptCaptureId: 'capture-1',
-      youtubeVideoId: request.youtubeVideoId,
-      language: request.language,
-      status: 'available',
-      source: 'youtubeCaption', availableCueCount: request.cues.length, version: 1,
-    };
+class RecordingApi implements SessionTranscriptApiPort {
+  public readonly calls: Array<{ sessionId: string; request: SubmitFullTranscriptRequest }> = [];
+  public async submitTranscript(id: string, request: SubmitFullTranscriptRequest): Promise<LearningPackage> {
+    this.calls.push({ sessionId: id, request });
+    return packageFor(request);
   }
 }
 
-describe('TranscriptService retry semantics', () => {
-  it('replays the exact same available transcript request after a retryable Backend error', async () => {
-    const api = new ScriptedTranscriptApi();
+describe('TranscriptService 0.5', () => {
+  it('submits one full transcript to the active session with a stable hash', async () => {
+    const api = new RecordingApi();
     const service = new TranscriptService(api);
-
-    await expect(service.upload(youtubeVideoId, availableTranscript)).rejects.toMatchObject({
-      code: 'backendUnavailable', retryable: true, traceId: 'trace-upload-1',
-    });
-    await expect(service.upload(youtubeVideoId, availableTranscript)).resolves.toMatchObject({
-      status: 'available', youtubeVideoId,
-    });
-
-    expect(api.requests).toHaveLength(2);
-    expect(api.requests[1]).toEqual(api.requests[0]);
-    expect(api.requests[0].idempotencyKey).toMatch(/^caption:dQw4w9WgXcQ:en:[a-f0-9]{64}$/);
-    expect(api.requests[0].contentHash).toHaveLength(64);
+    await service.upload(sessionId, youtubeVideoId, available);
+    await service.upload(sessionId, youtubeVideoId, available);
+    expect(api.calls).toHaveLength(2);
+    expect(api.calls[1]).toEqual(api.calls[0]);
+    expect(api.calls[0].request).toMatchObject({ contractVersion: '0.5.0', youtubeVideoId, status: 'available', durationMs: 20_000 });
+    expect(api.calls[0].request.contentHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('uses a canonical language in an available transcript key', async () => {
-    const upperCaseLanguage = await createTranscriptCaptureRequest(youtubeVideoId, {
-      ...availableTranscript,
-      language: 'EN',
-    });
-    const lowerCaseLanguage = await createTranscriptCaptureRequest(youtubeVideoId, availableTranscript);
-
-    expect(upperCaseLanguage.language).toBe('en');
-    expect(upperCaseLanguage.idempotencyKey).toBe(lowerCaseLanguage.idempotencyKey);
+  it('uses the same cue canonicalization as Backend', async () => {
+    expect(await hashTranscript([{ startMs: 0, endMs: 1000, text: '  hello   world ' }]))
+      .toBe(await hashTranscript([{ startMs: 0, endMs: 1000, text: 'hello world' }]));
   });
 
-  it('keeps unavailable transcript evidence explicit and without a content hash', async () => {
-    const api: TranscriptCaptureApiPort = {
-      createTranscriptCapture: async (request) => ({
-        transcriptCaptureId: 'capture-unavailable',
-        youtubeVideoId: request.youtubeVideoId,
-        language: request.language,
-        status: 'unavailable',
-        source: 'youtubeCaption', availableCueCount: 0, version: 1,
-      }),
-    };
-    const service = new TranscriptService(api);
-
-    await expect(service.upload(youtubeVideoId, { status: 'unavailable', language: 'vi', cues: [] })).resolves.toMatchObject({
-      status: 'unavailable',
-    });
-  });
-
-  it('preserves a non-retryable Backend error and trace ID for the status card', () => {
-    const error = new VideoActivationApiError(
-      'idempotencyConflict',
-      409,
-      'The same key was used with different transcript data.',
-      false,
-      'trace-upload-conflict',
-    );
-
-    expect(operationFailure(error, 'transcriptUploadFailed', 'Fallback')).toEqual({
-      code: 'idempotencyConflict',
-      message: 'The same key was used with different transcript data.',
-      retryable: false,
-      traceId: 'trace-upload-conflict',
+  it('queues fallback without fake cues when YouTube captions are unavailable', async () => {
+    const request = await createTranscriptRequest(sessionId, youtubeVideoId, { status: 'unavailable', language: 'vi', cues: [] });
+    expect(request).toEqual({
+      contractVersion: '0.5.0', idempotencyKey: `transcript:${sessionId}:${youtubeVideoId}:unavailable`,
+      youtubeVideoId, language: 'vi', source: 'youtubeCaption', status: 'unavailable', cues: [],
     });
   });
 });

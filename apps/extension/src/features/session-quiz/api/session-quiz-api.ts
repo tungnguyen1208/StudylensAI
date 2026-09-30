@@ -1,12 +1,11 @@
 import { requestSessionQuizThroughWorker } from './session-quiz-worker-bridge';
 import type {
   CompleteStudySessionRequest,
-  CreateStudySegmentRequest,
-  GenerateQuizRequest,
-  QuizPublic,
+  LearningPackage,
+  RetryProcessingRequest,
   SessionSnapshot,
   StartStudySessionRequest,
-  StudySegmentRef,
+  SubmitFullTranscriptRequest,
 } from '../models/session-quiz-contracts';
 
 /** The only Extension gateway for the SessionQuiz public API. */
@@ -19,11 +18,15 @@ export class SessionQuizApi {
     return requestSessionQuizThroughWorker<SessionSnapshot>('complete', request, sessionId);
   }
 
-  public createSegment(sessionId: string, request: CreateStudySegmentRequest): Promise<StudySegmentRef> {
-    return requestSessionQuizThroughWorker<StudySegmentRef>('createSegment', request, sessionId);
+  public submitTranscript(sessionId: string, request: SubmitFullTranscriptRequest): Promise<LearningPackage> {
+    return requestSessionQuizThroughWorker<LearningPackage>('submitTranscript', request, sessionId);
   }
 
-  public generateQuiz(request: GenerateQuizRequest): Promise<QuizPublic> {
-    return requestSessionQuizThroughWorker<QuizPublic>('generateQuiz', request);
+  public getLearningPackage(sessionId: string): Promise<LearningPackage> {
+    return requestSessionQuizThroughWorker<LearningPackage>('getLearningPackage', {}, sessionId);
+  }
+
+  public retry(sessionId: string, request: RetryProcessingRequest): Promise<LearningPackage> {
+    return requestSessionQuizThroughWorker<LearningPackage>('retry', request, sessionId);
   }
 }

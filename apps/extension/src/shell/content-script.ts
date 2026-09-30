@@ -6,7 +6,7 @@ interface TabContextResponse {
   tabId?: number;
 }
 
-type StudyLensRuntimeState = Pick<SessionState, 'status' | 'activeStudyMs' | 'segmentStatus' | 'segmentError'> & {
+type StudyLensRuntimeState = Pick<SessionState, 'status' | 'learningPackage' | 'error'> & {
   sessionId?: string;
   youtubeVideoId?: string;
 };
@@ -29,15 +29,17 @@ async function startVideoActivation(): Promise<boolean> {
       api: {
         start: ({ youtubeVideoId, activation }) => api.startSession({
           contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
+          activationId: activation.activationId,
+          idempotencyKey: `session:${activation.activationId}:${youtubeVideoId}`,
           youtubeVideoId,
-          activation,
+          videoTitle: activation.videoTitle,
+          preferences: activation.preferences,
         }),
         complete: (sessionId, request) => api.completeSession(sessionId, {
           contractVersion: SESSION_QUIZ_CONTRACT_VERSION,
           ...request,
         }),
-        createSegment: (sessionId, request) => api.createSegment(sessionId, request),
-        generateQuiz: (request) => api.generateQuiz(request),
+        getLearningPackage: (sessionId) => api.getLearningPackage(sessionId),
       },
       bus: messageBus,
     });
@@ -45,13 +47,18 @@ async function startVideoActivation(): Promise<boolean> {
       const state = sessionRuntime.store.getState();
       return {
         status: state.status,
-        activeStudyMs: state.activeStudyMs,
-        segmentStatus: state.segmentStatus,
-        ...(state.segmentError ? { segmentError: state.segmentError } : {}),
+        ...(state.learningPackage ? { learningPackage: state.learningPackage } : {}),
+        ...(state.error ? { error: state.error } : {}),
         ...(state.session ? { sessionId: state.session.sessionId, youtubeVideoId: state.session.youtubeVideoId } : {}),
       };
     };
-    const activationRuntime = initializeVideoActivationContentScript({ tabId: response.tabId! });
+    const activationRuntime = initializeVideoActivationContentScript({
+      tabId: response.tabId!,
+      getActiveSessionId: (youtubeVideoId) => {
+        const session = sessionRuntime.store.getState().session;
+        return session?.youtubeVideoId === youtubeVideoId && session.status === 'active' ? session.sessionId : null;
+      },
+    });
     getActivePlayerPort = () => activationRuntime.getPlayerPort();
     return true;
   } catch {

@@ -19,16 +19,21 @@ export class SessionManager {
       this.apply({ type: 'failed', error: 'sessionStartFailed' });
     }
   }
-  public async complete(reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged', activeStudyMs: number, clientCompletionId: string): Promise<void> {
-    if (this.state.status !== 'active' || !this.state.session) return;
+  public async refresh(): Promise<void> {
+    if (!this.state.session) return;
+    this.apply({ type: 'packageChanged', learningPackage: await this.api.getLearningPackage(this.state.session.sessionId) });
+  }
+  public async complete(reason: 'activationDisabled' | 'videoEnded' | 'videoContextChanged' | 'unsupportedWatchPage', clientCompletionId: string): Promise<void> {
+    if (!this.state.session || !['active', 'error'].includes(this.state.status)) return;
     this.apply({ type: 'completeRequested' });
     try {
       this.lastError = undefined;
-      this.apply({ type: 'completed', session: await this.api.complete(this.state.session.sessionId, { clientCompletionId, reason, activeStudyMs }) });
+      this.apply({ type: 'completed', session: await this.api.complete(this.state.session.sessionId, { clientCompletionId, reason }) });
     } catch (error: unknown) {
       this.lastError = error;
       this.apply({ type: 'failed', error: 'sessionCompleteFailed' });
     }
   }
+  public reset(): void { this.apply({ type: 'reset' }); }
   private apply(action: SessionAction): void { this.state = sessionReducer(this.state, action); this.dispatch(action); }
 }

@@ -3,24 +3,27 @@
 StudyLens AI is a Chrome/Edge extension that turns an explicitly enabled
 YouTube watch page into a learning session, quiz, result and history flow.
 
-## Current design - contract 0.4.0
+## Current design - contract 0.5.0
 
 ```text
-Learner ON
+Learner ON + valid YouTube video
+  -> Backend creates a study session
   -> YouTube captionTracks -> preferred manual/ASR track
   -> Timedtext JSON3, then XML -> normalized `{ startMs, endMs, text }` cues
   -> auto-opened YouTube Transcript DOM fallback only if direct fetch is unavailable
-  -> ASP.NET Core Backend validates + stores normalized cues in SQLite
-  -> ACTIVATION_ENABLED -> session/timer -> frozen segment
-  -> Backend -> FastAPI question generation -> quiz -> grade/history
+  -> ASP.NET Core Backend validates + stores one normalized full transcript
+  -> public-video Gemini fallback only when captions are unavailable/insufficient
+  -> Backend durable job -> FastAPI full-video question generation
+  -> one full quiz -> batch grade/history
 ```
 
 The Extension does not call FastAPI, Gemini, an LLM provider or SQLite. The
-AI service is used only by Backend after a valid transcript segment is frozen.
+AI service is used only by Backend after it owns a full transcript, except for
+the Backend-requested public-video fallback.
 
 ### Transcript policy
 
-- `youtubeCaption` is the sole runtime transcript source.
+- `youtubeCaption` is the preferred runtime transcript source.
 - Direct Timedtext retrieval is the Full Text path: it reads the selected
   YouTube caption track, preserves timestamps and completes before a quiz can
   be considered. DOM transcript observation is a fallback, runs only while
@@ -28,25 +31,26 @@ AI service is used only by Backend after a valid transcript segment is frozen.
 - A direct capture accepted by Backend wins for that acquisition. Later DOM
   mutations must not upload a second capture with a different track/language
   or idempotency hash.
-- Missing or insufficient captions leave global ON enabled and show an
-  explicit status. No session or quiz is fabricated.
+- Missing or insufficient captions leave global ON enabled and queue the
+  public-video fallback. Private/unlisted or failed fallback stays explicit
+  `unavailable`; no quiz is fabricated.
 - StudyLens does not use microphone, STT, `tabCapture`, offscreen documents,
   MediaRecorder, audio upload or `youtube-transcript-api`.
 - Historical SQLite audio-capture rows are retained as legacy data, but no new
   audio records are written.
 
 Backend checks the video ID, timestamp bounds, normalized cue content,
-canonical hash and idempotency key before persisting a cue-only capture. When
-the configured learning interval is met, it freezes the relevant cues in a
-segment and only then calls FastAPI for quiz generation. FastAPI never fetches
-or reconstructs a YouTube transcript.
+canonical hash and idempotency key before persisting the full transcript. It
+uses durable jobs (up to three attempts) for fallback and full-video quiz
+generation. FastAPI can reconstruct timestamped cues only from a public
+YouTube URL sent by Backend for the explicit fallback.
 
 ### Persistent activation
 
 First install defaults to OFF. The choice is stored locally and restored after
 browser restart. When YouTube SPA changes from video A to B while ON,
-StudyLens publishes one `VIDEO_CONTEXT_CHANGED`, cancels A work and enables B
-only after B has an available Backend caption capture. Explicit OFF is the
+StudyLens publishes one `VIDEO_CONTEXT_CHANGED`, cancels A work, closes A and
+immediately starts B. Explicit OFF is the
 only event that persists OFF. Errors never alter YouTube playback.
 
 ## Local run

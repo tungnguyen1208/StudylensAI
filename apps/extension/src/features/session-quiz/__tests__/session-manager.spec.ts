@@ -1,15 +1,39 @@
 import { describe, expect, it } from 'vitest';
+import type { LearningPackage, SessionSnapshot } from '../models/session-quiz-contracts';
 import { SessionManager } from '../services/session-manager';
 
-const activation = { activationId: '11111111-1111-4111-8111-111111111111', source: 'user' as const, videoTitle: 'Video', transcriptCapture: { transcriptCaptureId: '22222222-2222-4222-8222-222222222222', youtubeVideoId: 'dQw4w9WgXcQ', language: 'en', source: 'youtubeCaption' as const, status: 'available' as const, availableCueCount: 1, version: 1 }, preferences: { quizIntervalMinutes: 10 as const, questionType: 'multipleChoice' as const, difficulty: 'medium' as const } };
-const session = { sessionId: '33333333-3333-4333-8333-333333333333', youtubeVideoId: 'dQw4w9WgXcQ', status: 'active' as const, activeStudyMs: 0, startedAtUtc: '2026-09-10T10:00:00Z' };
+const preferences = { questionType: 'multipleChoice' as const, difficulty: 'medium' as const };
+const activation = { activationId: 'activation-1', source: 'user' as const, videoTitle: 'Video', preferences };
+const session: SessionSnapshot = {
+  sessionId: 'session-1', youtubeVideoId: 'dQw4w9WgXcQ', videoTitle: 'Video', status: 'active', preferences,
+  startedAtUtc: '2026-09-29T10:00:00Z',
+};
+const learningPackage: LearningPackage = {
+  session,
+  transcript: { status: 'waiting', cueCount: 0, cues: [] },
+  quizStatus: 'notStarted',
+};
 
 describe('SessionManager', () => {
-  it('starts once for an enabled flow and completes once at the manager boundary', async () => {
-    let starts = 0; let completes = 0;
-    const manager = new SessionManager({ start: async () => { starts++; return session; }, complete: async () => { completes++; return { ...session, status: 'completed' as const, activeStudyMs: 12, completedAtUtc: '2026-09-10T10:01:00Z' }; } });
-    await Promise.all([manager.activate('dQw4w9WgXcQ', activation), manager.activate('dQw4w9WgXcQ', activation)]);
-    await manager.complete('videoEnded', 12, '77777777-7777-4777-8777-777777777777'); await manager.complete('videoEnded', 12, '77777777-7777-4777-8777-777777777777');
-    expect([starts, completes, manager.getState().status]).toEqual([1, 1, 'completed']);
+  it('starts immediately, refreshes the package, and completes once', async () => {
+    let starts = 0;
+    let completes = 0;
+    const manager = new SessionManager({
+      start: async () => { starts += 1; return session; },
+      complete: async () => { completes += 1; return { ...session, status: 'completed', completedAtUtc: '2026-09-29T10:05:00Z' }; },
+      getLearningPackage: async () => learningPackage,
+    });
+
+    await Promise.all([
+      manager.activate(session.youtubeVideoId, activation),
+      manager.activate(session.youtubeVideoId, activation),
+    ]);
+    await manager.refresh();
+    await manager.complete('videoEnded', 'completion-1');
+    await manager.complete('videoEnded', 'completion-1');
+
+    expect(starts).toBe(1);
+    expect(completes).toBe(1);
+    expect(manager.getState()).toMatchObject({ status: 'completed', session: { status: 'completed' } });
   });
 });

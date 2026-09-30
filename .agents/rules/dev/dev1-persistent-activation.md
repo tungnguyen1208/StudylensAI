@@ -12,8 +12,8 @@ chrome.storage.local extensionEnabled
   -> supported YouTube watch page + PlayerPort
   -> captionTracks -> manual/ASR language selection
   -> Timedtext JSON3, then XML -> DOM transcript fallback when unavailable
-  -> Backend caption capture -> TranscriptCaptureRef
-  -> Dev 2 SessionQuiz
+  -> immediate Backend session -> full caption upload
+  -> Backend validation/fallback -> Dev 2 SessionQuiz
 ```
 
 ## Allowed paths
@@ -43,25 +43,24 @@ tests/contract/video-activation/**
    accepts a direct capture, ignore later DOM mutations for that acquisition so
    they cannot create a second capture with a different language or hash.
 4. Cancel stale fetch/DOM work on OFF, A -> B, and leaving `/watch`. Publish
-   `VIDEO_CONTEXT_CHANGED` once before replacement work. Do not publish
-   `ACTIVATION_ENABLED` until Backend returns an available `youtubeCaption`
-   `TranscriptCaptureRef`.
-5. `unavailable` and `insufficient` are explicit non-retryable states: global
-   ON remains, but no session, segment or quiz is created. Backend/network
-   failure is retryable and reuses the same caption idempotency key.
+   `VIDEO_CONTEXT_CHANGED` once before replacement work and publish
+   `ACTIVATION_ENABLED` immediately for the replacement session.
+5. Send one full cue payload to that session. `unavailable` and `insufficient`
+   keep global ON and allow the Backend-owned public-video fallback; Backend
+   network failure is retryable and reuses the same transcript idempotency key.
 6. Only explicit OFF publishes `ACTIVATION_DISABLED`. Never pause, seek, play,
    or otherwise alter YouTube on any normal/error path.
 
 ## Handoff rules
 
-- Contract baseline is `0.4.0`; camelCase, integer video milliseconds and UTC
+- Contract baseline is `0.5.0`; camelCase, integer video milliseconds and UTC
   timestamps apply.
-- `TranscriptCaptureRef.source` is only `youtubeCaption`; it contains no raw
-  DOM payload, audio, quiz answer, or secret. Backend owns canonical cue hash,
-  idempotency and persistence.
-- Dev 2 reads persisted cues through `ITranscriptCaptureReader` and freezes a
-  segment before Backend calls FastAPI to generate a quiz. FastAPI does not
-  fetch captions or otherwise acquire a YouTube transcript.
+- The upload source is `youtubeCaption`; it contains no raw DOM payload,
+  audio, quiz answer, or secret. Backend owns canonical cue hash, idempotency
+  and persistence.
+- Dev 2 creates the session first, then processes the Backend-persisted full
+  transcript. FastAPI only receives a public YouTube URL for the explicit
+  Gemini fallback after direct captions are unavailable or insufficient.
 - Keep `PreferenceSnapshot` immutable for each activation.
 
 ## Acceptance evidence

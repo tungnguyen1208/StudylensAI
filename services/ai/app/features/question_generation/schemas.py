@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CONTRACT_VERSION = "0.4.0"
+CONTRACT_VERSION = "0.5.0"
 
 QuestionType = Literal["multipleChoice", "shortAnswer"]
 Difficulty = Literal["easy", "medium", "hard"]
@@ -29,12 +29,14 @@ class TranscriptCue(BaseModel):
 class QuestionGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    contractVersion: str
-    promptVersion: str
-    segmentId: str
+    contractVersion: Literal["0.5.0"]
+    promptVersion: Literal["0.5.0"]
+    sessionId: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    transcriptCaptureId: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
     youtubeVideoId: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
     startMs: int = Field(ge=0)
     endMs: int = Field(gt=0)
+    questionCount: int = Field(ge=3, le=15)
     questionType: QuestionType
     difficulty: Difficulty
     cues: list[TranscriptCue] = Field(min_length=1)
@@ -46,7 +48,7 @@ class QuestionGenerationRequest(BaseModel):
         if self.endMs <= self.startMs:
             raise ValueError("endMs must be greater than startMs")
         if any(cue.startMs < self.startMs or cue.endMs > self.endMs for cue in self.cues):
-            raise ValueError("every cue must stay inside the segment range")
+            raise ValueError("every cue must stay inside the full-video range")
         return self
 
 
@@ -69,6 +71,7 @@ class GeneratedQuestion(BaseModel):
     options: list[GeneratedOption] | None = None
     correctOptionId: str | None = None
     referenceAnswer: str | None = None
+    explanation: str = Field(min_length=1)
     sourceStartMs: int = Field(ge=0)
     sourceEndMs: int = Field(gt=0)
 
@@ -78,7 +81,7 @@ class QuestionGenerationResponse(BaseModel):
 
     contractVersion: str = CONTRACT_VERSION
     promptVersion: str = CONTRACT_VERSION
-    questions: list[GeneratedQuestion] = Field(min_length=1)
+    questions: list[GeneratedQuestion] = Field(min_length=1, max_length=15)
 
 
 # ============================================================

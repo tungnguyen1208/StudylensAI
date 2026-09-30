@@ -5,6 +5,16 @@ namespace StudyLens.Api.Features.AssessmentHistory.Api;
 
 internal static class AssessmentHistoryEndpoints
 {
+    public static async Task<IResult> SubmitAttempt(string quizId, SubmitQuizAttemptRequest request, AssessmentHistoryService service, HttpContext context, CancellationToken cancellationToken)
+    {
+        var result = await service.SubmitAttemptAsync(new(request.ContractVersion, request.ClientAttemptId, quizId,
+            request.Answers.Select(item => new SubmitAttemptAnswer(item.QuestionId, item.SelectedOptionId, item.AnswerText)).ToArray()), cancellationToken);
+        return result.Attempt is { } attempt
+            ? Results.Ok(attempt)
+            : Results.Json(new ErrorEnvelope(result.ErrorCode!, result.StatusCode, result.ErrorMessage!, context.TraceIdentifier,
+                result.StatusCode == StatusCodes.Status503ServiceUnavailable), statusCode: result.StatusCode);
+    }
+
     public static async Task<IResult> Submit(string quizId, SubmitAnswerRequest request, AssessmentHistoryService service, HttpContext context, CancellationToken cancellationToken)
     {
         var result = await service.SubmitAsync(new(request.ContractVersion, request.ClientAttemptId, quizId, request.QuestionId, request.SelectedOptionId, request.AnswerText), cancellationToken);
@@ -18,3 +28,5 @@ internal static class AssessmentHistoryEndpoints
 }
 
 internal sealed record SubmitAnswerRequest(string ContractVersion, string ClientAttemptId, string QuestionId, string? SelectedOptionId, string? AnswerText);
+internal sealed record SubmitQuizAttemptRequest(string ContractVersion, string ClientAttemptId, IReadOnlyList<SubmitAttemptAnswerRequest> Answers);
+internal sealed record SubmitAttemptAnswerRequest(string QuestionId, string? SelectedOptionId, string? AnswerText);

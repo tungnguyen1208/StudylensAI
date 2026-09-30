@@ -39,7 +39,7 @@ tests/contract/session-quiz/**
 tests/e2e/session-quiz/**
 ```
 
-Dev 2 owns watched-time tracking, study sessions, transcript segments, quiz
+Dev 2 owns immediate study sessions, full-transcript processing, durable quiz
 generation orchestration, and public question delivery.
 
 ## Dev 3 - Assessment History
@@ -64,7 +64,10 @@ history read models.
 
 Use published contracts or ports:
 
-- Dev 1 -> Dev 2: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`, `VIDEO_CONTEXT_UNAVAILABLE`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`, `TranscriptCaptureRef`, `PreferenceSnapshot`, player events, `ITranscriptCaptureReader`. A capture is usable only after Backend returns `source: youtubeCaption` with status `available`.
+- Dev 1 -> Dev 2: `ExtensionActivationState`, `VIDEO_CONTEXT_CHANGED`,
+  `VIDEO_CONTEXT_UNAVAILABLE`, `ACTIVATION_ENABLED`, `ACTIVATION_DISABLED`,
+  `PreferenceSnapshot`, player events, and one timestamped full transcript.
+  Dev 2 creates the session before transcript validation.
 - Dev 2 -> Dev 3: `QuizAvailable`, `QuestionPublic`, `QuestionSourceRef`, `SessionSnapshot`, `QuestionForAssessment`, `IQuestionAssessmentReader`.
 - Dev 3 -> Dev 1: `SEEK_REQUEST` with `{ "timestampMs": number }`.
 

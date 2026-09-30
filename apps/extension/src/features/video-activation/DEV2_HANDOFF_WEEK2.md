@@ -1,4 +1,4 @@
-# Dev 1 to Dev 2 handoff - Caption transcript, contract 0.4.0
+# Dev 1 to Dev 2 handoff - Caption transcript, contract 0.5.0
 
 ## Runtime sequence
 
@@ -35,7 +35,7 @@ page data.
 
 `TranscriptCaptureRef` is unchanged structurally: `transcriptCaptureId`,
 `youtubeVideoId`, `language`, `source`, `status`, `availableCueCount`, and
-`version`. Its only runtime source in 0.4.0 is `youtubeCaption`.
+`version`. Its only runtime source in 0.5.0 is `youtubeCaption`.
 
 When status is `unavailable` or `insufficient`, Dev 2 must not create a
 session, timer, segment, or quiz. Global learner ON remains active so the

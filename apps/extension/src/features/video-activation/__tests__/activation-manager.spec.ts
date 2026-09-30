@@ -5,93 +5,58 @@ import { activationReducer, initialActivationState } from '../state/activation-r
 const context = { tabId: 7, youtubeVideoId: 'dQw4w9WgXcQ', title: 'Networking lesson' };
 
 describe('activation reducer', () => {
-  it('resets the local flow when a different page is explicitly bound', () => {
+  it('resets video-scoped data when another page is bound', () => {
     const active = activationReducer(activationReducer(initialActivationState, { type: 'contextChanged', context }), { type: 'manualOn' });
     const next = activationReducer(active, { type: 'contextChanged', context: { ...context, youtubeVideoId: '9bZkp7q19f0' } });
     expect(next.status).toBe('off');
-    expect(next.transcriptCapture).toBeNull();
+    expect(next.errorCode).toBeNull();
   });
 });
 
-describe('ManualActivationManager', () => {
-  it('publishes one enabled event and one disabled event for repeated toggles', async () => {
+describe('ManualActivationManager 0.5', () => {
+  it('publishes activation immediately before transcript acquisition', async () => {
     const messages: Array<{ type: string; payload: Record<string, unknown> }> = [];
     const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); }, createActivationId: () => 'activation-1' });
-    await manager.setContext(context, 'context-correlation');
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-1', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'available', availableCueCount: 1, version: 1 });
-    await manager.request('on', context.youtubeVideoId, 'on-correlation');
-    await manager.request('on', context.youtubeVideoId, 'duplicate-on');
-    await manager.request('off', context.youtubeVideoId, 'off-correlation');
-    expect(messages.map((message) => message.type)).toEqual(['ACTIVATION_ENABLED', 'ACTIVATION_DISABLED']);
-    expect(messages[0].payload).toMatchObject({ source: 'user', activationId: 'activation-1' });
-    expect(messages[1].payload).toEqual({ reasonCode: 'userDisabled' });
+    await manager.setContext(context, 'context-1');
+    manager.setPreferences({ questionType: 'shortAnswer', difficulty: 'easy' });
+    await manager.request('on', context.youtubeVideoId, 'on-1');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ type: 'ACTIVATION_ENABLED', payload: { activationId: 'activation-1', videoTitle: context.title, preferences: { questionType: 'shortAnswer', difficulty: 'easy' } } });
   });
 
-  it('publishes one restored activation when a remounted content script replays ON', async () => {
-    const messages: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  it('deduplicates repeated ON/OFF commands', async () => {
+    const messages: Array<{ type: string }> = [];
+    const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message); }, createActivationId: () => 'activation-1' });
+    await manager.setContext(context, 'context-1');
+    await manager.request('on', context.youtubeVideoId, 'on-1');
+    await manager.request('on', context.youtubeVideoId, 'on-2');
+    await manager.request('off', context.youtubeVideoId, 'off-1');
+    await manager.request('off', context.youtubeVideoId, 'off-2');
+    expect(messages.map((message) => message.type)).toEqual(['ACTIVATION_ENABLED', 'ACTIVATION_DISABLED']);
+  });
+
+  it('marks restored activation with its storage source', async () => {
+    const messages: Array<{ payload: Record<string, unknown> }> = [];
     const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); }, createActivationId: () => 'activation-restored' });
-    await manager.setContext(context, 'restore-context');
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-restore', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'available', availableCueCount: 1, version: 1 });
-
-    await manager.request('on', context.youtubeVideoId, 'restore-correlation', 'storageRestore');
-    await manager.request('on', context.youtubeVideoId, 'duplicate-restore', 'storageRestore');
-
-    expect(messages).toHaveLength(1);
+    await manager.setContext(context, 'context-1');
+    await manager.request('on', context.youtubeVideoId, 'restore-1', 'storageRestore');
     expect(messages[0].payload).toMatchObject({ activationId: 'activation-restored', source: 'storageRestore' });
   });
 
-  it('does not publish an automatic stop when a different page is explicitly bound', async () => {
-    const messages: Array<{ type: string; payload: Record<string, unknown> }> = [];
-    const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); }, createActivationId: () => 'activation-1' });
-    await manager.setContext(context, 'a');
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-1', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'available', availableCueCount: 1, version: 1 });
-    await manager.request('on', context.youtubeVideoId, 'b');
-    await manager.setContext({ ...context, youtubeVideoId: '9bZkp7q19f0' }, 'c');
-    expect(messages).toHaveLength(1);
-    expect(manager.getState().status).toBe('off');
-  });
+  it('snapshots updated preferences for the replacement video', async () => {
+    const messages: Array<{ payload: Record<string, unknown> }> = [];
+    const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); } });
+    await manager.setContext(context, 'context-a');
+    manager.setPreferences({ questionType: 'multipleChoice', difficulty: 'easy' });
+    await manager.request('on', context.youtubeVideoId, 'on-a');
+    const replacement = { ...context, youtubeVideoId: '9bZkp7q19f0', title: 'Video B' };
+    await manager.setContext(replacement, 'context-b');
+    manager.setPreferences({ questionType: 'shortAnswer', difficulty: 'hard' });
+    await manager.request('on', replacement.youtubeVideoId, 'on-b');
 
-  it('waits for a transcript snapshot before publishing the enabled event', async () => {
-    const messages: Array<{ type: string; payload: Record<string, unknown> }> = [];
-    const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); }, createActivationId: () => 'activation-late-snapshot' });
-    await manager.setContext(context, 'context-correlation');
-    await manager.request('on', context.youtubeVideoId, 'on-correlation');
-    expect(messages).toEqual([]);
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-1', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'available', availableCueCount: 1, version: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(messages).toHaveLength(1);
-    expect(messages[0].payload).toMatchObject({ activationId: 'activation-late-snapshot', transcriptCapture: { transcriptCaptureId: 'snapshot-1' } });
-  });
-
-  it('waits through unavailable transcript evidence and publishes once after a valid retry', async () => {
-    const messages: Array<{ type: string; payload: Record<string, unknown> }> = [];
-    const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); }, createActivationId: () => 'activation-retry' });
-    await manager.setContext(context, 'context-correlation');
-    await manager.request('on', context.youtubeVideoId, 'on-correlation');
-
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-unavailable', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'insufficient', availableCueCount: 0, version: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(messages).toEqual([]);
-
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-available', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'available', availableCueCount: 1, version: 1 });
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-replayed', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'available', availableCueCount: 1, version: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(messages.map((message) => message.type)).toEqual(['ACTIVATION_ENABLED']);
-  });
-
-  it('captures an immutable preference snapshot at activation request time', async () => {
-    const messages: Array<{ type: string; payload: Record<string, unknown> }> = [];
-    const manager = new ManualActivationManager({ publish: async (message) => { messages.push(message as never); }, createActivationId: () => 'activation-preferences' });
-    await manager.setContext(context, 'context-correlation');
-    manager.setPreferences({ quizIntervalMinutes: 5, questionType: 'shortAnswer', difficulty: 'easy' });
-    await manager.request('on', context.youtubeVideoId, 'on-correlation');
-    manager.setPreferences({ quizIntervalMinutes: 15, questionType: 'multipleChoice', difficulty: 'hard' });
-    manager.setTranscriptCapture({ transcriptCaptureId: 'snapshot-1', youtubeVideoId: context.youtubeVideoId, language: 'en', source: 'youtubeCaption' as const, status: 'available', availableCueCount: 1, version: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(messages[0].payload).toMatchObject({
-      preferences: { quizIntervalMinutes: 5, questionType: 'shortAnswer', difficulty: 'easy' },
+    expect(messages[1].payload).toMatchObject({
+      videoTitle: 'Video B',
+      preferences: { questionType: 'shortAnswer', difficulty: 'hard' },
     });
   });
 });
