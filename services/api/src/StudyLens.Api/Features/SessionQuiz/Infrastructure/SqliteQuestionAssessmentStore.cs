@@ -18,6 +18,8 @@ public sealed class QuizAssessmentEntity
     public string QuestionType { get; set; } = "multipleChoice";
     public string Difficulty { get; set; } = "medium";
     public string? TranscriptCaptureId { get; set; }
+    public string PromptVersion { get; set; } = "0.5.0";
+    public string? ModelName { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public List<QuestionAssessmentEntity> Questions { get; set; } = [];
 }
@@ -27,6 +29,7 @@ public sealed class QuestionAssessmentEntity
     public string QuestionId { get; set; } = string.Empty;
     public string QuizId { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
+    public int Position { get; set; }
     public string Prompt { get; set; } = string.Empty;
     public string? CorrectOptionId { get; set; }
     public string? ReferenceAnswer { get; set; }
@@ -60,10 +63,13 @@ public sealed class QuizAssessmentEntityConfiguration : IEntityTypeConfiguration
         builder.Property(entity => entity.SessionId).HasMaxLength(64).IsRequired();
         builder.Property(entity => entity.SegmentId).HasMaxLength(64).IsRequired();
         builder.Property(entity => entity.YoutubeVideoId).HasMaxLength(32).IsRequired();
+        builder.HasIndex(entity => entity.YoutubeVideoId);
         builder.Property(entity => entity.Status).HasMaxLength(16).IsRequired();
         builder.Property(entity => entity.QuestionType).HasMaxLength(32).IsRequired();
         builder.Property(entity => entity.Difficulty).HasMaxLength(16).IsRequired();
         builder.Property(entity => entity.TranscriptCaptureId).HasMaxLength(64);
+        builder.Property(entity => entity.PromptVersion).HasMaxLength(16).IsRequired();
+        builder.Property(entity => entity.ModelName).HasMaxLength(128);
         builder.HasMany(entity => entity.Questions).WithOne(entity => entity.Quiz!).HasForeignKey(entity => entity.QuizId).OnDelete(DeleteBehavior.Cascade);
     }
 }
@@ -75,9 +81,11 @@ public sealed class QuestionAssessmentEntityConfiguration : IEntityTypeConfigura
         builder.ToTable("QuestionAssessments");
         builder.HasKey(entity => entity.QuestionId);
         builder.Property(entity => entity.Type).HasMaxLength(32).IsRequired();
+        builder.Property(entity => entity.Position).IsRequired();
         builder.Property(entity => entity.Prompt).IsRequired();
         builder.Property(entity => entity.YoutubeVideoId).HasMaxLength(32).IsRequired();
         builder.Property(entity => entity.Explanation).IsRequired();
+        builder.HasIndex(entity => new { entity.QuizId, entity.Position });
         builder.HasMany(entity => entity.Options).WithOne(entity => entity.Question!).HasForeignKey(entity => entity.QuestionId).OnDelete(DeleteBehavior.Cascade);
     }
 }
@@ -130,11 +138,12 @@ public sealed class SqliteQuestionAssessmentStore(StudyLensDbContext db) : IQues
             SegmentId = record.Quiz.SegmentId,
             YoutubeVideoId = record.Questions.FirstOrDefault()?.YoutubeVideoId ?? string.Empty,
             CreatedAtUtc = record.Quiz.CreatedAtUtc,
-            Questions = record.Questions.Select(question => new QuestionAssessmentEntity
+            Questions = record.Questions.Select((question, position) => new QuestionAssessmentEntity
             {
                 QuestionId = question.QuestionId,
                 QuizId = question.QuizId,
                 Type = question.Type,
+                Position = position,
                 Prompt = question.Prompt,
                 CorrectOptionId = question.CorrectOptionId,
                 OptionsJson = question.Options is null ? null : JsonSerializer.Serialize(question.Options),
@@ -159,7 +168,7 @@ public sealed class SqliteQuestionAssessmentStore(StudyLensDbContext db) : IQues
 
     private static QuizAssessmentRecord ToRecord(QuizAssessmentEntity entity) => new(
         entity.IdempotencyKey,
-        new QuizPublicModel(entity.QuizId, entity.SessionId, entity.SegmentId, "available", entity.Questions.Select(question =>
+        new QuizPublicModel(entity.QuizId, entity.SessionId, entity.SegmentId, "available", entity.Questions.OrderBy(question => question.Position).Select(question =>
             new QuestionPublicModel(question.QuestionId, question.Type, question.Prompt,
                 ReadOptions(question),
                 new QuestionSourceRef(question.YoutubeVideoId, question.SourceStartMs, question.SourceEndMs))).ToArray(), entity.CreatedAtUtc),

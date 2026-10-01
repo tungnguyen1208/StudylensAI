@@ -11,47 +11,47 @@ public partial class AddFullVideoLearningPackages : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.AddColumn<string>("SessionId", "TranscriptCaptures", type: "TEXT", maxLength: 64, nullable: true);
-        migrationBuilder.AddColumn<string>("ContentHash", "TranscriptCaptures", type: "TEXT", maxLength: 64, nullable: true);
-        migrationBuilder.AddColumn<long>("DurationMs", "TranscriptCaptures", type: "INTEGER", nullable: true);
-        migrationBuilder.AddColumn<string>("Status", "QuizAssessments", type: "TEXT", maxLength: 16, nullable: false, defaultValue: "ready");
-        migrationBuilder.AddColumn<string>("QuestionType", "QuizAssessments", type: "TEXT", maxLength: 32, nullable: false, defaultValue: "multipleChoice");
-        migrationBuilder.AddColumn<string>("Difficulty", "QuizAssessments", type: "TEXT", maxLength: 16, nullable: false, defaultValue: "medium");
-        migrationBuilder.AddColumn<string>("TranscriptCaptureId", "QuizAssessments", type: "TEXT", maxLength: 64, nullable: true);
-        migrationBuilder.AddColumn<string>("Explanation", "QuestionAssessments", type: "TEXT", nullable: false, defaultValue: "");
+        migrationBuilder.AddColumn<string>("SessionId", "TranscriptCaptures", maxLength: 64, nullable: true);
+        migrationBuilder.AddColumn<string>("ContentHash", "TranscriptCaptures", maxLength: 64, nullable: true);
+        migrationBuilder.AddColumn<long>("DurationMs", "TranscriptCaptures", nullable: true);
+        migrationBuilder.AddColumn<string>("Status", "QuizAssessments", maxLength: 16, nullable: false, defaultValue: "ready");
+        migrationBuilder.AddColumn<string>("QuestionType", "QuizAssessments", maxLength: 32, nullable: false, defaultValue: "multipleChoice");
+        migrationBuilder.AddColumn<string>("Difficulty", "QuizAssessments", maxLength: 16, nullable: false, defaultValue: "medium");
+        migrationBuilder.AddColumn<string>("TranscriptCaptureId", "QuizAssessments", maxLength: 64, nullable: true);
+        migrationBuilder.AddColumn<string>("Explanation", "QuestionAssessments", nullable: false, defaultValue: "");
 
         migrationBuilder.CreateTable("Videos", table => new
         {
-            YoutubeVideoId = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-            Title = table.Column<string>(type: "TEXT", nullable: false),
-            CreatedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-            LastSeenAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+            YoutubeVideoId = table.Column<string>(maxLength: 32, nullable: false),
+            Title = table.Column<string>(nullable: false),
+            CreatedAtUtc = table.Column<DateTimeOffset>(nullable: false),
+            LastSeenAtUtc = table.Column<DateTimeOffset>(nullable: false),
         }, constraints: table => table.PrimaryKey("PK_Videos", item => item.YoutubeVideoId));
 
         migrationBuilder.CreateTable("StudySessions", table => new
         {
-            SessionId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            ActivationId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            StartIdempotencyKey = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
-            YoutubeVideoId = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-            VideoTitle = table.Column<string>(type: "TEXT", nullable: false),
-            QuestionType = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-            Difficulty = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
-            Status = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
-            TranscriptStatus = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
-            QuizStatus = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
-            TranscriptCaptureId = table.Column<string>(type: "TEXT", nullable: true),
-            QuizId = table.Column<string>(type: "TEXT", nullable: true),
-            TranscriptSubmissionKey = table.Column<string>(type: "TEXT", maxLength: 200, nullable: true),
-            TranscriptSubmissionFingerprint = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
-            ErrorOperation = table.Column<string>(type: "TEXT", maxLength: 32, nullable: true),
-            ErrorCode = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
-            ErrorMessage = table.Column<string>(type: "TEXT", nullable: true),
-            ErrorRetryable = table.Column<bool>(type: "INTEGER", nullable: false),
-            StartedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-            CompletedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
-            CompletionId = table.Column<string>(type: "TEXT", nullable: true),
-            CompletionReason = table.Column<string>(type: "TEXT", nullable: true),
+            SessionId = table.Column<string>(maxLength: 64, nullable: false),
+            ActivationId = table.Column<string>(maxLength: 64, nullable: false),
+            StartIdempotencyKey = table.Column<string>(maxLength: 200, nullable: false),
+            YoutubeVideoId = table.Column<string>(maxLength: 32, nullable: false),
+            VideoTitle = table.Column<string>(nullable: false),
+            QuestionType = table.Column<string>(maxLength: 32, nullable: false),
+            Difficulty = table.Column<string>(maxLength: 16, nullable: false),
+            Status = table.Column<string>(maxLength: 16, nullable: false),
+            TranscriptStatus = table.Column<string>(maxLength: 16, nullable: false),
+            QuizStatus = table.Column<string>(maxLength: 16, nullable: false),
+            TranscriptCaptureId = table.Column<string>(nullable: true),
+            QuizId = table.Column<string>(nullable: true),
+            TranscriptSubmissionKey = table.Column<string>(maxLength: 200, nullable: true),
+            TranscriptSubmissionFingerprint = table.Column<string>(maxLength: 64, nullable: true),
+            ErrorOperation = table.Column<string>(maxLength: 32, nullable: true),
+            ErrorCode = table.Column<string>(maxLength: 64, nullable: true),
+            ErrorMessage = table.Column<string>(nullable: true),
+            ErrorRetryable = table.Column<bool>(nullable: false),
+            StartedAtUtc = table.Column<DateTimeOffset>(nullable: false),
+            CompletedAtUtc = table.Column<DateTimeOffset>(nullable: true),
+            CompletionId = table.Column<string>(nullable: true),
+            CompletionReason = table.Column<string>(nullable: true),
         }, constraints: table =>
         {
             table.PrimaryKey("PK_StudySessions", item => item.SessionId);
@@ -60,18 +60,18 @@ public partial class AddFullVideoLearningPackages : Migration
 
         migrationBuilder.CreateTable("ProcessingJobs", table => new
         {
-            ProcessingJobId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            SessionId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            JobType = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-            Status = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
-            IdempotencyKey = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
-            AttemptCount = table.Column<int>(type: "INTEGER", nullable: false),
-            MaxAttempts = table.Column<int>(type: "INTEGER", nullable: false),
-            LastErrorCode = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
-            LastErrorMessage = table.Column<string>(type: "TEXT", nullable: true),
-            LastErrorRetryable = table.Column<bool>(type: "INTEGER", nullable: false),
-            CreatedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-            UpdatedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+            ProcessingJobId = table.Column<string>(maxLength: 64, nullable: false),
+            SessionId = table.Column<string>(maxLength: 64, nullable: false),
+            JobType = table.Column<string>(maxLength: 32, nullable: false),
+            Status = table.Column<string>(maxLength: 16, nullable: false),
+            IdempotencyKey = table.Column<string>(maxLength: 200, nullable: false),
+            AttemptCount = table.Column<int>(nullable: false),
+            MaxAttempts = table.Column<int>(nullable: false),
+            LastErrorCode = table.Column<string>(maxLength: 64, nullable: true),
+            LastErrorMessage = table.Column<string>(nullable: true),
+            LastErrorRetryable = table.Column<bool>(nullable: false),
+            CreatedAtUtc = table.Column<DateTimeOffset>(nullable: false),
+            UpdatedAtUtc = table.Column<DateTimeOffset>(nullable: false),
         }, constraints: table =>
         {
             table.PrimaryKey("PK_ProcessingJobs", item => item.ProcessingJobId);
@@ -80,11 +80,11 @@ public partial class AddFullVideoLearningPackages : Migration
 
         migrationBuilder.CreateTable("QuestionOptions", table => new
         {
-            QuestionOptionId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            QuestionId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            OptionId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            Text = table.Column<string>(type: "TEXT", nullable: false),
-            Position = table.Column<int>(type: "INTEGER", nullable: false),
+            QuestionOptionId = table.Column<string>(maxLength: 64, nullable: false),
+            QuestionId = table.Column<string>(maxLength: 64, nullable: false),
+            OptionId = table.Column<string>(maxLength: 64, nullable: false),
+            Text = table.Column<string>(nullable: false),
+            Position = table.Column<int>(nullable: false),
         }, constraints: table =>
         {
             table.PrimaryKey("PK_QuestionOptions", item => item.QuestionOptionId);
@@ -93,29 +93,29 @@ public partial class AddFullVideoLearningPackages : Migration
 
         migrationBuilder.CreateTable("QuizAttempts", table => new
         {
-            QuizAttemptId = table.Column<string>(type: "TEXT", nullable: false),
-            ClientAttemptId = table.Column<string>(type: "TEXT", maxLength: 128, nullable: false),
-            QuizId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            SessionId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            Score = table.Column<double>(type: "REAL", nullable: false),
-            SubmittedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+            QuizAttemptId = table.Column<string>(nullable: false),
+            ClientAttemptId = table.Column<string>(maxLength: 128, nullable: false),
+            QuizId = table.Column<string>(maxLength: 64, nullable: false),
+            SessionId = table.Column<string>(maxLength: 64, nullable: false),
+            Score = table.Column<double>(nullable: false),
+            SubmittedAtUtc = table.Column<DateTimeOffset>(nullable: false),
         }, constraints: table => table.PrimaryKey("PK_QuizAttempts", item => item.QuizAttemptId));
 
         migrationBuilder.CreateTable("AttemptAnswers", table => new
         {
-            AttemptAnswerId = table.Column<string>(type: "TEXT", nullable: false),
-            QuizAttemptId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            QuestionId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-            YoutubeVideoId = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-            QuestionPrompt = table.Column<string>(type: "TEXT", nullable: false),
-            QuestionType = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-            SubmittedAnswer = table.Column<string>(type: "TEXT", nullable: false),
-            Outcome = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-            Score = table.Column<double>(type: "REAL", nullable: false),
-            ReferenceAnswer = table.Column<string>(type: "TEXT", nullable: false),
-            Explanation = table.Column<string>(type: "TEXT", nullable: false),
-            SourceStartMs = table.Column<long>(type: "INTEGER", nullable: false),
-            SourceEndMs = table.Column<long>(type: "INTEGER", nullable: false),
+            AttemptAnswerId = table.Column<string>(nullable: false),
+            QuizAttemptId = table.Column<string>(maxLength: 64, nullable: false),
+            QuestionId = table.Column<string>(maxLength: 64, nullable: false),
+            YoutubeVideoId = table.Column<string>(maxLength: 32, nullable: false),
+            QuestionPrompt = table.Column<string>(nullable: false),
+            QuestionType = table.Column<string>(maxLength: 32, nullable: false),
+            SubmittedAnswer = table.Column<string>(nullable: false),
+            Outcome = table.Column<string>(maxLength: 32, nullable: false),
+            Score = table.Column<double>(nullable: false),
+            ReferenceAnswer = table.Column<string>(nullable: false),
+            Explanation = table.Column<string>(nullable: false),
+            SourceStartMs = table.Column<long>(nullable: false),
+            SourceEndMs = table.Column<long>(nullable: false),
         }, constraints: table =>
         {
             table.PrimaryKey("PK_AttemptAnswers", item => item.AttemptAnswerId);

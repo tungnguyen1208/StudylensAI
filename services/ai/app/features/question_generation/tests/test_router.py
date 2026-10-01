@@ -46,6 +46,11 @@ class BlockedProvider:
         raise ProviderCallError("providerBlockedContent", "The provider blocked the generated question.", retryable=False)
 
 
+class RateLimitedProvider:
+    async def generate(self, prompt: str) -> str:
+        raise ProviderCallError("providerRateLimited", "The AI provider rate limit or quota was reached. Retry later.")
+
+
 def override_provider(payload: str = "", delay: float = 0.0, timeout: float = 3.0) -> None:
     app.dependency_overrides[get_service] = lambda: QuestionGenerationService(
         provider=StubProvider(payload=payload, delay=delay), timeout_seconds=timeout
@@ -168,4 +173,19 @@ def test_blocked_provider_content_returns_a_non_retryable_503() -> None:
         "code": "providerBlockedContent",
         "message": "The provider blocked the generated question.",
         "retryable": False,
+    }
+
+
+def test_provider_quota_returns_a_retryable_503() -> None:
+    app.dependency_overrides[get_service] = lambda: QuestionGenerationService(
+        provider=RateLimitedProvider(), timeout_seconds=1.0
+    )
+
+    response = post()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "code": "providerRateLimited",
+        "message": "The AI provider rate limit or quota was reached. Retry later.",
+        "retryable": True,
     }

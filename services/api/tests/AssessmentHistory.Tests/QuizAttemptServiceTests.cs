@@ -37,6 +37,15 @@ public sealed class QuizAttemptServiceTests
         Assert.Equal(2, first.Attempt.Results.Count);
         Assert.Equal(2, history.Count);
         Assert.Equal(2, await db.Set<AttemptAnswerEntity>().CountAsync());
+        Assert.All(history, item =>
+        {
+            Assert.Equal("dQw4w9WgXcQ", item.YoutubeVideoId);
+            Assert.Equal("https://www.youtube.com/watch?v=dQw4w9WgXcQ", item.VideoUrl);
+            Assert.Equal("Networking lesson", item.VideoTitle);
+            Assert.Equal(first.Attempt.QuizAttemptId, item.QuizAttemptId);
+            Assert.Equal(first.Attempt.Score, item.AttemptScore);
+        });
+        Assert.Equal("completed", (await db.Set<StudySessionEntity>().SingleAsync()).Status);
     }
 
     [Fact]
@@ -60,7 +69,45 @@ public sealed class QuizAttemptServiceTests
         Assert.Empty(await db.Set<QuizAttemptEntity>().ToArrayAsync());
     }
 
-    private static void SeedQuiz(StudyLensDbContext db) => db.Add(new QuizAssessmentEntity
+    [Fact]
+    public async Task SubmitAttempt_RejectsFailedSessionWithoutSavingAnswers()
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>().UseSqlite("Data Source=:memory:").Options;
+        await using var db = new StudyLensDbContext(options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        SeedQuiz(db);
+        await db.SaveChangesAsync();
+        (await db.Set<StudySessionEntity>().SingleAsync()).Status = "failed";
+        await db.SaveChangesAsync();
+        var service = new AssessmentHistoryService(new AssessmentHistoryDbContext(db),
+            new SqliteQuestionAssessmentStore(db), new FakeShortAnswerGateway(), db);
+
+        var result = await service.SubmitAttemptAsync(new SubmitQuizAttemptCommand(
+            "0.5.0", Guid.NewGuid().ToString(), QuizId,
+            [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
+             new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets.")]), CancellationToken.None);
+
+        Assert.Equal("sessionNotReady", result.ErrorCode);
+        Assert.Empty(await db.Set<QuizAttemptEntity>().ToArrayAsync());
+        Assert.Empty(await db.Set<AttemptAnswerEntity>().ToArrayAsync());
+    }
+
+    private static void SeedQuiz(StudyLensDbContext db)
+    {
+        db.Add(new StudyVideoEntity
+        {
+            YoutubeVideoId = "dQw4w9WgXcQ", Title = "Networking lesson", CreatedAtUtc = DateTimeOffset.UtcNow,
+            LastSeenAtUtc = DateTimeOffset.UtcNow,
+        });
+        db.Add(new StudySessionEntity
+        {
+            SessionId = "33333333-3333-4333-8333-333333333333", ActivationId = Guid.NewGuid().ToString(),
+            StartIdempotencyKey = "session:quiz-test", YoutubeVideoId = "dQw4w9WgXcQ", VideoTitle = "Networking lesson",
+            Status = "active", TranscriptStatus = "ready", QuizStatus = "ready", QuizId = QuizId,
+            StartedAtUtc = DateTimeOffset.UtcNow,
+        });
+        db.Add(new QuizAssessmentEntity
     {
         QuizId = QuizId,
         IdempotencyKey = "quiz:session:hash",
@@ -92,6 +139,7 @@ public sealed class QuizAttemptServiceTests
             },
         ],
     });
+    }
 
     private const string QuizId = "11111111-1111-4111-8111-111111111111";
     private const string MultipleChoiceId = "22222222-2222-4222-8222-222222222222";

@@ -7,6 +7,7 @@ public sealed class StudyVideoEntity
 {
     public string YoutubeVideoId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
+    public long? DurationMs { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset LastSeenAtUtc { get; set; }
 }
@@ -76,7 +77,7 @@ internal sealed class StudySessionEntityConfiguration : IEntityTypeConfiguration
         builder.Property(item => item.YoutubeVideoId).HasMaxLength(32).IsRequired();
         builder.Property(item => item.QuestionType).HasMaxLength(32).IsRequired();
         builder.Property(item => item.Difficulty).HasMaxLength(16).IsRequired();
-        builder.Property(item => item.Status).HasMaxLength(16).IsRequired();
+        builder.Property(item => item.Status).HasMaxLength(16).IsRequired().IsConcurrencyToken();
         builder.Property(item => item.TranscriptStatus).HasMaxLength(16).IsRequired();
         builder.Property(item => item.QuizStatus).HasMaxLength(16).IsRequired();
         builder.Property(item => item.TranscriptSubmissionKey).HasMaxLength(200);
@@ -99,7 +100,7 @@ internal sealed class ProcessingJobEntityConfiguration : IEntityTypeConfiguratio
         builder.Property(item => item.ProcessingJobId).HasMaxLength(64);
         builder.Property(item => item.SessionId).HasMaxLength(64).IsRequired();
         builder.Property(item => item.JobType).HasMaxLength(32).IsRequired();
-        builder.Property(item => item.Status).HasMaxLength(16).IsRequired();
+        builder.Property(item => item.Status).HasMaxLength(16).IsRequired().IsConcurrencyToken();
         builder.Property(item => item.IdempotencyKey).HasMaxLength(200).IsRequired();
         builder.Property(item => item.LastErrorCode).HasMaxLength(64);
         builder.HasIndex(item => item.IdempotencyKey).IsUnique();

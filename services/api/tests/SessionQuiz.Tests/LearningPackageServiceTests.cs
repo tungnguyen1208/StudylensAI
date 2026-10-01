@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using StudyLens.Api.Features.SessionQuiz.Application;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
+using StudyLens.Api.Features.VideoActivation.Infrastructure;
 using StudyLens.Api.Infrastructure.Persistence;
 using Xunit;
 
@@ -63,6 +65,35 @@ public sealed class LearningPackageServiceTests
     }
 
     [Fact]
+    public async Task SubmitFullTranscript_MatchesCrossLanguageCanonicalFixture()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var service = new LearningPackageService(fixture.Db);
+        var started = (await service.StartAsync(StartCommand(), CancellationToken.None)).Package!;
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "transcript-hash-canonical.json")));
+        var root = document.RootElement;
+        var hash = root.GetProperty("contentHash").GetString()!;
+        var cues = root.GetProperty("rawCues").EnumerateArray()
+            .Select(item => new TranscriptCueView(item.GetProperty("startMs").GetInt64(),
+                item.GetProperty("endMs").GetInt64(), item.GetProperty("text").GetString()!)).ToArray();
+
+        var command = new SubmitFullTranscriptCommand("0.5.0", $"transcript:{started.Session.SessionId}:{hash}",
+            "dQw4w9WgXcQ", "en", "youtubeCaption", "available", hash, 30_000, cues);
+        var invalid = await service.SubmitTranscriptAsync(started.Session.SessionId,
+            command with { ContentHash = new string('0', 64) }, CancellationToken.None);
+        Assert.Equal("transcriptHashMismatch", invalid.ErrorCode);
+        Assert.Empty(await fixture.Db.Set<ProcessingJobEntity>().ToArrayAsync());
+
+        var result = await service.SubmitTranscriptAsync(started.Session.SessionId, command, CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status200OK, result.StatusCode);
+        Assert.Equal(hash, result.Package!.Transcript.ContentHash);
+        Assert.Equal(3, result.Package.Transcript.CueCount);
+        Assert.Single(await fixture.Db.Set<ProcessingJobEntity>().Where(item => item.JobType == "quizGenerate").ToArrayAsync());
+    }
+
+    [Fact]
     public async Task MissingYoutubeCaption_QueuesDurableTranscriptFallback()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
@@ -79,6 +110,27 @@ public sealed class LearningPackageServiceTests
         Assert.Equal("transcriptGenerate", job.JobType);
         Assert.Equal("queued", job.Status);
         Assert.Equal(3, job.MaxAttempts);
+    }
+
+    [Fact]
+    public async Task VideoEndedBeforeQuizReady_ClosesSessionWithoutCompletionOrHistory()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var service = new LearningPackageService(fixture.Db);
+        var started = (await service.StartAsync(StartCommand(), CancellationToken.None)).Package!;
+        await service.SubmitTranscriptAsync(started.Session.SessionId,
+            new SubmitFullTranscriptCommand("0.5.0", "transcript:close-before-quiz", "dQw4w9WgXcQ",
+                "en", "youtubeCaption", "available", null, 30_000,
+                [new TranscriptCueView(0, 1_000, "A complete caption cue")]), CancellationToken.None);
+
+        var completed = await service.CompleteAsync(started.Session.SessionId,
+            new CompleteLearningSessionCommand("0.5.0", Guid.NewGuid().ToString(), "videoEnded"), CancellationToken.None);
+
+        Assert.Equal("closed", completed.Package!.Session.Status);
+        Assert.Empty(await fixture.Db.Set<QuizAssessmentEntity>().ToArrayAsync());
+        Assert.Empty(await fixture.Db.Set<TranscriptCaptureEntity>().ToArrayAsync());
+        Assert.Null(completed.Package.Transcript.TranscriptCaptureId);
+        Assert.All(await fixture.Db.Set<ProcessingJobEntity>().ToArrayAsync(), job => Assert.Equal("cancelled", job.Status));
     }
 
     private static StartLearningSessionCommand StartCommand() => new(

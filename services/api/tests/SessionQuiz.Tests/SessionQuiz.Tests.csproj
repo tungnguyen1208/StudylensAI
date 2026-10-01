@@ -21,4 +21,9 @@
     <ProjectReference Include="..\..\src\StudyLens.Api\StudyLens.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\..\..\contracts\examples\session-quiz\transcript-hash-canonical.json"
+             Link="transcript-hash-canonical.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

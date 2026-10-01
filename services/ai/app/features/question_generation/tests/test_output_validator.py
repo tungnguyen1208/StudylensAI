@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.features.question_generation.output_validator import InvalidAiOutputError, validate_output
+from app.features.question_generation.output_validator import InvalidAiOutputError, validate_chunk_output, validate_output
 from app.features.question_generation.schemas import QuestionGenerationRequest
 
 # ============================================================
@@ -93,6 +93,12 @@ def test_rejects_malformed_json() -> None:
 def test_rejects_an_empty_or_missing_question_list() -> None:
     assert code_of(json.dumps({"questions": []}), request_for()) == "invalidAiOutput"
     assert code_of(json.dumps({"other": 1}), request_for()) == "invalidAiOutput"
+
+
+def test_allows_empty_internal_chunk_but_not_missing_question_list() -> None:
+    assert validate_chunk_output('{"questions": []}', request_for()) == []
+    with pytest.raises(InvalidAiOutputError):
+        validate_chunk_output('{"other": 1}', request_for())
 
 
 def test_rejects_a_question_missing_required_fields() -> None:

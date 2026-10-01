@@ -31,12 +31,14 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure EF Core SQLite
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-                       ?? "Data Source=studylens.db";
+// PostgreSQL is the runtime persistence provider. Unit tests can still use
+// SQLite explicitly through DbContextOptions without changing production data.
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured for PostgreSQL.");
 builder.Services.AddDbContext<StudyLensDbContext>(options =>
 {
-    options.UseSqlite(connectionString);
+    options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure());
 });
 
 // Register AI Health Client

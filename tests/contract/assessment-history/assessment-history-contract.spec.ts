@@ -37,6 +37,13 @@ describe('assessment history contract 0.5.0', () => {
     const validateHistory = validator('HistoryResponse');
     const history = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/fixture-history.response.json`, 'utf8'));
     expect(validateHistory(history), JSON.stringify(validateHistory.errors)).toBe(true);
+    const enriched = {
+      items: [{ ...history.items[0], videoTitle: 'Networking lesson',
+        videoUrl: `https://www.youtube.com/watch?v=${history.items[0].youtubeVideoId}`,
+        quizAttemptId: '77777777-7777-4777-8777-777777777777', attemptScore: 0.75 }],
+    };
+    expect(validateHistory(enriched), JSON.stringify(validateHistory.errors)).toBe(true);
+    expect(validateHistory({ items: [{ ...enriched.items[0], correctOptionId: 'private' }] })).toBe(false);
 
     const validateError = validator('ErrorEnvelope');
     expect(validateError({

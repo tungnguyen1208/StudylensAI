@@ -12,8 +12,8 @@ import {
 export interface TranscriptAdapterEnvironment {
   createSource(): TranscriptSourcePort;
   subscribeDomChanges(listener: () => void): () => void;
-  schedule(callback: () => void): void;
-  readDirectTranscript?(): Promise<TranscriptReadResult | null>;
+  schedule(callback: () => void, delayMs?: number): void;
+  readDirectTranscript?(signal: AbortSignal): Promise<TranscriptReadResult | null>;
   triggerDomTranscriptExpansion?(): void;
   /**
    * A YouTube SPA transition can leave video A's transcript panel rendered
@@ -23,6 +23,11 @@ export interface TranscriptAdapterEnvironment {
   ignoreInitialDomTranscript?: boolean;
 }
 
+export type TranscriptOrigin = 'timedtext' | 'dom';
+
+const MAX_DIRECT_ATTEMPTS = 4;
+const DIRECT_RETRY_DELAYS_MS = [300, 600, 1_200];
+
 /**
  * First reads YouTube's caption track in the learner's browser context. Only
  * when that cannot yield an available transcript does it open the rendered
@@ -30,23 +35,26 @@ export interface TranscriptAdapterEnvironment {
  */
 export class YoutubeTranscriptDomAdapter {
   private cleanup: (() => void) | null = null;
-  private listener: ((result: TranscriptReadResult) => void) | null = null;
+  private listener: ((result: TranscriptReadResult, origin: TranscriptOrigin) => void) | null = null;
   private scheduled = false;
   private refreshing = false;
-  private directAttempted = false;
+  private directAttempts = 0;
+  private directRetryPending = false;
   private directAvailable = false;
   private domFallbackRequested = false;
   private disposed = false;
   private lastFingerprint: string | null = null;
+  private acquisitionVersion = 0;
+  private directAbort = new AbortController();
   private readonly initialDomFingerprint: string | null;
 
   public constructor(private readonly environment: TranscriptAdapterEnvironment) {
     this.initialDomFingerprint = environment.ignoreInitialDomTranscript
-      ? transcriptFingerprint(readTranscript(environment.createSource()))
+      ? transcriptFingerprint(readTranscript(environment.createSource(), 0))
       : null;
   }
 
-  public start(listener: (result: TranscriptReadResult) => void): void {
+  public start(listener: (result: TranscriptReadResult, origin: TranscriptOrigin) => void): void {
     if (this.listener) return;
     this.listener = listener;
     this.cleanup = this.environment.subscribeDomChanges(() => this.scheduleRefresh());
@@ -55,14 +63,21 @@ export class YoutubeTranscriptDomAdapter {
 
   public retry(): void {
     if (this.disposed) return;
-    this.directAttempted = false;
+    this.acquisitionVersion += 1;
+    this.directAbort.abort();
+    this.directAbort = new AbortController();
+    this.directAttempts = 0;
+    this.directRetryPending = false;
     this.directAvailable = false;
     this.domFallbackRequested = false;
+    this.lastFingerprint = null;
     this.scheduleRefresh();
   }
 
   public dispose(): void {
     this.disposed = true;
+    this.acquisitionVersion += 1;
+    this.directAbort.abort();
     this.cleanup?.();
     this.cleanup = null;
     this.listener = null;
@@ -70,7 +85,7 @@ export class YoutubeTranscriptDomAdapter {
   }
 
   private scheduleRefresh(): void {
-    if (this.disposed || this.scheduled) return;
+    if (this.disposed || this.scheduled || this.directRetryPending) return;
     this.scheduled = true;
     this.environment.schedule(() => {
       this.scheduled = false;
@@ -79,20 +94,36 @@ export class YoutubeTranscriptDomAdapter {
   }
 
   private async refresh(): Promise<void> {
-    if (this.disposed || !this.listener || this.refreshing) return;
+    if (this.disposed || !this.listener || this.refreshing || this.directRetryPending) return;
     // Timedtext is definitive for this acquisition. MutationObserver events
     // from YouTube's virtualized transcript drawer must never submit a second
     // cue set after Backend has accepted the direct source.
     if (this.directAvailable) return;
     this.refreshing = true;
+    const version = this.acquisitionVersion;
     try {
-      if (!this.directAttempted && this.environment.readDirectTranscript) {
-        this.directAttempted = true;
-        const direct = await this.environment.readDirectTranscript();
-        if (this.disposed || !this.listener) return;
+      if (this.directAttempts < MAX_DIRECT_ATTEMPTS && this.environment.readDirectTranscript) {
+        this.directAttempts += 1;
+        let direct: TranscriptReadResult | null = null;
+        try {
+          direct = await this.environment.readDirectTranscript(this.directAbort.signal);
+        } catch {
+          // Retry metadata or Timedtext once YouTube has finished loading.
+        }
+        if (this.disposed || !this.listener || version !== this.acquisitionVersion) return;
         if (direct?.status === 'available') {
           this.directAvailable = true;
-          this.emit(direct);
+          this.emit(direct, 'timedtext');
+          return;
+        }
+        if (this.directAttempts < MAX_DIRECT_ATTEMPTS) {
+          const delay = DIRECT_RETRY_DELAYS_MS[this.directAttempts - 1];
+          this.directRetryPending = true;
+          this.environment.schedule(() => {
+            if (this.disposed || version !== this.acquisitionVersion) return;
+            this.directRetryPending = false;
+            this.scheduleRefresh();
+          }, delay);
           return;
         }
       }
@@ -100,17 +131,20 @@ export class YoutubeTranscriptDomAdapter {
         this.domFallbackRequested = true;
         this.environment.triggerDomTranscriptExpansion?.();
       }
-      this.emitDomTranscript(readTranscript(this.environment.createSource()));
+      // Any non-empty DOM row is a preview. Completeness is determined later
+      // from stable, full-duration coverage rather than character count.
+      this.emitDomTranscript(readTranscript(this.environment.createSource(), 0));
     } finally {
       this.refreshing = false;
+      if (!this.disposed && version !== this.acquisitionVersion) this.scheduleRefresh();
     }
   }
 
-  private emit(result: TranscriptReadResult): void {
-    const fingerprint = transcriptFingerprint(result);
+  private emit(result: TranscriptReadResult, origin: TranscriptOrigin): void {
+    const fingerprint = `${origin}|${transcriptFingerprint(result)}`;
     if (fingerprint === this.lastFingerprint) return;
     this.lastFingerprint = fingerprint;
-    this.listener?.(result);
+    this.listener?.(result, origin);
   }
 
   private emitDomTranscript(result: TranscriptReadResult): void {
@@ -124,7 +158,7 @@ export class YoutubeTranscriptDomAdapter {
     ) {
       return;
     }
-    this.emit(result);
+    this.emit(result, 'dom');
   }
 }
 
@@ -142,14 +176,18 @@ export function createBrowserYoutubeTranscriptAdapter(
   if (options.resetDomTranscriptPanel) resetDomTranscriptPanel(root);
   return new YoutubeTranscriptDomAdapter({
     createSource: () => createDomTranscriptSource(root),
-    readDirectTranscript: async () => {
+    readDirectTranscript: async (signal) => {
       const videoId = options.youtubeVideoId ?? new URL(window.location.href).searchParams.get('v') ?? undefined;
       const domTracks = extractCaptionTracksFromDom(root, videoId);
       const pageTracks = options.readPageCaptionTracks ? await options.readPageCaptionTracks() : [];
+      if (signal.aborted) return null;
       const track = selectBestCaptionTrack([...domTracks, ...pageTracks]);
       if (!track) return null;
-      const cues = await fetchTimedtextCues(track.baseUrl);
-      return readTranscript({ getLanguage: () => track.languageCode, readRawCues: () => cues });
+      const cues = await fetchTimedtextCues(track.baseUrl, fetch, signal);
+      if (signal.aborted) return null;
+      // A Timedtext response is the whole caption track, including videos
+      // whose entire transcript is shorter than the DOM preview threshold.
+      return readTranscript({ getLanguage: () => track.languageCode, readRawCues: () => cues }, 0);
     },
     triggerDomTranscriptExpansion: () => triggerDomTranscriptExpansion(root),
     ignoreInitialDomTranscript: options.ignoreInitialDomTranscript,
@@ -158,7 +196,7 @@ export function createBrowserYoutubeTranscriptAdapter(
       observer.observe(document.documentElement, { childList: true, subtree: true });
       return () => observer.disconnect();
     },
-    schedule: (callback) => window.setTimeout(callback, 200),
+    schedule: (callback, delayMs = 200) => window.setTimeout(callback, delayMs),
   });
 }
 

@@ -1,8 +1,8 @@
 import { captureLearningTarget, type LearningTargetCapture } from '../../platform/youtube/learning-target-capture';
 import { createVideoActivationMessage } from '../../platform/youtube/youtube-events';
 import { PlayerPort, YoutubePlayerAdapter } from '../../platform/youtube/youtube-player-adapter';
-import { createBrowserYoutubeTranscriptAdapter, type YoutubeTranscriptDomAdapter } from '../../platform/youtube/youtube-transcript-adapter';
-import { type TranscriptReadResult } from '../../platform/youtube/transcript-reader';
+import { createBrowserYoutubeTranscriptAdapter, type TranscriptOrigin, type YoutubeTranscriptDomAdapter } from '../../platform/youtube/youtube-transcript-adapter';
+import { isDomTranscriptComplete, type TranscriptReadResult } from '../../platform/youtube/transcript-reader';
 import { messageBus } from '../../shared/messaging/message-bus';
 import { type ExtensionMessage } from '../../shared/messaging/message-types';
 import { operationFailure, type OperationStatusPayload } from '../../shared/messaging/operation-status';
@@ -15,6 +15,7 @@ import { createBrowserYoutubeSpaTransitionObserver, type YoutubeSpaTransitionObs
 const SESSION_WAIT_ATTEMPTS = 100;
 const SESSION_WAIT_INTERVAL_MS = 100;
 const DOM_FALLBACK_SETTLE_MS = 8_000;
+const DOM_QUIET_PERIOD_MS = 1_500;
 
 export interface VideoActivationContentScriptOptions {
   tabId: number;
@@ -41,6 +42,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   let source: ActivationSource = 'user';
   let disposed = false;
   let fallbackTimer: number | null = null;
+  let domDeadlineAt: number | null = null;
   let submittedGeneration: number | null = null;
   let latestTranscript: TranscriptReadResult | null = null;
 
@@ -53,6 +55,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   const disposePage = () => {
     generation += 1;
     clearFallbackTimer();
+    domDeadlineAt = null;
     submittedGeneration = null;
     player?.dispose();
     player = null;
@@ -83,7 +86,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     try {
       const sessionId = await waitForSessionId(target.youtubeVideoId, value);
       if (!sessionId) throw new Error('activeSessionUnavailable');
-      const learningPackage = await transcriptService.upload(sessionId, target.youtubeVideoId, read);
+      const learningPackage = await transcriptService.upload(sessionId, target.youtubeVideoId, read, player?.getDurationMs());
       if (!current(target.youtubeVideoId, value)) return;
       await publishStatus(target.youtubeVideoId, correlationId, {
         operation: 'transcriptUpload',
@@ -104,20 +107,36 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     }
   };
 
-  const ingest = (target: LearningTargetCapture, correlationId: string, value: number, read: TranscriptReadResult) => {
+  const settleDom = (target: LearningTargetCapture, correlationId: string, value: number) => {
     if (!current(target.youtubeVideoId, value) || submittedGeneration === value) return;
-    latestTranscript = read;
-    clearFallbackTimer();
-    if (read.status === 'available') {
+    const read = latestTranscript;
+    if (read?.status === 'available' && isDomTranscriptComplete(read.cues, player?.getDurationMs() ?? null)) {
       void upload(target, correlationId, value, read);
       return;
     }
-    // YouTube first renders an empty transcript drawer, then materializes its
-    // rows. Give that DOM fallback time to settle before requesting Gemini.
-    fallbackTimer = window.setTimeout(() => {
-      fallbackTimer = null;
+    const remaining = (domDeadlineAt ?? Date.now()) - Date.now();
+    if (remaining <= 0) {
+      void upload(target, correlationId, value, {
+        status: 'insufficient', language: read?.language ?? 'und', cues: [],
+      });
+      return;
+    }
+    fallbackTimer = window.setTimeout(() => settleDom(target, correlationId, value), Math.min(DOM_QUIET_PERIOD_MS, remaining));
+  };
+
+  const ingest = (target: LearningTargetCapture, correlationId: string, value: number, read: TranscriptReadResult, origin: TranscriptOrigin) => {
+    if (!current(target.youtubeVideoId, value) || submittedGeneration === value) return;
+    latestTranscript = read;
+    clearFallbackTimer();
+    if (origin === 'timedtext' && read.status === 'available') {
       void upload(target, correlationId, value, read);
-    }, DOM_FALLBACK_SETTLE_MS);
+      return;
+    }
+    // A transcript drawer can contain just the visible rows. Preview it now,
+    // but submit it only after its time span has been checked against the video.
+    domDeadlineAt ??= Date.now() + DOM_FALLBACK_SETTLE_MS;
+    const remaining = domDeadlineAt - Date.now();
+    fallbackTimer = window.setTimeout(() => settleDom(target, correlationId, value), Math.min(DOM_QUIET_PERIOD_MS, remaining));
   };
 
   const begin = async (
@@ -133,6 +152,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     submittedGeneration = null;
     latestTranscript = null;
     clearFallbackTimer();
+    domDeadlineAt = null;
     await manager.setContext({ tabId: options.tabId, youtubeVideoId: target.youtubeVideoId, title: target.title }, correlationId);
     if (!current(target.youtubeVideoId, value)) return;
     manager.setPreferences(await preferences());
@@ -155,7 +175,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
       ignoreInitialDomTranscript: isReplacement,
       resetDomTranscriptPanel: isReplacement,
     });
-    transcript.start((result) => ingest(target, correlationId, value, result));
+    transcript.start((result, origin) => ingest(target, correlationId, value, result, origin));
   };
 
   const transition = async (previous: LearningTargetCapture | null, next: LearningTargetCapture) => {
@@ -248,6 +268,8 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     }
     if (retryRequest.type === 'OPERATION_RETRY_REQUEST' && retryRequest.payload?.operation === 'transcriptUpload') {
       submittedGeneration = null;
+      clearFallbackTimer();
+      domDeadlineAt = null;
       transcript?.retry();
       respond({ ok: true });
       return;

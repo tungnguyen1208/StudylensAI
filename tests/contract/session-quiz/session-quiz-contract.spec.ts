@@ -105,9 +105,14 @@ describe('Backend-to-AI full-video contract 0.5.0', () => {
   it('validates full-transcript question generation and private answer data', () => {
     const request = aiValidator('QuestionGenerationRequest').validate;
     const response = aiValidator('QuestionGenerationResponse').validate;
-    expect(request(fixture('question-generation.request.json')), JSON.stringify(request.errors)).toBe(true);
+    const exampleRequest = fixture('question-generation.request.json');
+    expect(request(exampleRequest), JSON.stringify(request.errors)).toBe(true);
+    expect(exampleRequest.endMs).toBe(900_000);
+    expect(exampleRequest.questionCount).toBe(5);
     for (const name of ['question-generation-mcq.response.json', 'question-generation-short-answer.response.json']) {
-      expect(response(fixture(name)), `${name}: ${JSON.stringify(response.errors)}`).toBe(true);
+      const exampleResponse = fixture(name);
+      expect(response(exampleResponse), `${name}: ${JSON.stringify(response.errors)}`).toBe(true);
+      expect(exampleResponse.questions.length).toBeLessThan(exampleRequest.questionCount);
     }
   });
 
@@ -129,5 +134,14 @@ describe('Backend-to-AI full-video contract 0.5.0', () => {
     expect(blocked.code).toBe('providerBlockedContent');
     expect(blocked.retryable).toBe(false);
     expect(blocked.message).not.toMatch(/key|token|prompt/i);
+  });
+
+  it('reports provider quota failures as retryable without exposing secrets', () => {
+    const validate = aiValidator('AiErrorEnvelope').validate;
+    const limited = fixture('ai-provider-rate-limited.error.json');
+    expect(validate(limited), JSON.stringify(validate.errors)).toBe(true);
+    expect(limited.code).toBe('providerRateLimited');
+    expect(limited.retryable).toBe(true);
+    expect(limited.message).not.toMatch(/key|token|prompt/i);
   });
 });

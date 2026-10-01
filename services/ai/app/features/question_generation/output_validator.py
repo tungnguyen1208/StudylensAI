@@ -21,14 +21,22 @@ class InvalidAiOutputError(Exception):
 # ============================================================
 
 def validate_output(raw: str, request: QuestionGenerationRequest) -> QuestionGenerationResponse:
+    validated = validate_chunk_output(raw, request)
+    if not validated:
+        raise InvalidAiOutputError("invalidAiOutput", "The provider returned no question.")
+    return QuestionGenerationResponse(questions=validated)
+
+
+def validate_chunk_output(raw: str, request: QuestionGenerationRequest) -> list[GeneratedQuestion]:
+    """Validate one chunk; only the final public quiz must be nonempty."""
     payload = _parse(raw)
     questions = payload.get("questions")
-    if not isinstance(questions, list) or len(questions) == 0:
-        raise InvalidAiOutputError("invalidAiOutput", "The provider returned no question.")
+    if not isinstance(questions, list):
+        raise InvalidAiOutputError("invalidAiOutput", "The provider returned no question list.")
 
     validated = [_validate_question(item, request) for item in questions]
     _reject_duplicate_prompts(validated)
-    return QuestionGenerationResponse(questions=validated)
+    return validated
 
 
 # ============================================================

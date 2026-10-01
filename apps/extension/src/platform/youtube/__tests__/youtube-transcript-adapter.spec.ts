@@ -28,6 +28,7 @@ class FakeTranscriptEnvironment implements TranscriptAdapterEnvironment {
 
   public schedule(callback: () => void) { this.queued.push(callback); }
   public triggerDomChange() { this.listener?.(); }
+  public flushNext() { this.queued.shift()?.(); }
   public flush() { while (this.queued.length > 0) this.queued.shift()?.(); }
 }
 
@@ -51,6 +52,15 @@ describe('YoutubeTranscriptDomAdapter', () => {
     expect(updates).toEqual(['unavailable', 'available']);
   });
 
+  it('previews short DOM captions without treating character count as completeness', () => {
+    const environment = new FakeTranscriptEnvironment();
+    environment.cues = [{ startMs: 0, endMs: 2_000, text: 'Short caption.' }];
+    const updates: string[] = [];
+    new YoutubeTranscriptDomAdapter(environment).start((result, origin) => updates.push(`${origin}:${result.status}`));
+    environment.flush();
+    expect(updates).toEqual(['dom:available']);
+  });
+
   it('uses direct timedtext before requesting a DOM transcript panel', async () => {
     const environment = new FakeTranscriptEnvironment();
     let openedDom = false;
@@ -62,6 +72,63 @@ describe('YoutubeTranscriptDomAdapter', () => {
     await Promise.resolve();
     expect(updates).toEqual(['available']);
     expect(openedDom).toBe(false);
+  });
+
+  it('waits for caption metadata to appear and then reads the full direct track', async () => {
+    const environment = new FakeTranscriptEnvironment();
+    let attempts = 0;
+    let openedDom = false;
+    environment.readDirectTranscript = async () => {
+      attempts += 1;
+      return attempts < 3 ? null : {
+        status: 'available', language: 'en',
+        cues: availableCues.map((cue) => ({ startMs: cue.startMs, endMs: cue.endMs!, text: cue.text })),
+      };
+    };
+    environment.triggerDomTranscriptExpansion = () => { openedDom = true; };
+    const updates: string[] = [];
+    new YoutubeTranscriptDomAdapter(environment).start((result, origin) => updates.push(`${origin}:${result.status}`));
+    for (let index = 0; index < 8; index += 1) {
+      environment.flush();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect(attempts).toBe(3);
+    expect(updates).toEqual(['timedtext:available']);
+    expect(openedDom).toBe(false);
+  });
+
+  it('does not exhaust metadata retries from DOM mutations before the retry delay', async () => {
+    const environment = new FakeTranscriptEnvironment();
+    let attempts = 0;
+    environment.readDirectTranscript = async () => {
+      attempts += 1;
+      return null;
+    };
+    new YoutubeTranscriptDomAdapter(environment).start(() => {});
+    environment.flushNext();
+    await Promise.resolve();
+    environment.triggerDomChange();
+    environment.triggerDomChange();
+    environment.flushNext();
+    expect(attempts).toBe(1);
+    environment.flushNext();
+    await Promise.resolve();
+    expect(attempts).toBe(2);
+  });
+
+  it('ignores a direct response after disposal', async () => {
+    const environment = new FakeTranscriptEnvironment();
+    let resolveRead: ((value: import('../transcript-reader').TranscriptReadResult) => void) | undefined;
+    environment.readDirectTranscript = () => new Promise((resolve) => { resolveRead = resolve; });
+    const updates: string[] = [];
+    const adapter = new YoutubeTranscriptDomAdapter(environment);
+    adapter.start((result) => updates.push(result.status));
+    environment.flush();
+    adapter.dispose();
+    resolveRead?.({ status: 'available', language: 'en', cues: availableCues.map((cue) => ({ startMs: cue.startMs, endMs: cue.endMs!, text: cue.text })) });
+    await Promise.resolve();
+    expect(updates).toEqual([]);
   });
 
   it('does not fall back to a DOM transcript after direct timedtext succeeded', async () => {

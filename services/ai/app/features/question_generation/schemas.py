@@ -84,6 +84,13 @@ class QuestionGenerationResponse(BaseModel):
     questions: list[GeneratedQuestion] = Field(min_length=1, max_length=15)
 
 
+class QuestionGenerationChunkResponse(BaseModel):
+    """Internal provider schema: one evidence chunk may support no questions."""
+    model_config = ConfigDict(extra="forbid")
+
+    questions: list[GeneratedQuestion] = Field(max_length=15)
+
+
 # ============================================================
 # errors
 # ============================================================

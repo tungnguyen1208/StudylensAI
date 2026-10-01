@@ -15,25 +15,25 @@ public partial class AddTranscriptCaptureTimeline : Migration
             name: "TranscriptCaptures",
             columns: table => new
             {
-                TranscriptCaptureId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-                YoutubeVideoId = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-                Language = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
-                Source = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-                Status = table.Column<string>(type: "TEXT", maxLength: 16, nullable: false),
-                Version = table.Column<int>(type: "INTEGER", nullable: false),
-                CreateIdempotencyKey = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
-                CreatedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                TranscriptCaptureId = table.Column<string>(maxLength: 64, nullable: false),
+                YoutubeVideoId = table.Column<string>(maxLength: 32, nullable: false),
+                Language = table.Column<string>(maxLength: 16, nullable: false),
+                Source = table.Column<string>(maxLength: 32, nullable: false),
+                Status = table.Column<string>(maxLength: 16, nullable: false),
+                Version = table.Column<int>(nullable: false),
+                CreateIdempotencyKey = table.Column<string>(maxLength: 200, nullable: false),
+                CreatedAtUtc = table.Column<DateTimeOffset>(nullable: false),
             }, constraints: table => table.PrimaryKey("PK_TranscriptCaptures", item => item.TranscriptCaptureId));
         migrationBuilder.CreateTable(
             name: "TranscriptCaptureCues",
             columns: table => new
             {
-                TranscriptCueId = table.Column<string>(type: "TEXT", nullable: false),
-                TranscriptCaptureId = table.Column<string>(type: "TEXT", nullable: false),
-                ChunkIndex = table.Column<int>(type: "INTEGER", nullable: false),
-                StartMs = table.Column<long>(type: "INTEGER", nullable: false),
-                EndMs = table.Column<long>(type: "INTEGER", nullable: false),
-                Text = table.Column<string>(type: "TEXT", nullable: false),
+                TranscriptCueId = table.Column<string>(nullable: false),
+                TranscriptCaptureId = table.Column<string>(nullable: false),
+                ChunkIndex = table.Column<int>(nullable: false),
+                StartMs = table.Column<long>(nullable: false),
+                EndMs = table.Column<long>(nullable: false),
+                Text = table.Column<string>(nullable: false),
             }, constraints: table =>
             {
                 table.PrimaryKey("PK_TranscriptCaptureCues", item => item.TranscriptCueId);
@@ -43,14 +43,14 @@ public partial class AddTranscriptCaptureTimeline : Migration
             name: "TranscriptAudioChunks",
             columns: table => new
             {
-                TranscriptAudioChunkId = table.Column<string>(type: "TEXT", nullable: false),
-                TranscriptCaptureId = table.Column<string>(type: "TEXT", nullable: false),
-                IdempotencyKey = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
-                PayloadFingerprint = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
-                ChunkIndex = table.Column<int>(type: "INTEGER", nullable: false),
-                StartMs = table.Column<long>(type: "INTEGER", nullable: false),
-                EndMs = table.Column<long>(type: "INTEGER", nullable: false),
-                AcceptedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                TranscriptAudioChunkId = table.Column<string>(nullable: false),
+                TranscriptCaptureId = table.Column<string>(nullable: false),
+                IdempotencyKey = table.Column<string>(maxLength: 200, nullable: false),
+                PayloadFingerprint = table.Column<string>(maxLength: 64, nullable: false),
+                ChunkIndex = table.Column<int>(nullable: false),
+                StartMs = table.Column<long>(nullable: false),
+                EndMs = table.Column<long>(nullable: false),
+                AcceptedAtUtc = table.Column<DateTimeOffset>(nullable: false),
             }, constraints: table =>
             {
                 table.PrimaryKey("PK_TranscriptAudioChunks", item => item.TranscriptAudioChunkId);

@@ -69,8 +69,11 @@ export const App: React.FC = () => {
   const [preferencesStatus, setPreferencesStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
   const activeVideoContextRef = useRef<ActiveYoutubeContext | null>(null);
+  const videoStateVersionRef = useRef(0);
+  const contextRequestSerialRef = useRef(0);
 
   const resetVideoScopedPanelState = () => {
+    videoStateVersionRef.current += 1;
     setLearningPackage(null);
     setLearningPackageError(null);
     setLocalTranscript(null);
@@ -92,11 +95,14 @@ export const App: React.FC = () => {
 
   const refreshActiveYoutubeContext = async () => {
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+    const requestSerial = ++contextRequestSerialRef.current;
+    const expectedVersion = videoStateVersionRef.current;
     try {
       const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_YOUTUBE_CONTEXT' }) as {
         ok?: unknown; context?: unknown; localTranscript?: unknown;
       } | undefined;
-      if (response?.ok !== true || !isActiveYoutubeContext(response.context)) return;
+      if (requestSerial !== contextRequestSerialRef.current || expectedVersion !== videoStateVersionRef.current ||
+        response?.ok !== true || !isActiveYoutubeContext(response.context)) return;
       presentVideoContext(response.context);
       if (isLocalTranscript(response.localTranscript)) setLocalTranscript(response.localTranscript);
     } catch {
@@ -107,10 +113,12 @@ export const App: React.FC = () => {
   const refreshLearningPackage = async () => {
     const expected = activeVideoContextRef.current;
     if (!expected) return;
+    const expectedVersion = videoStateVersionRef.current;
     try {
       const next = await getActiveLearningPackage();
       const current = activeVideoContextRef.current;
-      if (!next || !current || current.youtubeVideoId !== expected.youtubeVideoId || next.session.youtubeVideoId !== current.youtubeVideoId) return;
+      if (!next || !current || expectedVersion !== videoStateVersionRef.current || current.tabId !== expected.tabId ||
+        current.youtubeVideoId !== expected.youtubeVideoId || next.session.youtubeVideoId !== current.youtubeVideoId) return;
       setLearningPackage(next);
       setLearningPackageError(null);
       if (next.quizStatus === 'ready' && next.quiz) {
@@ -322,7 +330,7 @@ export const App: React.FC = () => {
   const transcriptStatusText = learningPackage?.transcript.status === 'ready'
     ? `Backend đã xác thực · nguồn ${learningPackage.transcript.source === 'geminiVideo' ? 'Gemini video' : 'YouTube captions'}.`
     : localTranscript?.status === 'available'
-      ? 'Đang hiển thị trực tiếp từ YouTube; Backend đang xác thực và lưu bản đầy đủ.'
+      ? 'Bản xem trước từ YouTube; StudyLens đang thu thập hoặc Backend đang xác thực transcript đầy đủ.'
       : transcriptStatusLabel(learningPackage?.transcript.status);
 
   return (
@@ -370,9 +378,11 @@ export const App: React.FC = () => {
             {learningPackage?.error ? (
               <div className="operation-status operation-status--failed">
                 <strong>{operationLabel(learningPackage.error.operation)}</strong>
-                <span>{learningPackage.error.message}</span>
+                <span>{learningPackage.error.code === 'providerRateLimited'
+                  ? 'Gemini đã chạm giới hạn yêu cầu. Hãy thử lại sau khi quota được làm mới.'
+                  : learningPackage.error.message}</span>
                 <small>Mã: {learningPackage.error.code}</small>
-                {learningPackage.error.retryable ? <button type="button" className="operation-status__retry" onClick={() => void retryOperation(learningPackage.error!.operation)}>Thử lại bước này</button> : null}
+                {learningPackage.error.retryable ? <button type="button" className="operation-status__retry" onClick={() => void retryOperation(learningPackage.error!.operation)}>{learningPackage.error.code === 'providerRateLimited' ? 'Thử lại sau' : 'Thử lại bước này'}</button> : null}
               </div>
             ) : null}
             <OperationStatusList statuses={operationStatuses} onRetry={retryOperation} />

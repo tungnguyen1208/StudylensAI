@@ -20,6 +20,7 @@ paths:
   /api/history:
     get:
       operationId: getLearningHistory
+      summary: Read submitted answers grouped by video and session in the client; processing-only sessions are excluded
       parameters: [{ name: videoId, in: query, required: false, schema: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' } }]
       responses:
         '200': { description: Persistent answer history, content: { application/json: { schema: { $ref: '#/components/schemas/HistoryResponse' } } } }
@@ -91,7 +92,11 @@ components:
       properties:
         answerAttemptId: { type: string }
         youtubeVideoId: { type: string }
+        videoTitle: { type: string, nullable: true, description: Title recorded for the learning session; may be null on legacy answers }
+        videoUrl: { type: string, format: uri, nullable: true, description: Canonical YouTube watch URL derived from youtubeVideoId; may be null on legacy answers }
         sessionId: { type: string }
+        quizAttemptId: { type: string, nullable: true, description: Whole-quiz attempt ID; null on legacy single-answer rows }
+        attemptScore: { type: number, minimum: 0, maximum: 1, nullable: true, description: Whole-quiz score; null on legacy single-answer rows }
         questionId: { type: string }
         questionPrompt: { type: string }
         questionType: { type: string, enum: [multipleChoice, shortAnswer] }

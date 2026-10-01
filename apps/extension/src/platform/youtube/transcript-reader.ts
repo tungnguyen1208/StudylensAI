@@ -30,17 +30,34 @@ export type TranscriptReadResult =
 const MINIMUM_TRANSCRIPT_CHARACTERS = 100;
 const DEFAULT_LAST_CUE_DURATION_MS = 5_000;
 
-export function readTranscript(source: TranscriptSourcePort): TranscriptReadResult {
+export function readTranscript(
+  source: TranscriptSourcePort,
+  minimumCharacters = MINIMUM_TRANSCRIPT_CHARACTERS,
+): TranscriptReadResult {
   const language = normalizeLanguage(source.getLanguage());
   const rawCues = source.readRawCues();
   if (rawCues.length === 0) return { status: 'unavailable', language, cues: [] };
 
   const cues = normalizeTranscriptCues(rawCues);
   const contentLength = cues.reduce((total, cue) => total + cue.text.length, 0);
-  if (cues.length === 0 || contentLength < MINIMUM_TRANSCRIPT_CHARACTERS) {
+  if (cues.length === 0 || contentLength < minimumCharacters) {
     return { status: 'insufficient', language, cues: [] };
   }
   return { status: 'available', language, cues };
+}
+
+/** Rendered transcript rows may be virtualized; use them only with full-span evidence. */
+export function isDomTranscriptComplete(
+  cues: readonly TranscriptCue[],
+  videoDurationMs: number | null,
+): boolean {
+  if (!videoDurationMs || !Number.isFinite(videoDurationMs) || videoDurationMs <= 0 || cues.length === 0) return false;
+  const ordered = [...cues].sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
+  const edgeToleranceMs = Math.min(60_000, Math.max(15_000, Math.round(videoDurationMs * 0.05)));
+  if (ordered.some((cue) => cue.startMs < 0 || cue.endMs <= cue.startMs ||
+    cue.endMs > videoDurationMs + edgeToleranceMs || cue.endMs - cue.startMs > 120_000)) return false;
+  if (ordered[0].startMs > edgeToleranceMs || ordered[ordered.length - 1].endMs < videoDurationMs - edgeToleranceMs) return false;
+  return ordered.every((cue, index) => index === 0 || cue.startMs - ordered[index - 1].endMs <= 120_000);
 }
 
 export function normalizeTranscriptCues(rawCues: RawTranscriptCue[]): TranscriptCue[] {
@@ -51,7 +68,7 @@ export function normalizeTranscriptCues(rawCues: RawTranscriptCue[]): Transcript
       text: normalizeCueText(cue.text),
     }))
     .filter((cue) => cue.startMs >= 0 && cue.text.length > 0)
-    .sort((left, right) => left.startMs - right.startMs);
+    .sort((left, right) => left.startMs - right.startMs || (left.endMs ?? 0) - (right.endMs ?? 0));
 
   const normalized: TranscriptCue[] = [];
   candidates.forEach((cue, index) => {
@@ -109,10 +126,11 @@ export function selectBestCaptionTrack(
 export async function fetchTimedtextCues(
   trackUrl: string,
   fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<RawTranscriptCue[]> {
   const jsonUrl = timedtextUrl(trackUrl, 'json3');
   try {
-    const response = await fetcher(jsonUrl, { credentials: 'include' });
+    const response = await fetcher(jsonUrl, { credentials: 'include', signal });
     if (response.ok) {
       const cues = parseJson3Transcript(await response.text());
       if (cues.length > 0) return cues;
@@ -120,8 +138,9 @@ export async function fetchTimedtextCues(
   } catch {
     // DOM fallback is responsible for user-visible recovery.
   }
+  if (signal?.aborted) return [];
   try {
-    const response = await fetcher(timedtextUrl(trackUrl, 'xml'), { credentials: 'include' });
+    const response = await fetcher(timedtextUrl(trackUrl, 'xml'), { credentials: 'include', signal });
     return response.ok ? parseXmlTranscript(await response.text()) : [];
   } catch {
     return [];

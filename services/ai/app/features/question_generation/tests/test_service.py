@@ -1,14 +1,16 @@
 import asyncio
+import json
 
 import pytest
 
 from app.features.question_generation.output_validator import InvalidAiOutputError
 from app.features.question_generation.prompt import PROMPT_VERSION, build_prompt, read_evidence
-from app.features.question_generation.schemas import QuestionGenerationRequest
+from app.features.question_generation.schemas import QuestionGenerationChunkResponse, QuestionGenerationRequest
 from app.features.question_generation.service import (
     InsufficientEvidenceRejected,
     ProviderUnavailableError,
     QuestionGenerationService,
+    _chunk_request,
     resolve_provider,
 )
 
@@ -140,3 +142,113 @@ def test_unknown_configured_provider_is_reported_instead_of_silently_faking(monk
 
     assert error.value.code == "providerNotConfigured"
     assert error.value.retryable is True
+
+
+def test_ordinary_full_video_transcript_uses_one_provider_call() -> None:
+    body = request_for().model_dump()
+    body["cues"] = [
+        {"startMs": 0, "endMs": 30_000, "text": "x" * 7_100},
+        {"startMs": 30_000, "endMs": 60_000, "text": "y" * 7_100},
+    ]
+    request = QuestionGenerationRequest.model_validate(body)
+
+    assert len(_chunk_request(request)) == 1
+
+
+def test_very_long_transcript_is_still_split() -> None:
+    body = request_for().model_dump()
+    body["cues"] = [
+        {"startMs": 0, "endMs": 30_000, "text": "x" * 13_000},
+        {"startMs": 30_000, "endMs": 60_000, "text": "y" * 13_000},
+    ]
+    request = QuestionGenerationRequest.model_validate(body)
+
+    assert len(_chunk_request(request)) == 2
+
+
+def test_returns_fewer_questions_when_evidence_only_supports_one() -> None:
+    body = request_for("shortAnswer").model_dump()
+    body["questionCount"] = 5
+    request = QuestionGenerationRequest.model_validate(body)
+    provider = StubProvider(payload=json.dumps({"questions": [{
+        "type": "shortAnswer",
+        "prompt": "What is explained in the transcript?",
+        "referenceAnswer": "TCP segments",
+        "explanation": "The cited cue discusses TCP segments.",
+        "sourceStartMs": 0,
+        "sourceEndMs": 30_000,
+    }]}))
+
+    result = asyncio.run(QuestionGenerationService(provider=provider).generate(request))
+
+    assert len(result.questions) == 1
+    assert read_evidence(provider.prompts[0])["questionCount"] == 5
+
+
+def test_empty_evidence_chunk_does_not_discard_valid_questions_from_other_chunks() -> None:
+    body = request_for("shortAnswer").model_dump()
+    body["endMs"] = 900_000
+    body["questionCount"] = 5
+    body["cues"] = [
+        {"startMs": 0, "endMs": 30_000, "text": "Useful evidence " + "x" * 13_000},
+        {"startMs": 600_000, "endMs": 630_000, "text": "No question here " + "y" * 13_000},
+    ]
+    request = QuestionGenerationRequest.model_validate(body)
+
+    class PartialProvider:
+        async def generate(self, prompt: str) -> str:
+            cue = read_evidence(prompt)["cues"][0]
+            if cue["startMs"] > 0:
+                return '{"questions": []}'
+            return json.dumps({"questions": [{
+                "type": "shortAnswer",
+                "prompt": "What does the first cue explain?",
+                "referenceAnswer": "Useful evidence",
+                "explanation": "The first cue supplies the evidence.",
+                "sourceStartMs": 0,
+                "sourceEndMs": 30_000,
+            }]})
+
+    assert QuestionGenerationChunkResponse.model_validate({"questions": []}).questions == []
+    result = asyncio.run(QuestionGenerationService(provider=PartialProvider()).generate(request))
+
+    assert len(result.questions) == 1
+    assert result.questions[0].sourceStartMs == 0
+
+
+def test_long_video_keeps_all_chunk_evidence_and_questions_across_timeline() -> None:
+    body = request_for("shortAnswer").model_dump()
+    body["endMs"] = 3_600_000
+    body["questionCount"] = 15
+    body["cues"] = [
+        {"startMs": index * 600_000, "endMs": index * 600_000 + 30_000, "text": f"Part {index}: " + "x" * 13_000}
+        for index in range(6)
+    ]
+    request = QuestionGenerationRequest.model_validate(body)
+
+    class PerChunkProvider:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+
+        async def generate(self, prompt: str) -> str:
+            self.prompts.append(prompt)
+            cue = read_evidence(prompt)["cues"][0]
+            return json.dumps({"questions": [{
+                "type": "shortAnswer",
+                "prompt": f"Question at {cue['startMs']} variant {variant}",
+                "referenceAnswer": f"Part at {cue['startMs']}",
+                "explanation": "The cited cue supports this answer.",
+                "sourceStartMs": cue["startMs"],
+                "sourceEndMs": cue["endMs"],
+            } for variant in range(3)]})
+
+    provider = PerChunkProvider()
+    result = asyncio.run(QuestionGenerationService(provider=provider).generate(request))
+
+    assert len(provider.prompts) == 6
+    assert [cue["text"] for prompt in provider.prompts for cue in read_evidence(prompt)["cues"]] == [
+        cue.text for cue in request.cues
+    ]
+    assert len(result.questions) == 15
+    assert result.questions[0].sourceStartMs == 0
+    assert result.questions[-1].sourceStartMs == 3_000_000

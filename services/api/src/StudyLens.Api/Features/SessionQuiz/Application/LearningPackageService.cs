@@ -85,21 +85,29 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
                 : LearningPackageResult.Conflict();
         }
 
+        string? contentHash = null;
+        if (command.Status == "available")
+        {
+            if (!ValidCues(normalized))
+                return LearningPackageResult.Invalid("invalidTranscriptCues", "Caption cues must contain valid timestamps and text.");
+            contentHash = HashCues(normalized);
+            if (!string.IsNullOrWhiteSpace(command.ContentHash) && !string.Equals(contentHash, command.ContentHash, StringComparison.OrdinalIgnoreCase))
+                return LearningPackageResult.Invalid("transcriptHashMismatch", "The transcript content hash does not match its cues.");
+        }
+
+        // An invalid submission must not reserve the session's idempotency key
+        // in this DbContext; the corrected payload must remain retryable.
         session.TranscriptSubmissionKey = command.IdempotencyKey;
         session.TranscriptSubmissionFingerprint = fingerprint;
         ClearError(session);
 
         if (command.Status == "available")
         {
-            if (!ValidCues(normalized))
-                return LearningPackageResult.Invalid("invalidTranscriptCues", "Caption cues must contain valid timestamps and text.");
-            var contentHash = HashCues(normalized);
-            if (!string.IsNullOrWhiteSpace(command.ContentHash) && !string.Equals(contentHash, command.ContentHash, StringComparison.OrdinalIgnoreCase))
-                return LearningPackageResult.Invalid("transcriptHashMismatch", "The transcript content hash does not match its cues.");
-
-            var capture = CreateCapture(session, command.Language, "youtubeCaption", contentHash,
+            var capture = CreateCapture(session, command.Language, "youtubeCaption", contentHash!,
                 command.DurationMs ?? normalized.Max(item => item.EndMs), normalized, command.IdempotencyKey);
             db.Add(capture);
+            var video = await db.Set<StudyVideoEntity>().SingleAsync(item => item.YoutubeVideoId == session.YoutubeVideoId, cancellationToken);
+            video.DurationMs = capture.DurationMs;
             session.TranscriptCaptureId = capture.TranscriptCaptureId;
             session.TranscriptStatus = "ready";
             session.QuizStatus = "queued";
@@ -133,6 +141,8 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             return LearningPackageResult.Invalid("invalidRetryRequest", "A supported failed operation is required.");
         if (session.ErrorOperation != operation)
             return LearningPackageResult.Invalid("operationNotFailed", "Only the failed processing step can be retried.");
+        if (session.Status != "failed")
+            return LearningPackageResult.Invalid("sessionNotFailed", "Only a failed active-video session can be retried.");
         if (operation == "quizGenerate" && string.IsNullOrWhiteSpace(session.TranscriptCaptureId))
             return LearningPackageResult.Invalid("transcriptNotReady", "A validated transcript is required before quiz generation.");
 
@@ -140,6 +150,7 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         QueueJob(session, operation, $"retry:{operation}:{session.SessionId}:{suffix}");
         if (operation == "transcriptGenerate") session.TranscriptStatus = "generating";
         else session.QuizStatus = "queued";
+        session.Status = "active";
         ClearError(session);
         await db.SaveChangesAsync(cancellationToken);
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
@@ -154,14 +165,45 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             return LearningPackageResult.Invalid("invalidCompletionRequest", "A valid completion request is required.");
         if (session.CompletionId is not null && session.CompletionId != command.ClientCompletionId)
             return LearningPackageResult.Conflict();
+        if (session.Status is "completed" or "failed")
+            return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
 
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         session.CompletionId = command.ClientCompletionId;
         session.CompletionReason = command.Reason;
-        session.CompletedAtUtc ??= DateTimeOffset.UtcNow;
-        session.Status = command.Reason == "videoEnded" ? "completed" : "closed";
-        await db.Set<ProcessingJobEntity>().Where(item => item.SessionId == sessionId && (item.Status == "queued" || item.Status == "running"))
-            .ExecuteUpdateAsync(update => update.SetProperty(item => item.Status, "cancelled").SetProperty(item => item.UpdatedAtUtc, DateTimeOffset.UtcNow), cancellationToken);
+        if (session.Status == "active")
+        {
+            // A video ending is not proof that transcript, quiz, and grading succeeded.
+            // Only a successfully submitted full attempt completes a session.
+            session.CompletedAtUtc ??= DateTimeOffset.UtcNow;
+            session.Status = "closed";
+            if (session.QuizStatus != "ready")
+            {
+                // Incomplete processing has no published quiz. Drop this
+                // session-owned provisional capture and its cue rows together.
+                if (session.TranscriptCaptureId is not null)
+                {
+                    var capture = await db.Set<TranscriptCaptureEntity>().SingleOrDefaultAsync(
+                        item => item.TranscriptCaptureId == session.TranscriptCaptureId && item.SessionId == sessionId,
+                        cancellationToken);
+                    if (capture is not null) db.Remove(capture);
+                }
+                session.TranscriptCaptureId = null;
+                session.TranscriptStatus = "unavailable";
+                session.QuizStatus = "notStarted";
+            }
+        }
+        var now = DateTimeOffset.UtcNow;
+        var pendingJobs = await db.Set<ProcessingJobEntity>()
+            .Where(item => item.SessionId == sessionId && (item.Status == "queued" || item.Status == "running"))
+            .ToArrayAsync(cancellationToken);
+        foreach (var job in pendingJobs)
+        {
+            job.Status = "cancelled";
+            job.UpdatedAtUtc = now;
+        }
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
@@ -189,7 +231,7 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
                 .SingleOrDefaultAsync(item => item.QuizId == session.QuizId, cancellationToken);
             if (entity is not null)
             {
-                quiz = new QuizView(entity.QuizId, entity.SessionId, "ready", entity.Questions.Select(question =>
+                quiz = new QuizView(entity.QuizId, entity.SessionId, "ready", entity.Questions.OrderBy(question => question.Position).Select(question =>
                     new LearningQuestionView(question.QuestionId, question.Type, question.Prompt,
                         question.Options.OrderBy(option => option.Position).Select(option => new LearningOptionView(option.OptionId, option.Text)).ToArray(),
                         new LearningSourceView(question.YoutubeVideoId, question.SourceStartMs, question.SourceEndMs))).ToArray(), entity.CreatedAtUtc);

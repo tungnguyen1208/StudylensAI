@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite build --watch",
+    "dev": "node scripts/watch-extension.mjs",
+    "test:watch": "node --test scripts/watch-extension.test.mjs",
     "build": "tsc && node scripts/build-content-script.mjs && vite build && node scripts/verify-content-script.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts"

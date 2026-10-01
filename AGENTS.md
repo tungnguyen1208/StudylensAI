@@ -59,7 +59,7 @@ apps/extension/src/
   features/session-quiz/         # Dev 2
   features/assessment-history/   # Dev 3
   shared/contracts/, http/, messaging/ # public projections (HOT)
-services/api/src/StudyLens.Api/Features/ # Backend modules and SQLite record
+services/api/src/StudyLens.Api/Features/ # Backend modules and PostgreSQL record
 services/ai/app/features/question_generation/, grading/ # FastAPI only
 contracts/                       # integration source of truth
 ```

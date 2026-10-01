@@ -73,6 +73,7 @@ public sealed class QuizAttemptEntityConfiguration : IEntityTypeConfiguration<Qu
         builder.Property(entity => entity.QuizId).HasMaxLength(64).IsRequired();
         builder.Property(entity => entity.SessionId).HasMaxLength(64).IsRequired();
         builder.HasIndex(entity => entity.ClientAttemptId).IsUnique();
+        builder.HasIndex(entity => entity.SessionId);
         builder.HasMany(entity => entity.Answers).WithOne(entity => entity.QuizAttempt!).HasForeignKey(entity => entity.QuizAttemptId).OnDelete(DeleteBehavior.Cascade);
     }
 }
@@ -89,6 +90,7 @@ public sealed class AttemptAnswerEntityConfiguration : IEntityTypeConfiguration<
         builder.Property(entity => entity.QuestionType).HasMaxLength(32).IsRequired();
         builder.Property(entity => entity.Outcome).HasMaxLength(32).IsRequired();
         builder.HasIndex(entity => new { entity.QuizAttemptId, entity.QuestionId }).IsUnique();
+        builder.HasIndex(entity => entity.YoutubeVideoId);
     }
 }
 

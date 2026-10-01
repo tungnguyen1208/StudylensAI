@@ -7,7 +7,7 @@ PROMPT_VERSION = "0.5.0"
 EVIDENCE_OPEN = "<<<EVIDENCE"
 EVIDENCE_CLOSE = "EVIDENCE>>>"
 
-MAX_EVIDENCE_CHARS = 12_000
+MAX_EVIDENCE_CHARS = 24_000
 
 _INSTRUCTIONS = """You generate study questions for StudyLens.
 Rules:
@@ -16,13 +16,13 @@ Rules:
 3. multipleChoice needs at least 3 distinct options, plausible distractors and one correctOptionId that exists.
 4. shortAnswer needs a referenceAnswer grounded in the evidence.
 5. Give every question a concise explanation grounded in the cited transcript cue.
-6. Generate the requested questionCount without repeating a question.
+6. Generate up to questionCount distinct questions. Return fewer if the evidence cannot support more; never invent content to meet the target.
 7. Answer with JSON only, matching: {"questions": [...]}
 """
 
 SYSTEM_INSTRUCTION = """You are the question generator of StudyLens, a learning assistant for YouTube lectures.
 
-You receive a bounded part of a full-video transcript as evidence and return the requested number of questions about it.
+You receive a bounded part of a full-video transcript as evidence and return up to the requested number of questions about it.
 
 Hard requirements:
 - Ground every question in the supplied cues. If the evidence does not support a question, return an empty questions array instead of inventing content.
@@ -50,7 +50,7 @@ def build_prompt(request: QuestionGenerationRequest) -> str:
         "questionCount": request.questionCount,
         "questionType": request.questionType,
         "difficulty": request.difficulty,
-        "cues": _cap_cues(request),
+        "cues": [cue.model_dump() for cue in request.cues],
     }
     return (
         f"{_INSTRUCTIONS}\n"
@@ -66,19 +66,6 @@ def read_evidence(prompt: str) -> dict:
     if start == -1 or end == -1:
         raise ValueError("prompt carries no evidence block")
     return json.loads(prompt[start + len(EVIDENCE_OPEN):end])
-
-
-def _cap_cues(request: QuestionGenerationRequest) -> list[dict]:
-    """Bounds provider cost and truncation risk while keeping whole cues and their timestamps."""
-    capped: list[dict] = []
-    budget = MAX_EVIDENCE_CHARS
-    for cue in request.cues:
-        payload = cue.model_dump()
-        if capped and len(payload["text"]) > budget:
-            break
-        capped.append(payload)
-        budget -= len(payload["text"])
-    return capped
 
 
 # ============================================================

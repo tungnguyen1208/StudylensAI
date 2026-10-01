@@ -17,7 +17,7 @@ Learner ON + valid YouTube video
   -> one full quiz -> batch grade/history
 ```
 
-The Extension does not call FastAPI, Gemini, an LLM provider or SQLite. The
+The Extension does not call FastAPI, Gemini, an LLM provider or PostgreSQL. The
 AI service is used only by Backend after it owns a full transcript, except for
 the Backend-requested public-video fallback.
 
@@ -36,8 +36,8 @@ the Backend-requested public-video fallback.
   `unavailable`; no quiz is fabricated.
 - StudyLens does not use microphone, STT, `tabCapture`, offscreen documents,
   MediaRecorder, audio upload or `youtube-transcript-api`.
-- Historical SQLite audio-capture rows are retained as legacy data, but no new
-  audio records are written.
+- Historical SQLite audio-capture rows are retained only as legacy/export data;
+  new runtime persistence is PostgreSQL and no new audio records are written.
 
 Backend checks the video ID, timestamp bounds, normalized cue content,
 canonical hash and idempotency key before persisting the full transcript. It
@@ -77,9 +77,21 @@ the current content script is injected.
 
 ## Local configuration
 
-Copy `.env.example` to ignored `.env` if a cloud LLM is used for quiz
-generation or grading. `GEMINI_API_KEY` remains server-side in FastAPI and is
-never copied into Extension source, a browser message, or a contract fixture.
+Start PostgreSQL with the checked-in development compose file, then export the
+connection string before starting the Backend:
+
+```powershell
+Copy-Item deploy/postgres.env.example deploy/postgres.env
+docker compose --env-file deploy/postgres.env -f deploy/docker-compose.postgres.yml up -d
+$env:ConnectionStrings__DefaultConnection = 'Host=localhost;Port=5432;Database=studylens;Username=studylens;Password=replace-this-password'
+dotnet run --project services/api/src/StudyLens.Api/StudyLens.Api.csproj --launch-profile http
+```
+
+Do not point the PostgreSQL runtime at an existing SQLite file. Existing SQLite
+data is left untouched; export/migrate it deliberately before retiring it.
+Copy `.env.example` to ignored `.env` if a cloud LLM is used for quiz generation
+or grading. `GEMINI_API_KEY` remains server-side in FastAPI and is never copied
+into Extension source, a browser message, or a contract fixture.
 `LLM_PROVIDER=fake` is the deterministic test default.
 
 See [architecture documentation](docs/architecture/README.md),

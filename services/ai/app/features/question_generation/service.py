@@ -1,15 +1,17 @@
 import asyncio
 
-from app.features.question_generation.output_validator import InvalidAiOutputError, validate_output
-from app.features.question_generation.prompt import build_prompt
+from app.features.question_generation.output_validator import InvalidAiOutputError, validate_chunk_output
+from app.features.question_generation.prompt import MAX_EVIDENCE_CHARS, build_prompt
 from app.features.question_generation.providers import DeterministicQuestionProvider, InsufficientEvidenceError, ProviderCallError
-from app.features.question_generation.schemas import QuestionGenerationRequest, QuestionGenerationResponse
+from app.features.question_generation.schemas import (
+    GeneratedQuestion,
+    QuestionGenerationChunkResponse,
+    QuestionGenerationRequest,
+    QuestionGenerationResponse,
+)
 from app.platform.config import settings
 from app.platform.llm.gemini_provider import GeminiConfigurationError, GeminiJsonProvider
 from app.platform.llm.provider import LlmProvider
-
-MAX_CHUNK_CHARS = 12_000
-
 
 class ProviderUnavailableError(Exception):
     def __init__(self, code: str, message: str, retryable: bool = True) -> None:
@@ -31,7 +33,7 @@ def resolve_provider() -> LlmProvider:
         return DeterministicQuestionProvider()
     if settings.llm_provider == "gemini":
         try:
-            return GeminiJsonProvider(QuestionGenerationResponse.model_json_schema())
+            return GeminiJsonProvider(QuestionGenerationChunkResponse)
         except GeminiConfigurationError as error:
             raise ProviderUnavailableError("providerNotConfigured", str(error), retryable=False) from error
     raise ProviderUnavailableError(
@@ -47,15 +49,18 @@ class QuestionGenerationService:
 
     async def generate(self, request: QuestionGenerationRequest) -> QuestionGenerationResponse:
         provider = self._provider or resolve_provider()
-        questions = []
+        questions: list[GeneratedQuestion] = []
+        last_insufficient_error: InsufficientEvidenceError | None = None
         try:
             for chunk in _chunk_request(request):
-                raw = await asyncio.wait_for(provider.generate(build_prompt(chunk)), timeout=self._timeout_seconds)
-                questions.extend(validate_output(raw, chunk).questions)
+                try:
+                    raw = await asyncio.wait_for(provider.generate(build_prompt(chunk)), timeout=self._timeout_seconds)
+                except InsufficientEvidenceError as error:
+                    last_insufficient_error = error
+                    continue
+                questions.extend(validate_chunk_output(raw, chunk))
         except asyncio.TimeoutError as error:
             raise ProviderUnavailableError("providerTimeout", "The question provider did not answer in time.") from error
-        except InsufficientEvidenceError as error:
-            raise InsufficientEvidenceRejected(str(error)) from error
         except ProviderCallError as error:
             raise ProviderUnavailableError(error.code, error.message, error.retryable) from error
         except InvalidAiOutputError:
@@ -63,18 +68,34 @@ class QuestionGenerationService:
         except Exception as error:  # noqa: BLE001 - provider details must not cross the API boundary
             raise ProviderUnavailableError("providerFailed", "The question provider failed.") from error
 
-        unique = []
+        unique: list[GeneratedQuestion] = []
         seen: set[str] = set()
         for question in questions:
             key = " ".join(question.prompt.casefold().split())
             if key not in seen:
                 seen.add(key)
                 unique.append(question)
-            if len(unique) >= request.questionCount:
-                break
         if not unique:
+            if last_insufficient_error is not None:
+                raise InsufficientEvidenceRejected(str(last_insufficient_error)) from last_insufficient_error
             raise InvalidAiOutputError("invalidAiOutput", "The provider returned no usable question.")
-        return QuestionGenerationResponse(questions=unique)
+        return QuestionGenerationResponse(questions=_select_across_timeline(unique, request))
+
+
+def _select_across_timeline(questions: list[GeneratedQuestion], request: QuestionGenerationRequest) -> list[GeneratedQuestion]:
+    ordered = sorted(questions, key=lambda item: (item.sourceStartMs, item.sourceEndMs))
+    if len(ordered) <= request.questionCount:
+        return ordered
+
+    selected: set[int] = set()
+    for position in range(request.questionCount):
+        target_ms = request.startMs + (request.endMs - request.startMs) * position / (request.questionCount - 1)
+        nearest = min(
+            (index for index in range(len(ordered)) if index not in selected),
+            key=lambda index: (abs(ordered[index].sourceStartMs - target_ms), index),
+        )
+        selected.add(nearest)
+    return [ordered[index] for index in sorted(selected)]
 
 
 def _chunk_request(request: QuestionGenerationRequest) -> list[QuestionGenerationRequest]:
@@ -82,7 +103,7 @@ def _chunk_request(request: QuestionGenerationRequest) -> list[QuestionGeneratio
     current: list = []
     current_chars = 0
     for cue in request.cues:
-        if current and current_chars + len(cue.text) > MAX_CHUNK_CHARS:
+        if current and current_chars + len(cue.text) > MAX_EVIDENCE_CHARS:
             chunks.append(current)
             current = []
             current_chars = 0

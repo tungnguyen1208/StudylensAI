@@ -6,7 +6,7 @@
   "youtubeVideoId": "dQw4w9WgXcQ",
   "startMs": 0,
   "endMs": 900000,
-  "questionCount": 3,
+  "questionCount": 5,
   "questionType": "multipleChoice",
   "difficulty": "easy",
   "cues": [{ "startMs": 0, "endMs": 10000, "text": "A valid transcript cue used as source evidence." }]

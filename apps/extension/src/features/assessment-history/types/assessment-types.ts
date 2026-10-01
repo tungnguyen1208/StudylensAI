@@ -55,7 +55,11 @@ export interface QuizAttemptView {
 export interface HistoryEntryReadModel {
   answerAttemptId: string;
   youtubeVideoId: string;
+  videoTitle?: string | null;
+  videoUrl?: string | null;
   sessionId: string;
+  quizAttemptId?: string | null;
+  attemptScore?: number | null;
   questionId: string;
   questionPrompt: string;
   questionType: QuestionType;

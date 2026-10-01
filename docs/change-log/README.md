@@ -16,4 +16,14 @@ related work, read the latest applicable record.
 
 ## Records
 
+- [2026-10-01 v0.5 - Video-linked quiz history and failure-safe sessions](2026-10-01-v0.5-video-session-history-and-failure-safety.md) - implemented
+
+- [2026-10-01 v0.5 - Duration-based quiz targets and readable UI](2026-10-01-v0.5-quiz-duration-and-ui.md) - implemented
+
+- [2026-10-01 v0.5 - Gemini quota handling](2026-10-01-v0.5-gemini-quota-handling.md) - implemented
+
+- [2026-10-01 v0.5 - Immediate full YouTube transcript](2026-10-01-v0.5-immediate-full-transcript.md) - implemented
+
+- [2026-10-01 v0.5 - PostgreSQL persistence](2026-10-01-v0.5-postgresql-persistence.md) - implemented
+
 - [2026-09-29 v0.5 — Full transcript to full-video quiz](2026-09-29-v0.5-full-video-transcript-quiz.md) — implemented

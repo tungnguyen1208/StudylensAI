@@ -1,0 +1,14 @@
+{
+  "rawCues": [
+    { "startMs": 1000, "endMs": 2000, "text": " long\u0085 cue " },
+    { "startMs": 0, "endMs": 700, "text": "   " },
+    { "startMs": 1000, "endMs": 1500, "text": " short  cue " },
+    { "startMs": 0, "endMs": 1000, "text": " alpha cue " }
+  ],
+  "normalizedCues": [
+    { "startMs": 0, "endMs": 1000, "text": "alpha cue" },
+    { "startMs": 1000, "endMs": 1500, "text": "short cue" },
+    { "startMs": 1000, "endMs": 2000, "text": "long cue" }
+  ],
+  "contentHash": "c59fccfc936dbfd6ab0ea99ba6c32dd40061e9af3b50fb7dc9595c337a78bea3"
+}

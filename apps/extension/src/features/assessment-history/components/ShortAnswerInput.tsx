@@ -7,6 +7,7 @@ interface ShortAnswerInputProps {
 export function ShortAnswerInput({ value, disabled, onChange }: ShortAnswerInputProps) {
   return (
     <textarea
+      className="assessment__short-answer"
       aria-label="Câu trả lời ngắn"
       value={value}
       disabled={disabled}

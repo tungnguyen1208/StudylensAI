@@ -12,6 +12,7 @@ from app.features.transcript_generation.schemas import (
 )
 from app.platform.config import settings
 from app.platform.llm.gemini_provider import GeminiConfigurationError, GeminiYoutubeTranscriptProvider
+from app.platform.llm.provider import LlmProviderError
 
 
 class TranscriptProvider(Protocol):
@@ -70,6 +71,8 @@ class TranscriptGenerationService:
             raise TranscriptGenerationError("providerTimeout", "Video transcript generation timed out.", True) from error
         except TranscriptGenerationError:
             raise
+        except LlmProviderError as error:
+            raise TranscriptGenerationError(error.code, error.message, error.retryable) from error
         except Exception as error:  # noqa: BLE001
             text = str(error).casefold()
             if any(marker in text for marker in ("private", "unlisted", "not found", "permission")):

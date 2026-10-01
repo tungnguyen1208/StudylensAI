@@ -30,20 +30,23 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<StudyLensDbContext>();
+        var now = DateTimeOffset.UtcNow;
         await db.Set<ProcessingJobEntity>().Where(item => item.Status == "running")
-            .ExecuteUpdateAsync(update => update.SetProperty(item => item.Status, "queued").SetProperty(item => item.UpdatedAtUtc, DateTimeOffset.UtcNow), cancellationToken);
+            .ExecuteUpdateAsync(update => update.SetProperty(item => item.Status, "queued").SetProperty(item => item.UpdatedAtUtc, now), cancellationToken);
     }
 
-    private async Task<bool> ProcessNextAsync(CancellationToken cancellationToken)
+    internal async Task<bool> ProcessNextAsync(CancellationToken cancellationToken)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<StudyLensDbContext>();
-        var job = await db.Set<ProcessingJobEntity>().OrderBy(item => item.CreatedAtUtc)
-            .FirstOrDefaultAsync(item => item.Status == "queued", cancellationToken);
+        var queued = db.Set<ProcessingJobEntity>().Where(item => item.Status == "queued");
+        var job = db.Database.IsSqlite()
+            ? (await queued.ToArrayAsync(cancellationToken)).OrderBy(item => item.CreatedAtUtc).FirstOrDefault()
+            : await queued.OrderBy(item => item.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
         if (job is null) return false;
 
         var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == job.SessionId, cancellationToken);
-        if (session is null || session.Status is "closed" or "completed")
+        if (session is null || session.Status is "closed" or "completed" or "failed")
         {
             job.Status = "cancelled";
             job.UpdatedAtUtc = DateTimeOffset.UtcNow;
@@ -74,6 +77,17 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             outcome = AiJobOutcome.Fail("processingFailed", "The processing job failed unexpectedly.", true);
         }
 
+        // The AI request can outlive the video context. Do not commit a late
+        // capture/quiz into a session that was closed while the request ran.
+        var persistedSession = await db.Entry(session).GetDatabaseValuesAsync(cancellationToken);
+        var persistedJob = await db.Entry(job).GetDatabaseValuesAsync(cancellationToken);
+        if (persistedSession?.GetValue<string>(nameof(StudySessionEntity.Status)) != "active" ||
+            persistedJob?.GetValue<string>(nameof(ProcessingJobEntity.Status)) != "running")
+        {
+            db.ChangeTracker.Clear();
+            return true;
+        }
+
         if (outcome.Succeeded)
         {
             job.Status = "succeeded";
@@ -86,10 +100,13 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             job.LastErrorCode = outcome.Code;
             job.LastErrorMessage = outcome.Message;
             job.LastErrorRetryable = outcome.Retryable;
-            var exhausted = job.AttemptCount >= job.MaxAttempts || !outcome.Retryable;
+            // A quota limit needs time or a user action to clear. Persist the
+            // retryable failure now instead of immediately spending more calls.
+            var exhausted = ShouldStopAutomaticRetries(outcome, job.AttemptCount, job.MaxAttempts);
             job.Status = exhausted ? "failed" : "queued";
             if (exhausted)
             {
+                session.Status = "failed";
                 session.ErrorOperation = job.JobType;
                 session.ErrorCode = outcome.Code;
                 session.ErrorMessage = outcome.Message;
@@ -111,6 +128,9 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }
+
+    internal static bool ShouldStopAutomaticRetries(AiJobOutcome outcome, int attemptCount, int maxAttempts) =>
+        attemptCount >= maxAttempts || !outcome.Retryable || outcome.Code == "providerRateLimited";
 
     private static async Task<AiJobOutcome> GenerateTranscriptAsync(IServiceProvider services, StudyLensDbContext db,
         StudySessionEntity session, ProcessingJobEntity job, CancellationToken cancellationToken)
@@ -146,6 +166,8 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             }).ToList(),
         };
         db.Add(capture);
+        var video = await db.Set<StudyVideoEntity>().SingleAsync(item => item.YoutubeVideoId == session.YoutubeVideoId, cancellationToken);
+        video.DurationMs = capture.DurationMs;
         session.TranscriptCaptureId = captureId;
         session.TranscriptStatus = "ready";
         session.QuizStatus = "queued";
@@ -162,7 +184,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         return AiJobOutcome.Ok();
     }
 
-    private static async Task<AiJobOutcome> GenerateQuizAsync(IServiceProvider services, StudyLensDbContext db,
+    internal static async Task<AiJobOutcome> GenerateQuizAsync(IServiceProvider services, StudyLensDbContext db,
         StudySessionEntity session, ProcessingJobEntity job, CancellationToken cancellationToken)
     {
         if (session.TranscriptCaptureId is null)
@@ -174,15 +196,20 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
 
         var cues = capture.Cues.OrderBy(item => item.StartMs).Select(item => new TranscriptCueView(item.StartMs, item.EndMs, item.Text)).ToArray();
         var startMs = cues.Min(item => item.StartMs);
-        var endMs = capture.DurationMs ?? cues.Max(item => item.EndMs);
-        var questionCount = Math.Clamp((int)Math.Ceiling(endMs / 300_000d), 3, 15);
+        // YouTube caption cues can extend slightly beyond the player-reported duration.
+        // The AI request range must still contain every persisted cue.
+        var lastCueEndMs = cues.Max(item => item.EndMs);
+        var endMs = Math.Max(capture.DurationMs.GetValueOrDefault(), lastCueEndMs);
+        // Count by the stored player duration, not a caption that slightly
+        // extends past a threshold. Fall back to the last cue for old captures.
+        var questionCount = QuestionCountForDuration(capture.DurationMs is > 0 ? capture.DurationMs.Value : lastCueEndMs);
         var gateway = services.GetRequiredService<IFullVideoQuestionGenerationGateway>();
         var generated = await gateway.GenerateAsync(new(LearningPackageService.ContractVersion, LearningPackageService.ContractVersion,
             session.SessionId, capture.TranscriptCaptureId, session.YoutubeVideoId, startMs, endMs, questionCount,
             session.QuestionType, session.Difficulty, cues), cancellationToken);
         if (generated.Value is null) return AiJobOutcome.Fail(generated.ErrorCode!, generated.ErrorMessage!, generated.Retryable);
 
-        var valid = generated.Value.Questions.Where(question => ValidQuestion(question, session.QuestionType, startMs, endMs)).Take(15).ToArray();
+        var valid = generated.Value.Questions.Where(question => ValidQuestion(question, session.QuestionType, startMs, endMs)).Take(questionCount).ToArray();
         if (valid.Length == 0) return AiJobOutcome.Fail("invalidAiOutput", "The AI Service did not return valid quiz questions.", false);
         var quizId = Guid.NewGuid().ToString();
         var quiz = new QuizAssessmentEntity
@@ -196,8 +223,10 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             QuestionType = session.QuestionType,
             Difficulty = session.Difficulty,
             TranscriptCaptureId = capture.TranscriptCaptureId,
+            PromptVersion = generated.Value.PromptVersion,
+            ModelName = services.GetRequiredService<IConfiguration>()["AiService:QuestionGenerationModel"],
             CreatedAtUtc = DateTimeOffset.UtcNow,
-            Questions = valid.Select(question =>
+            Questions = valid.Select((question, position) =>
             {
                 var questionId = Guid.NewGuid().ToString();
                 return new QuestionAssessmentEntity
@@ -205,6 +234,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
                     QuestionId = questionId,
                     QuizId = quizId,
                     Type = question.Type,
+                    Position = position,
                     Prompt = question.Prompt.Trim(),
                     CorrectOptionId = question.CorrectOptionId,
                     ReferenceAnswer = question.ReferenceAnswer,
@@ -229,6 +259,14 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         session.ErrorRetryable = false;
         return AiJobOutcome.Ok();
     }
+
+    internal static int QuestionCountForDuration(long durationMs) => durationMs switch
+    {
+        < 600_000 => 3,
+        < 1_800_000 => 5,
+        < 3_600_000 => 10,
+        _ => 15,
+    };
 
     private static bool ValidQuestion(FullVideoGeneratedQuestion question, string requestedType, long startMs, long endMs) =>
         question.Type == requestedType && !string.IsNullOrWhiteSpace(question.Prompt) && !string.IsNullOrWhiteSpace(question.Explanation) &&

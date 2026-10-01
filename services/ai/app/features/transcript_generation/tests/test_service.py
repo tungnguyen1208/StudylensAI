@@ -5,6 +5,7 @@ import pytest
 
 from app.features.transcript_generation.schemas import TranscriptGenerationRequest
 from app.features.transcript_generation.service import TranscriptGenerationError, TranscriptGenerationService
+from app.platform.llm.provider import LlmProviderError
 
 
 class StubProvider:
@@ -74,4 +75,16 @@ def test_timeout_is_retryable() -> None:
         asyncio.run(TranscriptGenerationService(provider=provider, timeout_seconds=0.01).generate(request()))
 
     assert error.value.code == "providerTimeout"
+    assert error.value.retryable is True
+
+
+def test_provider_quota_failure_keeps_its_error_code() -> None:
+    provider = StubProvider(error=LlmProviderError(
+        "providerRateLimited", "The AI provider rate limit or quota was reached. Retry later."
+    ))
+
+    with pytest.raises(TranscriptGenerationError) as error:
+        asyncio.run(TranscriptGenerationService(provider=provider).generate(request()))
+
+    assert error.value.code == "providerRateLimited"
     assert error.value.retryable is True

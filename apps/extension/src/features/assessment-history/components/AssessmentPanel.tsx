@@ -71,7 +71,7 @@ export function AssessmentPanel({
         const result = attempt?.results.find((item) => item.questionId === question.questionId);
         return (
           <article className="assessment__question" key={question.questionId}>
-            <h3>Câu {index + 1}. {question.prompt}</h3>
+            <h3><span className="assessment__question-number">Câu {index + 1}/{quiz.questions.length}</span>{question.prompt}</h3>
             {question.type === 'multipleChoice' ? (
               <MultipleChoiceAnswer
                 name={`question-${question.questionId}`}

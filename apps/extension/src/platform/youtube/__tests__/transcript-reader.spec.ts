@@ -9,6 +9,8 @@ import {
   readTranscript,
   selectBestCaptionTrack,
   extractCaptionTracksFromDom,
+  fetchTimedtextCues,
+  isDomTranscriptComplete,
 } from '../transcript-reader';
 import {
   createTranscriptRequest,
@@ -23,6 +25,29 @@ describe('transcript normalization', () => {
   it('parses JSON3 and XML timedtext while decoding caption entities', () => {
     expect(parseJson3Transcript('{"events":[{"tStartMs":1000,"dDurationMs":500,"segs":[{"utf8":"A & B"}]}]}')).toEqual([{ startMs: 1000, endMs: 1500, text: 'A & B' }]);
     expect(parseXmlTranscript('<transcript><text start="2" dur="1.5">A &amp; B</text></transcript>')).toEqual([{ startMs: 2000, endMs: 3500, text: 'A & B' }]);
+  });
+
+  it('fetches the whole timedtext track without depending on playback position', async () => {
+    const urls: string[] = [];
+    const fetcher = async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ events: [
+        { tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: 'Intro.' }] },
+        { tStartMs: 600_000, dDurationMs: 1000, segs: [{ utf8: 'Ending.' }] },
+      ] }), { status: 200 });
+    };
+    const cues = await fetchTimedtextCues('https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ', fetcher as typeof fetch);
+    expect(cues.map((cue) => cue.startMs)).toEqual([0, 600_000]);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('fmt=json3');
+  });
+
+  it('tries XML when the JSON3 timedtext response is unavailable', async () => {
+    const fetcher = async (input: RequestInfo | URL) => String(input).includes('fmt=json3')
+      ? new Response('', { status: 503 })
+      : new Response('<transcript><text start="2" dur="1">XML caption</text></transcript>', { status: 200 });
+    expect(await fetchTimedtextCues('https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ', fetcher as typeof fetch))
+      .toEqual([{ startMs: 2000, endMs: 3000, text: 'XML caption' }]);
   });
 
   it('prefers Vietnamese manual captions before ASR and other languages', () => {
@@ -76,6 +101,9 @@ describe('transcript normalization', () => {
     expect(readTranscript(source([{ startMs: 0, endMs: 1000, text: 'Too short' }])).status).toBe(
       'insufficient',
     );
+    expect(readTranscript(source([{ startMs: 0, endMs: 1000, text: 'Too short' }]), 0).status).toBe(
+      'available',
+    );
 
     const result = readTranscript(
       source([
@@ -92,6 +120,23 @@ describe('transcript normalization', () => {
       ]),
     );
     expect(result.status).toBe('available');
+  });
+
+  it('does not treat a visible middle slice of the DOM transcript as full video', () => {
+    const middleOnly = [{ startMs: 100_000, endMs: 110_000, text: 'A visible middle cue.' }];
+    expect(isDomTranscriptComplete(middleOnly, 600_000)).toBe(false);
+    expect(isDomTranscriptComplete(middleOnly, null)).toBe(false);
+    expect(isDomTranscriptComplete([
+      { startMs: 0, endMs: 10_000, text: 'First cue.' },
+      { startMs: 10_000, endMs: 20_000, text: 'Second cue.' },
+    ], 20_000)).toBe(true);
+    expect(isDomTranscriptComplete([
+      { startMs: 0, endMs: 10_000, text: 'First cue.' },
+      { startMs: 150_001, endMs: 260_000, text: 'Last cue.' },
+    ], 260_000)).toBe(false);
+    expect(isDomTranscriptComplete([
+      { startMs: 0, endMs: 300_000, text: 'One oversized row cannot prove coverage.' },
+    ], 300_000)).toBe(false);
   });
 });
 

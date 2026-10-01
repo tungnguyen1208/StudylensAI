@@ -1,0 +1,5 @@
+{
+  "code": "providerRateLimited",
+  "message": "The AI provider rate limit or quota was reached. Retry later.",
+  "retryable": true
+}

@@ -71,7 +71,11 @@ components:
         youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
         startMs: { type: integer, minimum: 0 }
         endMs: { type: integer, minimum: 1 }
-        questionCount: { type: integer, minimum: 3, maximum: 15 }
+        questionCount:
+          type: integer
+          minimum: 3
+          maximum: 15
+          description: Target question count chosen by Backend from the full video duration; fewer grounded questions may be returned when transcript evidence is insufficient.
         questionType: { $ref: '#/components/schemas/QuestionType' }
         difficulty: { $ref: '#/components/schemas/Difficulty' }
         cues: { type: array, minItems: 1, items: { $ref: '#/components/schemas/TranscriptCue' } }
@@ -102,12 +106,19 @@ components:
       properties:
         contractVersion: { type: string, const: 0.5.0 }
         promptVersion: { type: string, const: 0.5.0 }
-        questions: { type: array, minItems: 1, maxItems: 15, items: { $ref: '#/components/schemas/GeneratedQuestion' } }
+        questions:
+          type: array
+          minItems: 1
+          maxItems: 15
+          description: Valid grounded questions, up to the requested questionCount; an empty quiz is never published.
+          items: { $ref: '#/components/schemas/GeneratedQuestion' }
     AiErrorEnvelope:
       type: object
       additionalProperties: false
       required: [code, message, retryable]
       properties:
-        code: { type: string }
+        code:
+          type: string
+          description: providerRateLimited is a quota/rate-limit failure; retryable is true, but Backend must not retry it immediately.
         message: { type: string }
         retryable: { type: boolean }
