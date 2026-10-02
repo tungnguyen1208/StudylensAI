@@ -16,6 +16,8 @@ related work, read the latest applicable record.
 
 ## Records
 
+- [2026-10-02 v0.5 - Week 5 fault hardening](2026-10-02-v0.5-week5-fault-hardening.md) - accepted; implementation and automated gates complete, browser evidence pending
+
 - [2026-10-02 v0.5 - Gemini short-answer grading and evidence review](2026-10-02-v0.5-gemini-grading-evidence-history.md) - implemented
 
 - [2026-10-01 v0.5 - Video-linked quiz history and failure-safe sessions](2026-10-01-v0.5-video-session-history-and-failure-safety.md) - implemented
