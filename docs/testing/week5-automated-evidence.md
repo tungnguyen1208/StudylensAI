@@ -14,7 +14,7 @@ Recorded on 2026-10-02 for branch `week5/fault-hardening`.
 
 | Command | Result |
 |---|---|
-| `cd apps/extension && npm.cmd test -- --run --reporter=basic` | Exit 0; 27 files and 99 tests passed. |
+| `cd apps/extension && npm.cmd test -- --run --reporter=basic` | Exit 0; Week 5 baseline 27 files/99 tests, Week 6 Dev 1 regression 28 files/101 tests passed. |
 | `cd apps/extension && npm.cmd run typecheck` | Exit 0. |
 | `cd apps/extension && npm.cmd run build` | Exit 0; content script and Side Panel production bundles verified. |
 | `dotnet test .\services\api\StudyLens.sln --no-restore --verbosity minimal` | Exit 0; Video Activation 10, Session Quiz 54, Assessment History 19 tests passed. |
@@ -28,8 +28,9 @@ Recorded on 2026-10-02 for branch `week5/fault-hardening`.
 - D1-05: `transition-safety.spec.ts`, `youtube-spa-transition-observer.spec.ts`, and the A-to-B-to-C transcript test verify stale work cannot replace the newest video.
 - D1-06: the unsupported-route/return observer and Side Panel state tests verify leaving `/watch` preserves the global gate and returning starts a supported flow.
 - D1-07: `transcript-service.spec.ts` verifies retry replays the exact prepared cues, canonical hash, and idempotency key.
+- D1-04: `active-tab-message.spec.ts` alternates the Side Panel context between two tabs and verifies that inactive/late events cannot replace the active tab while same-tab SPA transitions remain valid.
 
-D1-04 remains `NOT RUN`: sender-origin validation is covered, but no single automated case alternates the active Side Panel between two real tabs.
+D1-04 was completed during Week 6 in commit `7ecfd3d`.
 
 ## Dev 2
 
