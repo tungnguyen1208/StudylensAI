@@ -16,6 +16,16 @@ export function isPersistedActivationState(value: unknown): value is PersistedAc
     !Number.isNaN(Date.parse(candidate.persistedAtUtc));
 }
 
+/** Returns only authoritative local-storage gate changes; ignores noise. */
+export function activationEnabledFromStorageChange(
+  changes: Record<string, { newValue?: unknown }>,
+  areaName: string,
+): boolean | null {
+  if (areaName !== 'local') return null;
+  const value = changes[ACTIVATION_STORAGE_KEY]?.newValue;
+  return isPersistedActivationState(value) ? value.enabled : null;
+}
+
 /**
  * Restores the learner's explicit choice without rewriting a valid saved ON/OFF
  * state. Missing or malformed storage is safely initialized to first-install OFF.

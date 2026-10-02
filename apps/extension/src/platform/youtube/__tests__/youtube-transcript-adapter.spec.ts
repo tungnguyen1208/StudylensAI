@@ -131,6 +131,41 @@ describe('YoutubeTranscriptDomAdapter', () => {
     expect(updates).toEqual([]);
   });
 
+  it('drops late A and B transcript results after an A-to-B-to-C change', async () => {
+    const emitted: string[] = [];
+    const pending: Array<(value: import('../transcript-reader').TranscriptReadResult) => void> = [];
+    const adapters = ['A', 'B'].map((label) => {
+      const environment = new FakeTranscriptEnvironment();
+      environment.readDirectTranscript = () => new Promise((resolve) => { pending.push(resolve); });
+      const adapter = new YoutubeTranscriptDomAdapter(environment);
+      adapter.start((result) => emitted.push(`${label}:${result.status}`));
+      environment.flush();
+      return adapter;
+    });
+
+    // B replaces A, then C replaces B before either network response returns.
+    adapters[0].dispose();
+    adapters[1].dispose();
+    const environmentC = new FakeTranscriptEnvironment();
+    environmentC.readDirectTranscript = async () => ({
+      status: 'available', language: 'en',
+      cues: availableCues.map((cue) => ({ startMs: cue.startMs, endMs: cue.endMs!, text: `C ${cue.text}` })),
+    });
+    new YoutubeTranscriptDomAdapter(environmentC).start((result) => emitted.push(`C:${result.status}`));
+    environmentC.flush();
+    await Promise.resolve();
+
+    for (const resolve of pending) {
+      resolve({
+        status: 'available', language: 'en',
+        cues: availableCues.map((cue) => ({ startMs: cue.startMs, endMs: cue.endMs!, text: cue.text })),
+      });
+    }
+    await Promise.resolve();
+
+    expect(emitted).toEqual(['C:available']);
+  });
+
   it('does not fall back to a DOM transcript after direct timedtext succeeded', async () => {
     const environment = new FakeTranscriptEnvironment();
     environment.readDirectTranscript = async () => ({

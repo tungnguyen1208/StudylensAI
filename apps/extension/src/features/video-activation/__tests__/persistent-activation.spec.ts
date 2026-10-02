@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTIVATION_STORAGE_KEY,
+  activationEnabledFromStorageChange,
   loadPersistedActivationState,
   savePersistedActivationState,
   type PersistedActivationState,
@@ -62,5 +63,15 @@ describe('persistent activation storage', () => {
       enabled: true,
       persistedAtUtc: '2026-09-23T09:30:00.000Z',
     });
+  });
+
+  it('recognizes only valid authoritative local-storage gate changes', () => {
+    expect(activationEnabledFromStorageChange({
+      [ACTIVATION_STORAGE_KEY]: { newValue: { enabled: false, persistedAtUtc: '2026-10-02T08:00:00.000Z' } },
+    }, 'local')).toBe(false);
+    expect(activationEnabledFromStorageChange({
+      [ACTIVATION_STORAGE_KEY]: { newValue: { enabled: true, persistedAtUtc: 'invalid' } },
+    }, 'local')).toBeNull();
+    expect(activationEnabledFromStorageChange({}, 'sync')).toBeNull();
   });
 });

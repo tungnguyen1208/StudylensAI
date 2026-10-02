@@ -7,8 +7,13 @@ import { messageBus } from '../../shared/messaging/message-bus';
 import { type ExtensionMessage } from '../../shared/messaging/message-types';
 import { operationFailure, type OperationStatusPayload } from '../../shared/messaging/operation-status';
 import { DEFAULT_LEARNING_PREFERENCES, isLearningPreferences, type LearningPreferences } from './models/learning-preferences';
+import { ACTIVATION_STORAGE_KEY, activationEnabledFromStorageChange } from './models/persistent-activation';
+import { isAuthoritativeToggleState, scheduleStorageOnFallback } from './services/activation-toggle-authority';
 import { ManualActivationManager } from './services/activation-manager';
+import { stopLocalActivation } from './services/local-activation-stop';
+import { LocalGateRevision } from './services/local-gate-revision';
 import { TranscriptService } from './services/transcript-service';
+import { continueAfterContextPublish } from './services/transition-safety';
 import { PAGE_CAPTION_TRACKS_MESSAGE } from './services/youtube-page-caption-tracks';
 import { createBrowserYoutubeSpaTransitionObserver, type YoutubeSpaTransitionObserver } from './services/youtube-spa-transition-observer';
 
@@ -16,6 +21,9 @@ const SESSION_WAIT_ATTEMPTS = 100;
 const SESSION_WAIT_INTERVAL_MS = 100;
 const DOM_FALLBACK_SETTLE_MS = 8_000;
 const DOM_QUIET_PERIOD_MS = 1_500;
+// A relay can spend 1.5s ensuring the script and 1.5s awaiting its response.
+// Storage fallback must start after that explicit-user delivery window.
+const STORAGE_ON_FALLBACK_DELAY_MS = 3_500;
 
 export interface VideoActivationContentScriptOptions {
   tabId: number;
@@ -45,6 +53,8 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   let domDeadlineAt: number | null = null;
   let submittedGeneration: number | null = null;
   let latestTranscript: TranscriptReadResult | null = null;
+  let storageOnTimer: number | null = null;
+  const gateRevision = new LocalGateRevision();
 
   const current = (id: string, value: number) => !disposed && enabled && activeId === id && generation === value;
   const publishStatus = (youtubeVideoId: string, correlationId: string, payload: OperationStatusPayload) => publish(createVideoActivationMessage('OPERATION_STATUS_CHANGED', payload, { correlationId, tabId: options.tabId, youtubeVideoId }));
@@ -183,14 +193,23 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     if (previous) {
       const oldActivation = manager.getCurrentActivationId();
       disposePage();
-      activeId = null;
+      // Reserve the observed destination before the fallible relay. If B is
+      // immediately replaced by C, C can invalidate this generation while B
+      // is still publishing and B can never resume stale work afterwards.
+      activeId = next.youtubeVideoId;
+      const transitionGeneration = generation;
       const transitionId = crypto.randomUUID();
-      await publish(createVideoActivationMessage('VIDEO_CONTEXT_CHANGED', {
-        transitionId,
-        previousActivationId: oldActivation ?? transitionId,
-        previousYoutubeVideoId: previous.youtubeVideoId,
-        videoTitle: next.title,
-      }, { correlationId: transitionId, tabId: options.tabId, youtubeVideoId: next.youtubeVideoId }));
+      await continueAfterContextPublish(
+        () => publish(createVideoActivationMessage('VIDEO_CONTEXT_CHANGED', {
+          transitionId,
+          previousActivationId: oldActivation ?? transitionId,
+          previousYoutubeVideoId: previous.youtubeVideoId,
+          videoTitle: next.title,
+        }, { correlationId: transitionId, tabId: options.tabId, youtubeVideoId: next.youtubeVideoId })),
+        () => current(next.youtubeVideoId, transitionGeneration),
+        () => begin(next, crypto.randomUUID(), source, true),
+      );
+      return;
     }
     if (!disposed && enabled) await begin(next, crypto.randomUUID(), source, Boolean(previous));
   };
@@ -220,12 +239,26 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   };
 
   const stop = async (correlationId: string) => {
-    enabled = false;
-    observer?.dispose();
-    observer = null;
-    if (activeId) await manager.request('off', activeId, correlationId, 'user');
-    disposePage();
-    activeId = null;
+    const stoppingVideoId = activeId;
+    await stopLocalActivation({
+      invalidateLocalWork: () => {
+        // This must remain synchronous and before the event publish. It makes
+        // every pending fetch/timer/player callback stale even if relay fails.
+        enabled = false;
+        observer?.dispose();
+        observer = null;
+        disposePage();
+        activeId = null;
+        latestTranscript = null;
+      },
+      publishDisabled: () => stoppingVideoId
+        ? manager.request('off', stoppingVideoId, correlationId, 'user')
+        : Promise.resolve(true),
+    });
+  };
+  const clearStorageOnTimer = () => {
+    if (storageOnTimer !== null) window.clearTimeout(storageOnTimer);
+    storageOnTimer = null;
   };
 
   const start = async (correlationId: string, activationSource: ActivationSource) => {
@@ -260,10 +293,17 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
       (toggleRequest.requestedState === 'on' || toggleRequest.requestedState === 'off') &&
       typeof toggleRequest.correlationId === 'string' &&
       (toggleRequest.source === 'user' || toggleRequest.source === 'storageRestore')) {
-      void (toggleRequest.requestedState === 'on'
-        ? start(toggleRequest.correlationId, toggleRequest.source)
-        : stop(toggleRequest.correlationId).then(() => ({ ok: true })))
-        .then(respond, () => respond({ ok: false, code: 'activationUnavailable' }));
+      const commandRevision = gateRevision.invalidate();
+      clearStorageOnTimer();
+      void chrome.storage.local.get(ACTIVATION_STORAGE_KEY).then(async (stored) => {
+        if (!gateRevision.isCurrent(commandRevision) ||
+          !isAuthoritativeToggleState(toggleRequest.requestedState!, stored[ACTIVATION_STORAGE_KEY])) {
+          return { ok: true, code: 'staleActivationCommand' };
+        }
+        return toggleRequest.requestedState === 'on'
+          ? start(toggleRequest.correlationId!, toggleRequest.source!)
+          : stop(toggleRequest.correlationId!).then(() => ({ ok: true }));
+      }).then(respond, () => respond({ ok: false, code: 'activationUnavailable' }));
       return true;
     }
     if (retryRequest.type === 'OPERATION_RETRY_REQUEST' && retryRequest.payload?.operation === 'transcriptUpload') {
@@ -278,9 +318,37 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   };
 
   chrome.runtime.onMessage.addListener(onMessage);
+  const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
+    const nextEnabled = activationEnabledFromStorageChange(changes, areaName);
+    if (nextEnabled === null || disposed) return;
+    const revision = gateRevision.invalidate();
+    clearStorageOnTimer();
+    const correlationId = crypto.randomUUID();
+    // chrome.storage.local is the authoritative global gate. Calling stop()
+    // begins with synchronous invalidation before its first fallible publish.
+    if (nextEnabled) {
+      // Give the explicit user command a chance to arrive with source=user.
+      // If that tab relay fails, storage remains an authoritative fallback.
+      storageOnTimer = scheduleStorageOnFallback({
+        gate: gateRevision,
+        revision,
+        delayMs: STORAGE_ON_FALLBACK_DELAY_MS,
+        schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+        activate: () => {
+          storageOnTimer = null;
+          if (!disposed) void start(correlationId, 'storageRestore');
+        },
+      });
+    } else void stop(correlationId).catch(() => undefined);
+  };
+  chrome.storage.onChanged.addListener(onStorageChanged);
+  const startupRevision = gateRevision.snapshot();
   void chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVATION_STATE' })
-    .then((state: { enabled?: boolean; correlationId?: string } | undefined) => {
-      if (state?.enabled && !disposed) void start(state.correlationId ?? crypto.randomUUID(), 'storageRestore');
+    .then((state: { enabled?: boolean; correlationId?: string; source?: unknown } | undefined) => {
+      if (state?.enabled && !disposed && gateRevision.isCurrent(startupRevision)) {
+        const activationSource = state.source === 'user' ? 'user' : 'storageRestore';
+        void start(state.correlationId ?? crypto.randomUUID(), activationSource);
+      }
     })
     .catch(() => undefined);
 
@@ -293,7 +361,9 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
       disposePage();
       activeId = null;
       latestTranscript = null;
+      clearStorageOnTimer();
       chrome.runtime.onMessage.removeListener(onMessage);
+      chrome.storage.onChanged.removeListener(onStorageChanged);
     },
   };
 }

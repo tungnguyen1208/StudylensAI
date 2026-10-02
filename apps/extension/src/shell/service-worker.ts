@@ -16,6 +16,8 @@ import {
   PAGE_CAPTION_TRACKS_MESSAGE,
   sanitizePageCaptionTracks,
 } from '../features/video-activation/services/youtube-page-caption-tracks';
+import { broadcastGlobalActivation, GlobalActivationGateCoordinator } from '../features/video-activation/services/global-activation-toggle';
+import { matchesContentMessageOrigin } from '../features/video-activation/services/content-message-origin';
 import {
   handleSessionQuizRequest,
   SESSION_QUIZ_REQUEST_MESSAGE,
@@ -41,6 +43,9 @@ const relayableMessageTypes = new Set([
   'QUIZ_AVAILABLE', 'OPERATION_STATUS_CHANGED',
 ]);
 const panelRefreshTimers = new Map<number, number>();
+const activationGate = new GlobalActivationGateCoordinator<PersistedActivationState>();
+let activationStateSource: 'user' | 'storageRestore' = 'storageRestore';
+let activationSourceRevision = 0;
 const sessionQuizBackend: SessionQuizBackendPort = {
   start: (request) => httpClient.post('api/sessions', request),
   complete: (sessionId, request) => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/complete`, request),
@@ -105,11 +110,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
   if (isStateRequest(message)) {
-    void readActivationState().then((state) => sendResponse({ ...state, source: 'storageRestore', correlationId: crypto.randomUUID() }));
+    void readActivationState().then((state) => sendResponse({ ...state, source: activationStateSource, correlationId: crypto.randomUUID() }));
     return true;
   }
   if (isToggleRequest(message)) {
-    void toggleForActiveTab(message.requestedState).then(sendResponse);
+    void requestGlobalToggle(message.requestedState).then(sendResponse);
     return true;
   }
   if (isPreferencesGetRequest(message)) {
@@ -133,7 +138,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void retryForActiveTab(message.operation).then(sendResponse);
     return true;
   }
-  if (!sender.tab?.id || !isRelayableContentMessage(message)) return;
+  if (!sender.tab?.id || !isRelayableContentMessage(message) || !matchesContentMessageOrigin(message, sender.tab)) return;
   void chrome.runtime.sendMessage(message).catch(() => undefined);
 });
 
@@ -169,24 +174,36 @@ function savePreferences(value: unknown): Promise<LearningPreferences> {
   return saveLearningPreferences(storage(), value);
 }
 
-async function toggleForActiveTab(requestedState: 'on' | 'off') {
-  const state = await savePersistedActivationState(storage(), requestedState === 'on');
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!tab?.id || !isYoutubeUrl(tab.url)) return { ok: true, pendingPageCapture: requestedState === 'on', state };
-  try {
-    await ensureContentScriptReady(tab.id);
-    const result = await chrome.tabs.sendMessage(tab.id, {
-      type: 'ACTIVATION_TOGGLE_REQUEST', requestedState, source: 'user', correlationId: crypto.randomUUID(),
-    }) as { ok?: boolean; code?: string } | undefined;
-    return { ok: result?.ok !== false, code: result?.code, state };
-  } catch {
-    return {
-      ok: true,
-      pendingPageCapture: requestedState === 'on',
-      ...(requestedState === 'on' ? { code: 'contentScriptUnavailable' } : {}),
-      state,
-    };
-  }
+async function relayGlobalToggle(
+  requestedState: 'on' | 'off',
+  state: PersistedActivationState,
+  isCurrent: () => boolean,
+) {
+  const delivery = await broadcastGlobalActivation(requestedState, {
+    queryTabs: () => chrome.tabs.query({}),
+    ensureContentScriptReady,
+    sendToggle: (tabId, request) => chrome.tabs.sendMessage(tabId, request),
+    createCorrelationId: () => crypto.randomUUID(),
+  }, { isCurrent });
+  return {
+    // Persistence is authoritative. Per-tab relay is best effort and failures
+    // are isolated; a newly loaded/reloaded tab restores the persisted gate.
+    ok: true,
+    pendingPageCapture: requestedState === 'on' && delivery.deliveredTabIds.length === 0,
+    ...(delivery.failedTabIds.length > 0 ? { code: 'partialTabDelivery', failedTabIds: delivery.failedTabIds } : {}),
+    state,
+  };
+}
+
+function requestGlobalToggle(requestedState: 'on' | 'off') {
+  const sourceRevision = ++activationSourceRevision;
+  activationStateSource = 'user';
+  return activationGate.request(
+    () => savePersistedActivationState(storage(), requestedState === 'on'),
+    (state, isCurrent) => relayGlobalToggle(requestedState, state, isCurrent),
+  ).finally(() => {
+    if (sourceRevision === activationSourceRevision) activationStateSource = 'storageRestore';
+  });
 }
 
 async function retryForActiveTab(operation: string): Promise<{ ok: boolean; code?: string }> {
@@ -465,7 +482,8 @@ function isActiveYoutubeContext(value: unknown, expectedTabId: number): value is
 function isRelayableContentMessage(value: unknown): value is { type: string; contractVersion: '0.5.0'; tabId: number; youtubeVideoId: string; payload: unknown } {
   const item = value as Partial<{ type: string; contractVersion: string; tabId: number; youtubeVideoId: string; payload: unknown }>;
   return Boolean(item) && typeof item.type === 'string' && relayableMessageTypes.has(item.type) &&
-    item.contractVersion === '0.5.0' && Number.isInteger(item.tabId) && typeof item.youtubeVideoId === 'string' && 'payload' in item;
+    item.contractVersion === '0.5.0' && Number.isInteger(item.tabId) &&
+    typeof item.youtubeVideoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(item.youtubeVideoId) && 'payload' in item;
 }
 
 if (chrome.sidePanel?.setPanelBehavior) {
