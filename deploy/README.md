@@ -3,9 +3,9 @@
 ## Release stack
 
 The release stack keeps PostgreSQL and FastAPI private on the Docker network;
-only ASP.NET Core is published on `127.0.0.1:5000`. Copy the release template,
-set a long random database password, and choose `fake` for deterministic smoke
-tests or `gemini` plus a server-side API key for provider acceptance:
+only ASP.NET Core is published on `127.0.0.1:5000`. Copy the release template
+and set a long random database password. Normal `smoke` runs use the Gemini
+settings from the ignored root `.env` (loaded after `deploy/release.env`):
 
 ```powershell
 Copy-Item deploy/release.env.example deploy/release.env
@@ -14,6 +14,19 @@ notepad deploy/release.env
 .\release.ps1 smoke
 .\release.ps1 down
 ```
+
+The fake provider is never the normal release default. Select it explicitly
+only for deterministic automated E2E work:
+
+```powershell
+.\release.ps1 smoke -Provider fake
+.\scripts\release-e2e.ps1
+```
+
+Use `.\release.ps1 smoke` without `-Provider fake` for real Gemini quiz,
+grading, and public-video transcript fallback. Restart the stack after changing
+the ignored `.env`; existing fake sessions remain historical rows, while new
+sessions use the newly configured provider.
 
 `migrate` must finish successfully before `api` starts. Production API startup
 does not migrate implicitly. Both application images run as non-root users,
