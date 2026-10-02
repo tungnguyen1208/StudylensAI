@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using StudyLens.Api.Features.SessionQuiz.Application;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
 using StudyLens.Api.Features.VideoActivation.Infrastructure;
@@ -30,6 +31,99 @@ public sealed class LearningPackageServiceTests
         Assert.Equal("notStarted", first.Package.QuizStatus);
         Assert.Single(await fixture.Db.Set<StudySessionEntity>().ToArrayAsync());
         Assert.Single(await fixture.Db.Set<StudyVideoEntity>().ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentStart_WithSameIdempotencyKey_ReplaysOneSession()
+    {
+        var databasePath = TemporaryDatabasePath();
+        try
+        {
+            var options = FileDatabaseOptions(databasePath);
+            await using (var setup = new StudyLensDbContext(options))
+                await setup.Database.EnsureCreatedAsync();
+            await using var firstDb = new StudyLensDbContext(options);
+            await using var secondDb = new StudyLensDbContext(options);
+            var command = StartCommand();
+
+            var results = await Task.WhenAll(
+                new LearningPackageService(firstDb).StartAsync(command, CancellationToken.None),
+                new LearningPackageService(secondDb).StartAsync(command, CancellationToken.None));
+
+            Assert.All(results, result => Assert.Equal(StatusCodes.Status200OK, result.StatusCode));
+            Assert.Equal(results[0].Package!.Session.SessionId, results[1].Package!.Session.SessionId);
+            await using var verification = new StudyLensDbContext(options);
+            Assert.Single(await verification.Set<StudySessionEntity>().ToArrayAsync());
+            Assert.Single(await verification.Set<StudyVideoEntity>().ToArrayAsync());
+        }
+        finally
+        {
+            DeleteTemporaryDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentStart_WithConflictingPayloadForSameKey_ReturnsOneConflict()
+    {
+        var databasePath = TemporaryDatabasePath();
+        try
+        {
+            var options = FileDatabaseOptions(databasePath);
+            await using (var setup = new StudyLensDbContext(options))
+                await setup.Database.EnsureCreatedAsync();
+            await using var firstDb = new StudyLensDbContext(options);
+            await using var secondDb = new StudyLensDbContext(options);
+            var command = StartCommand();
+
+            var results = await Task.WhenAll(
+                new LearningPackageService(firstDb).StartAsync(command, CancellationToken.None),
+                new LearningPackageService(secondDb).StartAsync(command with { VideoTitle = "Different lesson" }, CancellationToken.None));
+
+            Assert.Contains(results, result => result.StatusCode == StatusCodes.Status200OK);
+            Assert.Contains(results, result => result.StatusCode == StatusCodes.Status409Conflict);
+            await using var verification = new StudyLensDbContext(options);
+            Assert.Single(await verification.Set<StudySessionEntity>().ToArrayAsync());
+        }
+        finally
+        {
+            DeleteTemporaryDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentStart_DifferentActivationsSameVideo_CreatesTwoSessionsAndOneVideo()
+    {
+        var databasePath = TemporaryDatabasePath();
+        try
+        {
+            var setupOptions = FileDatabaseOptions(databasePath);
+            await using (var setup = new StudyLensDbContext(setupOptions))
+                await setup.Database.EnsureCreatedAsync();
+            var saveBarrier = new TwoPartySaveBarrierInterceptor();
+            var concurrentOptions = FileDatabaseOptions(databasePath, saveBarrier);
+            await using var firstDb = new StudyLensDbContext(concurrentOptions);
+            await using var secondDb = new StudyLensDbContext(concurrentOptions);
+            var firstCommand = StartCommand();
+            var secondCommand = firstCommand with
+            {
+                ActivationId = "22222222-2222-4222-8222-222222222222",
+                IdempotencyKey = "session:activation-2:dQw4w9WgXcQ",
+            };
+
+            var results = await Task.WhenAll(
+                new LearningPackageService(firstDb).StartAsync(firstCommand, CancellationToken.None),
+                new LearningPackageService(secondDb).StartAsync(secondCommand, CancellationToken.None));
+
+            Assert.All(results, result => Assert.Equal(StatusCodes.Status200OK, result.StatusCode));
+            Assert.NotEqual(results[0].Package!.Session.SessionId, results[1].Package!.Session.SessionId);
+            await using var verification = new StudyLensDbContext(setupOptions);
+            Assert.Equal(2, await verification.Set<StudySessionEntity>().CountAsync());
+            Assert.Single(await verification.Set<StudyVideoEntity>().ToArrayAsync());
+        }
+        finally
+        {
+            DeleteTemporaryDatabase(databasePath);
+        }
     }
 
     [Fact]
@@ -62,6 +156,134 @@ public sealed class LearningPackageServiceTests
             command with { ContentHash = new string('a', 64), IdempotencyKey = command.IdempotencyKey }, CancellationToken.None);
         Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
         Assert.Equal("idempotencyConflict", conflict.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConcurrentTranscriptSubmit_ReplaysOneCaptureAndOneJob()
+    {
+        var databasePath = TemporaryDatabasePath();
+        try
+        {
+            var options = FileDatabaseOptions(databasePath);
+            string sessionId;
+            await using (var setup = new StudyLensDbContext(options))
+            {
+                await setup.Database.EnsureCreatedAsync();
+                sessionId = (await new LearningPackageService(setup).StartAsync(StartCommand(), CancellationToken.None))
+                    .Package!.Session.SessionId;
+            }
+            var command = new SubmitFullTranscriptCommand(
+                "0.5.0", "transcript:concurrent", "dQw4w9WgXcQ", "en", "youtubeCaption", "available",
+                null, 10_000, [new TranscriptCueView(0, 10_000, "One complete transcript cue")]);
+            await using var firstDb = new StudyLensDbContext(options);
+            await using var secondDb = new StudyLensDbContext(options);
+
+            var results = await Task.WhenAll(
+                new LearningPackageService(firstDb).SubmitTranscriptAsync(sessionId, command, CancellationToken.None),
+                new LearningPackageService(secondDb).SubmitTranscriptAsync(sessionId, command, CancellationToken.None));
+
+            Assert.All(results, result => Assert.Equal(StatusCodes.Status200OK, result.StatusCode));
+            Assert.Equal(results[0].Package!.Transcript.TranscriptCaptureId, results[1].Package!.Transcript.TranscriptCaptureId);
+            await using var verification = new StudyLensDbContext(options);
+            Assert.Single(await verification.Set<TranscriptCaptureEntity>().ToArrayAsync());
+            Assert.Single(await verification.Set<ProcessingJobEntity>().ToArrayAsync());
+        }
+        finally
+        {
+            DeleteTemporaryDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentTranscriptSubmit_WithConflictingPayload_ReturnsOneConflict()
+    {
+        var databasePath = TemporaryDatabasePath();
+        try
+        {
+            var options = FileDatabaseOptions(databasePath);
+            string sessionId;
+            await using (var setup = new StudyLensDbContext(options))
+            {
+                await setup.Database.EnsureCreatedAsync();
+                sessionId = (await new LearningPackageService(setup).StartAsync(StartCommand(), CancellationToken.None))
+                    .Package!.Session.SessionId;
+            }
+            var command = new SubmitFullTranscriptCommand(
+                "0.5.0", "transcript:concurrent-conflict", "dQw4w9WgXcQ", "en", "youtubeCaption", "available",
+                null, 10_000, [new TranscriptCueView(0, 10_000, "First transcript payload")]);
+            await using var firstDb = new StudyLensDbContext(options);
+            await using var secondDb = new StudyLensDbContext(options);
+
+            var results = await Task.WhenAll(
+                new LearningPackageService(firstDb).SubmitTranscriptAsync(sessionId, command, CancellationToken.None),
+                new LearningPackageService(secondDb).SubmitTranscriptAsync(sessionId,
+                    command with { Cues = [new TranscriptCueView(0, 10_000, "Different transcript payload")] },
+                    CancellationToken.None));
+
+            Assert.Contains(results, result => result.StatusCode == StatusCodes.Status200OK);
+            Assert.Contains(results, result => result.StatusCode == StatusCodes.Status409Conflict);
+            await using var verification = new StudyLensDbContext(options);
+            Assert.Single(await verification.Set<TranscriptCaptureEntity>().ToArrayAsync());
+            Assert.Single(await verification.Set<ProcessingJobEntity>().ToArrayAsync());
+        }
+        finally
+        {
+            DeleteTemporaryDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentRetry_RequeuesTheSameFailedJobOnce()
+    {
+        var databasePath = TemporaryDatabasePath();
+        try
+        {
+            var options = FileDatabaseOptions(databasePath);
+            string sessionId;
+            string jobId;
+            await using (var setup = new StudyLensDbContext(options))
+            {
+                await setup.Database.EnsureCreatedAsync();
+                var service = new LearningPackageService(setup);
+                sessionId = (await service.StartAsync(StartCommand(), CancellationToken.None)).Package!.Session.SessionId;
+                await service.SubmitTranscriptAsync(sessionId,
+                    new SubmitFullTranscriptCommand("0.5.0", "transcript:retry-concurrent", "dQw4w9WgXcQ",
+                        "und", "youtubeCaption", "unavailable", null, null, []), CancellationToken.None);
+                var session = await setup.Set<StudySessionEntity>().SingleAsync();
+                var failedJob = await setup.Set<ProcessingJobEntity>().SingleAsync();
+                session.Status = "failed";
+                session.TranscriptStatus = "failed";
+                session.ErrorOperation = "transcriptGenerate";
+                session.ErrorCode = "providerTimeout";
+                session.ErrorMessage = "Timed out";
+                session.ErrorRetryable = true;
+                failedJob.Status = "failed";
+                failedJob.AttemptCount = 3;
+                failedJob.LastErrorCode = "providerTimeout";
+                failedJob.LastErrorMessage = "Timed out";
+                failedJob.LastErrorRetryable = true;
+                jobId = failedJob.ProcessingJobId;
+                await setup.SaveChangesAsync();
+            }
+            await using var firstDb = new StudyLensDbContext(options);
+            await using var secondDb = new StudyLensDbContext(options);
+
+            var results = await Task.WhenAll(
+                new LearningPackageService(firstDb).RetryAsync(sessionId, "0.5.0", "transcriptGenerate", CancellationToken.None),
+                new LearningPackageService(secondDb).RetryAsync(sessionId, "0.5.0", "transcriptGenerate", CancellationToken.None));
+
+            Assert.All(results, result => Assert.Equal(StatusCodes.Status200OK, result.StatusCode));
+            await using var verification = new StudyLensDbContext(options);
+            var jobs = await verification.Set<ProcessingJobEntity>().ToArrayAsync();
+            var job = Assert.Single(jobs);
+            Assert.Equal(jobId, job.ProcessingJobId);
+            Assert.Equal("queued", job.Status);
+            Assert.Equal(0, job.AttemptCount);
+        }
+        finally
+        {
+            DeleteTemporaryDatabase(databasePath);
+        }
     }
 
     [Fact]
@@ -139,6 +361,42 @@ public sealed class LearningPackageServiceTests
 
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static string TemporaryDatabasePath() =>
+        Path.Combine(Path.GetTempPath(), $"studylens-session-quiz-{Guid.NewGuid():N}.db");
+
+    private static DbContextOptions<StudyLensDbContext> FileDatabaseOptions(
+        string databasePath, IInterceptor? interceptor = null)
+    {
+        var builder = new DbContextOptionsBuilder<StudyLensDbContext>()
+            .UseSqlite($"Data Source={databasePath};Default Timeout=10;Pooling=False");
+        if (interceptor is not null) builder.AddInterceptors(interceptor);
+        return builder.Options;
+    }
+
+    private static void DeleteTemporaryDatabase(string databasePath)
+    {
+        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+        {
+            var path = databasePath + suffix;
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    private sealed class TwoPartySaveBarrierInterceptor : SaveChangesInterceptor
+    {
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int arrivals;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref arrivals) >= 2) release.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return result;
+        }
+    }
 
     private sealed class DatabaseFixture : IAsyncDisposable
     {

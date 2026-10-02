@@ -116,6 +116,42 @@ def test_provider_timeout_is_a_retryable_provider_failure() -> None:
     assert error.value.code == "providerTimeout"
 
 
+def test_timeout_is_one_deadline_for_the_entire_multi_chunk_request() -> None:
+    body = request_for("shortAnswer").model_dump()
+    body["endMs"] = 90_000
+    body["cues"] = [
+        {"startMs": 0, "endMs": 30_000, "text": "First part " + "x" * 13_000},
+        {"startMs": 60_000, "endMs": 90_000, "text": "Second part " + "y" * 13_000},
+    ]
+    request = QuestionGenerationRequest.model_validate(body)
+
+    class SlowPerChunkProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate(self, prompt: str) -> str:
+            self.calls += 1
+            await asyncio.sleep(0.05)
+            cue = read_evidence(prompt)["cues"][0]
+            return json.dumps({"questions": [{
+                "type": "shortAnswer",
+                "prompt": f"What happens at {cue['startMs']}?",
+                "referenceAnswer": cue["text"][:20],
+                "explanation": "The cited cue supplies the answer.",
+                "sourceStartMs": cue["startMs"],
+                "sourceEndMs": cue["endMs"],
+            }]})
+
+    provider = SlowPerChunkProvider()
+    service = QuestionGenerationService(provider=provider, timeout_seconds=0.075)
+
+    with pytest.raises(ProviderUnavailableError) as error:
+        asyncio.run(service.generate(request))
+
+    assert error.value.code == "providerTimeout"
+    assert 1 <= provider.calls <= 2
+
+
 def test_provider_crash_is_a_retryable_provider_failure() -> None:
     service = QuestionGenerationService(provider=StubProvider(error=RuntimeError("socket closed")))
 

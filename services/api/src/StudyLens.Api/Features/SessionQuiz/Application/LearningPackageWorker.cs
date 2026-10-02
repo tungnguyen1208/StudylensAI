@@ -208,9 +208,16 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             session.SessionId, capture.TranscriptCaptureId, session.YoutubeVideoId, startMs, endMs, questionCount,
             session.QuestionType, session.Difficulty, cues), cancellationToken);
         if (generated.Value is null) return AiJobOutcome.Fail(generated.ErrorCode!, generated.ErrorMessage!, generated.Retryable);
+        if (generated.Value.ContractVersion != LearningPackageService.ContractVersion ||
+            generated.Value.PromptVersion != LearningPackageService.ContractVersion)
+            return AiJobOutcome.Fail("invalidAiResponse", "The AI Service returned an unsupported response version.", false);
+        if (!ValidQuestionSet(generated.Value.Questions, questionCount, session.QuestionType, startMs, endMs, cues))
+            return AiJobOutcome.Fail("invalidAiOutput", "The AI Service returned an invalid quiz payload.", false);
 
-        var valid = generated.Value.Questions.Where(question => ValidQuestion(question, session.QuestionType, startMs, endMs)).Take(questionCount).ToArray();
-        if (valid.Length == 0) return AiJobOutcome.Fail("invalidAiOutput", "The AI Service did not return valid quiz questions.", false);
+        // The AI Service normally applies the target. Validate the complete
+        // payload before capping so an invalid trailing question cannot be
+        // silently discarded while a partial quiz is published.
+        var selected = generated.Value.Questions.ToArray();
         var quizId = Guid.NewGuid().ToString();
         var quiz = new QuizAssessmentEntity
         {
@@ -226,7 +233,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             PromptVersion = generated.Value.PromptVersion,
             ModelName = services.GetRequiredService<IConfiguration>()["AiService:QuestionGenerationModel"],
             CreatedAtUtc = DateTimeOffset.UtcNow,
-            Questions = valid.Select((question, position) =>
+            Questions = selected.Select((question, position) =>
             {
                 var questionId = Guid.NewGuid().ToString();
                 return new QuestionAssessmentEntity
@@ -236,8 +243,8 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
                     Type = question.Type,
                     Position = position,
                     Prompt = question.Prompt.Trim(),
-                    CorrectOptionId = question.CorrectOptionId,
-                    ReferenceAnswer = question.ReferenceAnswer,
+                    CorrectOptionId = question.CorrectOptionId?.Trim(),
+                    ReferenceAnswer = question.ReferenceAnswer?.Trim(),
                     Explanation = question.Explanation.Trim(),
                     YoutubeVideoId = session.YoutubeVideoId,
                     SourceStartMs = question.SourceStartMs,
@@ -245,7 +252,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
                     Options = question.Options?.Select((option, index) => new QuestionOptionEntity
                     {
                         QuestionOptionId = Guid.NewGuid().ToString(), QuestionId = questionId,
-                        OptionId = option.OptionId, Text = option.Text, Position = index,
+                        OptionId = option.OptionId.Trim(), Text = NormalizeGeneratedText(option.Text), Position = index,
                     }).ToList() ?? [],
                 };
             }).ToList(),
@@ -268,14 +275,52 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         _ => 15,
     };
 
-    private static bool ValidQuestion(FullVideoGeneratedQuestion question, string requestedType, long startMs, long endMs) =>
-        question.Type == requestedType && !string.IsNullOrWhiteSpace(question.Prompt) && !string.IsNullOrWhiteSpace(question.Explanation) &&
-        question.SourceStartMs >= startMs && question.SourceEndMs <= endMs && question.SourceEndMs > question.SourceStartMs &&
-        (question.Type == "multipleChoice"
-            ? question.Options is { Count: >= 2 } && !string.IsNullOrWhiteSpace(question.CorrectOptionId) &&
-              question.Options.Any(option => option.OptionId == question.CorrectOptionId) &&
-              question.Options.All(option => !string.IsNullOrWhiteSpace(option.OptionId) && !string.IsNullOrWhiteSpace(option.Text))
-            : !string.IsNullOrWhiteSpace(question.ReferenceAnswer));
+    private static bool ValidQuestionSet(IReadOnlyList<FullVideoGeneratedQuestion>? questions, int questionCount,
+        string requestedType, long startMs, long endMs, IReadOnlyList<TranscriptCueView> cues)
+    {
+        if (questions is not { Count: > 0 } || questions.Count > questionCount || questions.Count > 15 ||
+            questions.Any(question => question is null) || questions.Any(question =>
+                !ValidQuestion(question, requestedType, startMs, endMs, cues)))
+            return false;
+
+        var prompts = questions.Select(question => NormalizeGeneratedText(question.Prompt)).ToArray();
+        return prompts.Distinct(StringComparer.OrdinalIgnoreCase).Count() == prompts.Length;
+    }
+
+    private static bool ValidQuestion(FullVideoGeneratedQuestion question, string requestedType, long startMs, long endMs,
+        IReadOnlyList<TranscriptCueView> cues)
+    {
+        if (question.Type != requestedType || string.IsNullOrWhiteSpace(question.Prompt) ||
+            string.IsNullOrWhiteSpace(question.Explanation) || question.SourceStartMs < startMs ||
+            question.SourceEndMs > endMs || question.SourceEndMs <= question.SourceStartMs ||
+            !GroundedInCues(question.SourceStartMs, question.SourceEndMs, cues))
+            return false;
+
+        if (question.Type == "shortAnswer")
+            return !string.IsNullOrWhiteSpace(question.ReferenceAnswer) &&
+                question.Options is null or { Count: 0 } && string.IsNullOrWhiteSpace(question.CorrectOptionId);
+
+        if (question.Options is not { Count: >= 2 } || string.IsNullOrWhiteSpace(question.CorrectOptionId) ||
+            !string.IsNullOrWhiteSpace(question.ReferenceAnswer) ||
+            question.Options.Any(option => option is null || string.IsNullOrWhiteSpace(option.OptionId) || string.IsNullOrWhiteSpace(option.Text)))
+            return false;
+
+        var optionIds = question.Options.Select(option => option.OptionId.Trim()).ToArray();
+        var optionTexts = question.Options.Select(option => NormalizeGeneratedText(option.Text)).ToArray();
+        return optionIds.Distinct(StringComparer.Ordinal).Count() == optionIds.Length &&
+            optionTexts.Distinct(StringComparer.OrdinalIgnoreCase).Count() == optionTexts.Length &&
+            optionIds.Contains(question.CorrectOptionId.Trim(), StringComparer.Ordinal);
+    }
+
+    private static bool GroundedInCues(long sourceStartMs, long sourceEndMs, IReadOnlyList<TranscriptCueView> cues)
+    {
+        var cited = cues.Where(cue => cue.EndMs > sourceStartMs && cue.StartMs < sourceEndMs)
+            .OrderBy(cue => cue.StartMs).ThenBy(cue => cue.EndMs).ToArray();
+        return cited.Length > 0 && cited[0].StartMs == sourceStartMs && cited[^1].EndMs == sourceEndMs;
+    }
+
+    private static string NormalizeGeneratedText(string value) =>
+        string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }
 
 internal sealed record AiJobOutcome(bool Succeeded, string? Code, string? Message, bool Retryable)

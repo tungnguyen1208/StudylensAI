@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Globalization;
+using System.Text.Json;
 
 namespace StudyLens.Api.Features.SessionQuiz.Application;
 
@@ -12,11 +14,18 @@ public interface IFullVideoQuestionGenerationGateway
     Task<AiGatewayResult<FullVideoQuestionGenerationResponse>> GenerateAsync(FullVideoQuestionGenerationRequest request, CancellationToken cancellationToken);
 }
 
-public sealed class TranscriptGenerationClient(HttpClient httpClient, IConfiguration configuration) : ITranscriptGenerationGateway
+public sealed class TranscriptGenerationClient : ITranscriptGenerationGateway
 {
+    private readonly HttpClient httpClient;
+
+    public TranscriptGenerationClient(HttpClient httpClient, IConfiguration configuration)
+    {
+        this.httpClient = httpClient;
+        Configure(httpClient, configuration, TimeSpan.FromSeconds(300));
+    }
+
     public async Task<AiGatewayResult<TranscriptGenerationResponse>> GenerateAsync(TranscriptGenerationRequest request, CancellationToken cancellationToken)
     {
-        Configure(httpClient, configuration, TimeSpan.FromSeconds(300));
         return await SendAsync<TranscriptGenerationRequest, TranscriptGenerationResponse>(httpClient, "api/ai/transcripts/generate", request, cancellationToken);
     }
 
@@ -35,7 +44,7 @@ public sealed class TranscriptGenerationClient(HttpClient httpClient, IConfigura
             {
                 var value = await response.Content.ReadFromJsonAsync<TResponse>(cancellationToken: cancellationToken);
                 return value is null
-                    ? AiGatewayResult<TResponse>.Failure("invalidAiResponse", "The AI Service returned an empty response.", true)
+                    ? AiGatewayResult<TResponse>.Failure("invalidAiResponse", "The AI Service returned an empty response.", false)
                     : AiGatewayResult<TResponse>.Success(value);
             }
             var error = await response.Content.ReadFromJsonAsync<AiErrorResponse>(cancellationToken: cancellationToken);
@@ -49,17 +58,47 @@ public sealed class TranscriptGenerationClient(HttpClient httpClient, IConfigura
         {
             return AiGatewayResult<TResponse>.Failure("aiUnavailable", "The AI Service is unavailable.", true);
         }
+        catch (Exception exception) when (exception is JsonException or NotSupportedException)
+        {
+            return AiGatewayResult<TResponse>.Failure(
+                "invalidAiResponse", "The AI Service returned malformed JSON.", false);
+        }
     }
 }
 
-public sealed class FullVideoQuestionGenerationClient(HttpClient httpClient, IConfiguration configuration) : IFullVideoQuestionGenerationGateway
+public sealed class FullVideoQuestionGenerationClient : IFullVideoQuestionGenerationGateway
 {
+    private readonly HttpClient httpClient;
+
+    public FullVideoQuestionGenerationClient(HttpClient httpClient, IConfiguration configuration)
+    {
+        this.httpClient = httpClient;
+        TranscriptGenerationClient.Configure(httpClient, configuration, ResolveTimeout(configuration));
+    }
+
     public async Task<AiGatewayResult<FullVideoQuestionGenerationResponse>> GenerateAsync(FullVideoQuestionGenerationRequest request, CancellationToken cancellationToken)
     {
-        TranscriptGenerationClient.Configure(httpClient, configuration, TimeSpan.FromSeconds(180));
         return await TranscriptGenerationClient.SendAsync<FullVideoQuestionGenerationRequest, FullVideoQuestionGenerationResponse>(
             httpClient, "api/ai/question-generation/generate", request, cancellationToken);
     }
+
+    internal static TimeSpan ResolveTimeout(IConfiguration configuration)
+    {
+        const double defaultEnvelopeSeconds = 180;
+        const double defaultGraceSeconds = 15;
+        var envelopeSeconds = ReadPositiveSeconds(configuration["AiService:QuestionGenerationEnvelopeSeconds"])
+            ?? defaultEnvelopeSeconds;
+        var configuredClientSeconds = ReadPositiveSeconds(configuration["AiService:QuestionGenerationClientTimeoutSeconds"]);
+        var clientSeconds = configuredClientSeconds is > 0 && configuredClientSeconds > envelopeSeconds
+            ? configuredClientSeconds.Value
+            : envelopeSeconds + defaultGraceSeconds;
+        return TimeSpan.FromSeconds(clientSeconds);
+    }
+
+    private static double? ReadPositiveSeconds(string? value) =>
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) && seconds > 0
+            ? seconds
+            : null;
 }
 
 public sealed record AiGatewayResult<T>(T? Value, string? ErrorCode, string? ErrorMessage, bool Retryable)

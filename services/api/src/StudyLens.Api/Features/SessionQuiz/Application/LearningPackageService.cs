@@ -65,7 +65,50 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             StartedAtUtc = now,
         };
         db.Add(session);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // Another request may have committed the same idempotency key or
+            // activation after our read. Replay the winner instead of leaking
+            // a database constraint failure.
+            db.ChangeTracker.Clear();
+            var concurrent = await db.Set<StudySessionEntity>().AsNoTracking()
+                .SingleOrDefaultAsync(item => item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken)
+                ?? await db.Set<StudySessionEntity>().AsNoTracking()
+                    .SingleOrDefaultAsync(item => item.ActivationId == command.ActivationId, cancellationToken);
+            if (concurrent is not null)
+                return SameStart(concurrent, command)
+                    ? LearningPackageResult.Success(await BuildPackageAsync(concurrent, cancellationToken))
+                    : LearningPackageResult.Conflict();
+
+            // A different tab can start the same video with its own activation
+            // and idempotency key. Both requests may observe no video row; the
+            // losing insert retries only its session once against the video row
+            // committed by the winner.
+            if (!await db.Set<StudyVideoEntity>().AsNoTracking()
+                    .AnyAsync(item => item.YoutubeVideoId == command.YoutubeVideoId, cancellationToken))
+                throw;
+            db.Add(session);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                db.ChangeTracker.Clear();
+                concurrent = await db.Set<StudySessionEntity>().AsNoTracking()
+                    .SingleOrDefaultAsync(item => item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken)
+                    ?? await db.Set<StudySessionEntity>().AsNoTracking()
+                        .SingleOrDefaultAsync(item => item.ActivationId == command.ActivationId, cancellationToken);
+                if (concurrent is null) throw;
+                return SameStart(concurrent, command)
+                    ? LearningPackageResult.Success(await BuildPackageAsync(concurrent, cancellationToken))
+                    : LearningPackageResult.Conflict();
+            }
+        }
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
@@ -120,7 +163,24 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             QueueJob(session, "transcriptGenerate", $"transcript:{session.SessionId}:{session.YoutubeVideoId}");
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // Capture/job idempotency constraints arbitrate concurrent uploads.
+            // Reload the committed session so the losing request gets the same
+            // package when its payload is identical.
+            db.ChangeTracker.Clear();
+            var concurrent = await db.Set<StudySessionEntity>().AsNoTracking()
+                .SingleOrDefaultAsync(item => item.SessionId == sessionId, cancellationToken);
+            if (concurrent is null || string.IsNullOrWhiteSpace(concurrent.TranscriptSubmissionKey)) throw;
+            return concurrent.TranscriptSubmissionKey == command.IdempotencyKey &&
+                concurrent.TranscriptSubmissionFingerprint == fingerprint
+                    ? LearningPackageResult.Success(await BuildPackageAsync(concurrent, cancellationToken))
+                    : LearningPackageResult.Conflict();
+        }
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
@@ -139,20 +199,50 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         if (session is null) return LearningPackageResult.NotFound("sessionNotFound", "The study session was not found.");
         if (contractVersion != ContractVersion || operation is not ("transcriptGenerate" or "quizGenerate"))
             return LearningPackageResult.Invalid("invalidRetryRequest", "A supported failed operation is required.");
+        var jobs = await db.Set<ProcessingJobEntity>()
+            .Where(item => item.SessionId == sessionId && item.JobType == operation)
+            .ToArrayAsync(cancellationToken);
+        var latestJob = jobs.OrderByDescending(item => item.UpdatedAtUtc).ThenByDescending(item => item.CreatedAtUtc).FirstOrDefault();
+        if (session.Status == "active" && session.ErrorOperation is null && latestJob?.Status is "queued" or "running")
+            return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
         if (session.ErrorOperation != operation)
             return LearningPackageResult.Invalid("operationNotFailed", "Only the failed processing step can be retried.");
         if (session.Status != "failed")
             return LearningPackageResult.Invalid("sessionNotFailed", "Only a failed active-video session can be retried.");
         if (operation == "quizGenerate" && string.IsNullOrWhiteSpace(session.TranscriptCaptureId))
             return LearningPackageResult.Invalid("transcriptNotReady", "A validated transcript is required before quiz generation.");
+        if (latestJob is null || latestJob.Status != "failed")
+            return LearningPackageResult.Invalid("failedJobNotFound", "The failed processing job could not be resumed.");
 
-        var suffix = Guid.NewGuid().ToString("N");
-        QueueJob(session, operation, $"retry:{operation}:{session.SessionId}:{suffix}");
+        latestJob.Status = "queued";
+        latestJob.AttemptCount = 0;
+        latestJob.LastErrorCode = null;
+        latestJob.LastErrorMessage = null;
+        latestJob.LastErrorRetryable = false;
+        latestJob.UpdatedAtUtc = DateTimeOffset.UtcNow;
         if (operation == "transcriptGenerate") session.TranscriptStatus = "generating";
         else session.QuizStatus = "queued";
         session.Status = "active";
         ClearError(session);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            db.ChangeTracker.Clear();
+            var concurrentSession = await db.Set<StudySessionEntity>().AsNoTracking()
+                .SingleOrDefaultAsync(item => item.SessionId == sessionId, cancellationToken);
+            var concurrentJob = await db.Set<ProcessingJobEntity>().AsNoTracking()
+                .Where(item => item.SessionId == sessionId && item.JobType == operation)
+                .ToArrayAsync(cancellationToken);
+            var currentJob = concurrentJob.OrderByDescending(item => item.UpdatedAtUtc)
+                .ThenByDescending(item => item.CreatedAtUtc).FirstOrDefault();
+            if (concurrentSession?.Status == "active" && concurrentSession.ErrorOperation is null &&
+                currentJob?.Status is "queued" or "running")
+                return LearningPackageResult.Success(await BuildPackageAsync(concurrentSession, cancellationToken));
+            return LearningPackageResult.Conflict();
+        }
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 

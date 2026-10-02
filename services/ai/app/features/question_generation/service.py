@@ -51,10 +51,18 @@ class QuestionGenerationService:
         provider = self._provider or resolve_provider()
         questions: list[GeneratedQuestion] = []
         last_insufficient_error: InsufficientEvidenceError | None = None
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._timeout_seconds
         try:
             for chunk in _chunk_request(request):
                 try:
-                    raw = await asyncio.wait_for(provider.generate(build_prompt(chunk)), timeout=self._timeout_seconds)
+                    remaining_seconds = deadline - loop.time()
+                    if remaining_seconds <= 0:
+                        raise asyncio.TimeoutError
+                    raw = await asyncio.wait_for(
+                        provider.generate(build_prompt(chunk)),
+                        timeout=remaining_seconds,
+                    )
                 except InsufficientEvidenceError as error:
                     last_insufficient_error = error
                     continue

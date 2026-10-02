@@ -81,7 +81,7 @@ public sealed class LearningPackageWorkerTests
 
     [Theory]
     [InlineData(1, 1)]
-    [InlineData(7, 5)]
+    [InlineData(5, 5)]
     public async Task QuizGeneration_PublishesOnlyAvailableQuestionsUpToDurationTarget(int generatedCount, int expectedCount)
     {
         var options = new DbContextOptionsBuilder<StudyLensDbContext>().UseSqlite("Data Source=:memory:").Options;
@@ -110,6 +110,48 @@ public sealed class LearningPackageWorkerTests
         Assert.True(outcome.Succeeded);
         Assert.Equal("ready", session.QuizStatus);
         Assert.Equal(expectedCount, db.Set<QuizAssessmentEntity>().Local.Single().Questions.Count);
+    }
+
+    [Theory]
+    [InlineData("contractVersion", "invalidAiResponse")]
+    [InlineData("promptVersion", "invalidAiResponse")]
+    [InlineData("invalidTrailingQuestion", "invalidAiOutput")]
+    [InlineData("duplicatePrompt", "invalidAiOutput")]
+    [InlineData("duplicateOptionId", "invalidAiOutput")]
+    [InlineData("duplicateOptionText", "invalidAiOutput")]
+    [InlineData("ungroundedTimestamp", "invalidAiOutput")]
+    [InlineData("overTarget", "invalidAiOutput")]
+    [InlineData("nullQuestion", "invalidAiOutput")]
+    [InlineData("nullOption", "invalidAiOutput")]
+    public async Task QuizGeneration_RejectsTheWholeInvalidResponse(string fault, string expectedCode)
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>().UseSqlite("Data Source=:memory:").Options;
+        await using var db = new StudyLensDbContext(options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        var service = new LearningPackageService(db);
+        var started = (await service.StartAsync(new StartLearningSessionCommand(
+            "0.5.0", Guid.NewGuid().ToString(), $"session:invalid-{fault}", "RD53wLkH3mQ",
+            "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
+        await service.SubmitTranscriptAsync(started.Session.SessionId,
+            new SubmitFullTranscriptCommand("0.5.0", $"transcript:invalid-{fault}", "RD53wLkH3mQ",
+                "vi", "youtubeCaption", "available", null, 600_000,
+                [new TranscriptCueView(0, 10_000, "Binary search requires sorted input.")]), CancellationToken.None);
+
+        var session = await db.Set<StudySessionEntity>().SingleAsync();
+        var job = await db.Set<ProcessingJobEntity>().SingleAsync();
+        using var provider = new ServiceCollection()
+            .AddSingleton<IFullVideoQuestionGenerationGateway>(new FaultyQuestionGateway(fault))
+            .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+            .BuildServiceProvider();
+
+        var outcome = await LearningPackageWorker.GenerateQuizAsync(provider, db, session, job, CancellationToken.None);
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(expectedCode, outcome.Code);
+        Assert.Equal("queued", session.QuizStatus);
+        Assert.Null(session.QuizId);
+        Assert.Empty(db.Set<QuizAssessmentEntity>().Local);
     }
 
     [Fact]
@@ -150,8 +192,16 @@ public sealed class LearningPackageWorkerTests
             new CompleteLearningSessionCommand("0.5.0", Guid.NewGuid().ToString(), "videoEnded"), CancellationToken.None);
         Assert.Equal("failed", ended.Package!.Session.Status);
 
+        var failedJob = await db.Set<ProcessingJobEntity>().SingleAsync();
         var retry = await service.RetryAsync(started.Session.SessionId, "0.5.0", "quizGenerate", CancellationToken.None);
+        var replayedRetry = await service.RetryAsync(started.Session.SessionId, "0.5.0", "quizGenerate", CancellationToken.None);
         Assert.Equal("active", retry.Package!.Session.Status);
+        Assert.Equal(retry.Package.Session.SessionId, replayedRetry.Package!.Session.SessionId);
+        var requeuedJob = await db.Set<ProcessingJobEntity>().SingleAsync();
+        Assert.Equal(failedJob.ProcessingJobId, requeuedJob.ProcessingJobId);
+        Assert.Equal(failedJob.IdempotencyKey, requeuedJob.IdempotencyKey);
+        Assert.Equal("queued", requeuedJob.Status);
+        Assert.Equal(0, requeuedJob.AttemptCount);
         Assert.True(await worker.ProcessNextAsync(CancellationToken.None));
         var ready = (await service.GetAsync(started.Session.SessionId, CancellationToken.None)).Package!;
         Assert.Equal("ready", ready.QuizStatus);
@@ -273,6 +323,74 @@ public sealed class LearningPackageWorkerTests
                 [new FullVideoGeneratedQuestion("multipleChoice", "What does binary search require?",
                     [new FullVideoGeneratedOption("a", "Sorted input"), new FullVideoGeneratedOption("b", "Unsorted input")],
                     "a", null, "The video explains sorted input.", 0, 10_000)])));
+        }
+    }
+
+    private sealed class FaultyQuestionGateway(string fault) : IFullVideoQuestionGenerationGateway
+    {
+        public Task<AiGatewayResult<FullVideoQuestionGenerationResponse>> GenerateAsync(
+            FullVideoQuestionGenerationRequest request, CancellationToken cancellationToken)
+        {
+            var options = new[]
+            {
+                new FullVideoGeneratedOption("a", "Sorted input"),
+                new FullVideoGeneratedOption("b", "Unsorted input"),
+            };
+            var first = new FullVideoGeneratedQuestion(
+                "multipleChoice", "What does binary search require?", options,
+                "a", null, "The cue states the prerequisite.", 0, 10_000);
+            var second = new FullVideoGeneratedQuestion(
+                "multipleChoice", "Why is sorted input required?", options,
+                "a", null, "The cue states the prerequisite.", 0, 10_000);
+            var questions = new List<FullVideoGeneratedQuestion> { first };
+            var contractVersion = "0.5.0";
+            var promptVersion = "0.5.0";
+
+            switch (fault)
+            {
+                case "contractVersion":
+                    contractVersion = "0.4.0";
+                    break;
+                case "promptVersion":
+                    promptVersion = "0.4.0";
+                    break;
+                case "invalidTrailingQuestion":
+                    questions.Add(second with { Type = "shortAnswer", ReferenceAnswer = null });
+                    break;
+                case "duplicatePrompt":
+                    questions.Add(second with { Prompt = "  WHAT does   binary search require? " });
+                    break;
+                case "duplicateOptionId":
+                    questions[0] = first with
+                    {
+                        Options = [new FullVideoGeneratedOption("a", "Sorted input"), new FullVideoGeneratedOption("a", "Other")],
+                    };
+                    break;
+                case "duplicateOptionText":
+                    questions[0] = first with
+                    {
+                        Options = [new FullVideoGeneratedOption("a", "Sorted   input"), new FullVideoGeneratedOption("b", " sorted input ")],
+                    };
+                    break;
+                case "ungroundedTimestamp":
+                    questions[0] = first with { SourceStartMs = 1_000, SourceEndMs = 9_000 };
+                    break;
+                case "overTarget":
+                    questions = Enumerable.Range(1, 6).Select(index => first with { Prompt = $"Question {index}" }).ToList();
+                    break;
+                case "nullQuestion":
+                    questions.Add(null!);
+                    break;
+                case "nullOption":
+                    questions[0] = first with
+                    {
+                        Options = [null!, new FullVideoGeneratedOption("b", "Unsorted input")],
+                    };
+                    break;
+            }
+
+            return Task.FromResult(AiGatewayResult<FullVideoQuestionGenerationResponse>.Success(
+                new FullVideoQuestionGenerationResponse(contractVersion, promptVersion, questions)));
         }
     }
 
