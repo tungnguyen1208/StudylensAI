@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { LocalAnswerSubmission, QuizAttemptView, QuizAvailable } from '../types/assessment-types';
+import type { LocalAnswerSubmission, QuestionSourceRef, QuizAttemptView, QuizAvailable } from '../types/assessment-types';
 import { operationFailure, type OperationStatusPayload } from '../../../shared/messaging/operation-status';
 import { MultipleChoiceAnswer } from './MultipleChoiceAnswer';
 import { ShortAnswerInput } from './ShortAnswerInput';
@@ -9,7 +9,7 @@ interface AssessmentPanelProps {
   submitAttempt: (submissions: LocalAnswerSubmission[], clientAttemptId: string) => Promise<QuizAttemptView>;
   onOperationStatus?: (status: OperationStatusPayload) => void;
   onAttempt?: (attempt: QuizAttemptView) => void;
-  onSeekEvidence?: (timestampMs: number) => void;
+  onSeekEvidence?: (source: QuestionSourceRef) => void;
 }
 
 type Drafts = Record<string, string>;
@@ -93,7 +93,7 @@ export function AssessmentPanel({
                 <p>Đáp án tham khảo: {result.referenceAnswer}</p>
                 <p>{result.explanation}</p>
                 {result.outcome !== 'correct' ? (
-                  <button type="button" className="secondary-button" onClick={() => onSeekEvidence?.(result.source.startMs)}>
+                  <button type="button" className="secondary-button" onClick={() => onSeekEvidence?.(result.source)}>
                     Xem lại tại mốc {formatTimestamp(result.source.startMs)}
                   </button>
                 ) : null}

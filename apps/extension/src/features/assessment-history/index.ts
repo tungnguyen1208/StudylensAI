@@ -26,6 +26,7 @@ export { GradeResult } from './components/GradeResult';
 export { HistoryPage } from './components/HistoryPage';
 export { MultipleChoiceAnswer } from './components/MultipleChoiceAnswer';
 export { ShortAnswerInput } from './components/ShortAnswerInput';
+export { youtubeEvidenceUrl } from './services/evidence-review';
 export {
   ASSESSMENT_HISTORY_CONTRACT_VERSION,
   type AnswerDraft,

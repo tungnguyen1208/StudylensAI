@@ -18,7 +18,7 @@ function validator(name: string) {
 }
 
 describe('grading AI contract 0.5.0', () => {
-  it('validates the deterministic short-answer request fixture and contract version', () => {
+  it('validates the provider-backed short-answer request fixture and contract version', () => {
     const validate = validator('ShortAnswerGradeRequest');
     const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/short-answer-grade.request.json`, 'utf8'));
     expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
@@ -28,10 +28,17 @@ describe('grading AI contract 0.5.0', () => {
     expect(validate.errors?.some((error) => error.instancePath === '/questionId' && error.keyword === 'format')).toBe(true);
   });
 
-  it('validates a bounded fake-LLM grade and rejects invalid output', () => {
+  it('validates a bounded provider grade and rejects invalid output', () => {
     const validate = validator('ShortAnswerGradeResponse');
     const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/short-answer-grade.response.json`, 'utf8'));
     expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
     expect(validate({ ...fixture, outcome: 'unknown', score: 2 })).toBe(false);
+  });
+
+  it('validates retryable provider errors without exposing vendor details', () => {
+    const validate = validator('AiErrorEnvelope');
+    const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/short-answer-grade-provider-error.json`, 'utf8'));
+    expect(validate(fixture), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...fixture, providerStack: 'secret' })).toBe(false);
   });
 });

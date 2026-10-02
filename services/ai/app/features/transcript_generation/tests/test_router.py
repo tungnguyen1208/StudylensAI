@@ -1,11 +1,18 @@
 from fastapi.testclient import TestClient
 
 from app.features.transcript_generation.router import get_service
-from app.features.transcript_generation.service import TranscriptGenerationService
+from app.features.transcript_generation.service import DeterministicTranscriptProvider, TranscriptGenerationService
 from app.main import app
 
 
 client = TestClient(app)
+
+
+def setup_function() -> None:
+    # Route tests must stay offline even when the developer's .env selects Gemini.
+    app.dependency_overrides[get_service] = lambda: TranscriptGenerationService(
+        provider=DeterministicTranscriptProvider()
+    )
 
 
 def teardown_function() -> None:

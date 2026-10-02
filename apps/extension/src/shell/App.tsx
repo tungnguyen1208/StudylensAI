@@ -7,8 +7,10 @@ import {
   type GradeView,
   type HistoryEntryReadModel,
   type LocalAnswerSubmission,
+  type QuestionSourceRef,
   type QuizAttemptView,
   type QuizAvailable,
+  youtubeEvidenceUrl,
 } from '../features/assessment-history';
 import type { LearningPackage, ProcessingOperation } from '../features/session-quiz/models/session-quiz-contracts';
 import {
@@ -269,6 +271,26 @@ export const App: React.FC = () => {
     if (!result.ok) setSeekError(`Không thể tua video đến mốc đã chọn (${result.code ?? 'seekFailed'}).`);
   };
 
+  const reviewEvidence = async (youtubeVideoId: string, timestampMs: number) => {
+    const activeContext = activationState.context;
+    if (activeContext?.youtubeVideoId === youtubeVideoId) {
+      await seekToTranscriptCue(timestampMs);
+      return;
+    }
+
+    const url = youtubeEvidenceUrl(youtubeVideoId, timestampMs);
+    if (!url || typeof chrome === 'undefined' || !chrome.tabs?.create) {
+      setSeekError('Không thể mở video tại mốc đã lưu.');
+      return;
+    }
+    setSeekError(null);
+    try {
+      await chrome.tabs.create({ url });
+    } catch {
+      setSeekError('Không thể mở video tại mốc đã lưu.');
+    }
+  };
+
   const refreshHistoryTab = async () => {
     setHistoryStatus('loading');
     setHistoryError(null);
@@ -400,7 +422,7 @@ export const App: React.FC = () => {
               ) : (
                 <>
                   <div className="section-heading-row"><h2 id="quiz-ready-heading" className="section-heading">Bài kiểm tra</h2><button type="button" className="secondary-button" onClick={() => setQuizStarted(false)}>Thu gọn</button></div>
-                  <AssessmentPanel quiz={quiz} submitAttempt={submitAssessmentAttempt} onOperationStatus={(status) => setOperationStatuses((current) => ({ ...current, [status.operation]: status }))} onAttempt={handleAttempt} onSeekEvidence={(timestampMs) => void seekToTranscriptCue(timestampMs)} />
+                  <AssessmentPanel quiz={quiz} submitAttempt={submitAssessmentAttempt} onOperationStatus={(status) => setOperationStatuses((current) => ({ ...current, [status.operation]: status }))} onAttempt={handleAttempt} onSeekEvidence={(source: QuestionSourceRef) => void reviewEvidence(source.youtubeVideoId, source.startMs)} />
                 </>
               )}
             </section>
@@ -411,7 +433,8 @@ export const App: React.FC = () => {
           <section className="panel-section"><h2 className="section-heading">Kết quả gần nhất</h2>{latestGrade ? <GradeResult grade={latestGrade} /> : <p className="section-copy">Chưa có kết quả chấm điểm.</p>}</section>
           <section className="panel-section">
             <div className="section-heading-row"><h2 className="section-heading">Lịch sử học tập</h2><button type="button" className="secondary-button" onClick={() => void refreshHistoryTab()} disabled={historyStatus === 'loading'}>{historyStatus === 'loading' ? 'Đang tải…' : 'Làm mới'}</button></div>
-            {historyError ? <p className="health-error" role="alert">{historyError}</p> : <HistoryPage entries={historyEntries} />}
+            {historyError ? <p className="health-error" role="alert">{historyError}</p> : <HistoryPage entries={historyEntries} onReviewEvidence={(videoId, timestampMs) => void reviewEvidence(videoId, timestampMs)} />}
+            {seekError ? <p className="health-error" role="alert">{seekError}</p> : null}
           </section>
         </div>
       ) : (

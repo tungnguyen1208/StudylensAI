@@ -7,6 +7,7 @@ import { AssessmentPanel } from '../components/AssessmentPanel';
 import { MultipleChoiceAnswer } from '../components/MultipleChoiceAnswer';
 import { GradeResult } from '../components/GradeResult';
 import { HistoryPage } from '../components/HistoryPage';
+import { youtubeEvidenceUrl } from '../services/evidence-review';
 
 describe('assessment view-model workflow', () => {
   it('produces a post-submit result and history entry for a MCQ fixture answer', async () => {
@@ -97,7 +98,7 @@ describe('assessment view-model workflow', () => {
       answerAttemptId: 'answer-a', youtubeVideoId: 'dQw4w9WgXcQ', videoTitle: 'Networking lesson',
       videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', sessionId: 'session-a',
       questionId: 'question-a', questionPrompt: 'Question A', questionType: 'multipleChoice' as const,
-      submittedAnswer: 'A', outcome: 'correct' as const, score: 1, explanation: 'Correct',
+      submittedAnswer: 'A', referenceAnswer: 'A', outcome: 'correct' as const, score: 1, explanation: 'Correct because the transcript says A.',
       timestampMs: 0, submittedAtUtc: '2026-10-01T10:00:00Z', quizAttemptId: 'attempt-a', attemptScore: 1,
     };
     const markup = renderToStaticMarkup(createElement(HistoryPage, { entries: [
@@ -106,12 +107,22 @@ describe('assessment view-model workflow', () => {
       { ...base, answerAttemptId: 'answer-c', youtubeVideoId: 'RD53wLkH3mQ', videoTitle: 'Binary search',
         videoUrl: 'https://www.youtube.com/watch?v=RD53wLkH3mQ', sessionId: 'session-c',
         questionId: 'question-c', questionPrompt: 'Question C' },
-    ] }));
+    ], onReviewEvidence: () => {} }));
 
     expect(markup.match(/class="history-video"/g)).toHaveLength(2);
     expect(markup.match(/class="history-session"/g)).toHaveLength(3);
     expect(markup).toContain('Networking lesson');
     expect(markup).toContain('Binary search');
     expect(markup).toContain('https://www.youtube.com/watch?v=RD53wLkH3mQ');
+    expect(markup).toContain('Đáp án tham khảo: A');
+    expect(markup).toContain('Giải thích: Correct because the transcript says A.');
+    expect(markup).toContain('Xem lại tại mốc 0:00');
+  });
+
+  it('builds a safe cross-video evidence URL with a timestamp', () => {
+    expect(youtubeEvidenceUrl('RD53wLkH3mQ', 68_999))
+      .toBe('https://www.youtube.com/watch?v=RD53wLkH3mQ&t=68s');
+    expect(youtubeEvidenceUrl('invalid', 1_000)).toBeNull();
+    expect(youtubeEvidenceUrl('RD53wLkH3mQ', -1)).toBeNull();
   });
 });

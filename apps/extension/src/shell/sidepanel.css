@@ -377,6 +377,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .history-session { display: grid; min-width: 0; gap: 8px; padding: 10px; border-radius: 8px; background: var(--sl-surface-muted); }
 .history-session__summary strong { font-size: 12px; }
 .history-session li strong { color: var(--sl-text); font-size: 12px; }
+.history-session li .secondary-button { margin-top: 4px; justify-self: start; }
 .history-attempt { display: grid; min-width: 0; gap: 6px; padding: 8px; border: 1px solid var(--sl-border); border-radius: 7px; background: var(--sl-surface); }
 
 .assessment { display: grid; min-width: 0; gap: 12px; }

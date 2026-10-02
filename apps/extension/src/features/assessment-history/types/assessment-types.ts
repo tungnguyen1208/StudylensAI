@@ -51,7 +51,7 @@ export interface QuizAttemptView {
   submittedAtUtc: string;
 }
 
-/** Persistent Backend read model. It deliberately never includes private grading material. */
+/** Persistent post-submit Backend read model; reference answers are released only after grading. */
 export interface HistoryEntryReadModel {
   answerAttemptId: string;
   youtubeVideoId: string;
@@ -64,6 +64,7 @@ export interface HistoryEntryReadModel {
   questionPrompt: string;
   questionType: QuestionType;
   submittedAnswer: string;
+  referenceAnswer: string;
   outcome: GradeOutcome;
   score: number;
   explanation: string;

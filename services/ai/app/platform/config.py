@@ -19,5 +19,6 @@ class Settings(BaseModel):
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     transcript_timeout_seconds: float = float(os.getenv("TRANSCRIPT_TIMEOUT_SECONDS", "300"))
     quiz_timeout_seconds: float = float(os.getenv("QUIZ_TIMEOUT_SECONDS", "180"))
+    grading_timeout_seconds: float = float(os.getenv("GRADING_TIMEOUT_SECONDS", "60"))
 
 settings = Settings()

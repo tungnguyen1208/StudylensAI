@@ -137,7 +137,8 @@ public class AssessmentHistoryModuleTests
 
         Assert.Null(result.Grade);
         Assert.Equal(503, result.StatusCode);
-        Assert.Equal("gradingUnavailable", result.ErrorCode);
+        Assert.Equal("invalidAiGrade", result.ErrorCode);
+        Assert.True(result.Retryable);
     }
 
     [Fact]
@@ -156,7 +157,9 @@ public class AssessmentHistoryModuleTests
         var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
             "0.5.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
 
-        Assert.Null(result);
+        Assert.Null(result.Grade);
+        Assert.Equal("invalidAiGrade", result.ErrorCode);
+        Assert.True(result.Retryable);
     }
 
     [Fact]
@@ -175,7 +178,8 @@ public class AssessmentHistoryModuleTests
         var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
             "0.5.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
 
-        Assert.Null(result);
+        Assert.Null(result.Grade);
+        Assert.Equal("invalidAiGrade", result.ErrorCode);
     }
 
     [Fact]
@@ -195,8 +199,29 @@ public class AssessmentHistoryModuleTests
         var result = await gateway.GradeAsync(new ShortAnswerGradeRequest(
             "0.5.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
 
-        Assert.NotNull(result);
+        Assert.NotNull(result.Grade);
         Assert.Contains("\"contractVersion\":\"0.5.0\"", handler.RequestBody ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task ShortAnswerGradingClient_PreservesRetryableProviderError()
+    {
+        using var httpClient = new HttpClient(new StaticResponseHandler(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        {
+            Content = new StringContent("{\"code\":\"providerRateLimited\",\"message\":\"Quota reached.\",\"retryable\":true}"),
+        }));
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AiService:BaseUrl"] = "https://fake-ai.test",
+        }).Build();
+
+        var result = await new ShortAnswerGradingClient(httpClient, configuration).GradeAsync(new ShortAnswerGradeRequest(
+            "0.5.0", "question-1", "Prompt", "Reference answer", "Answer"), CancellationToken.None);
+
+        Assert.Null(result.Grade);
+        Assert.Equal("providerRateLimited", result.ErrorCode);
+        Assert.Equal("Quota reached.", result.ErrorMessage);
+        Assert.True(result.Retryable);
     }
 
     private sealed class FakeQuestionReader : IQuestionAssessmentReader
@@ -214,14 +239,14 @@ public class AssessmentHistoryModuleTests
 
     private sealed class FakeShortAnswerGateway : IShortAnswerGradingGateway
     {
-        public Task<ShortAnswerGradeResponse?> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ShortAnswerGradeResponse?>(new("correct", 1, request.ReferenceAnswer, "OK"));
+        public Task<ShortAnswerGradingResult> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(ShortAnswerGradingResult.Success(new("correct", 1, request.ReferenceAnswer, "OK")));
     }
 
     private sealed class InvalidShortAnswerGateway : IShortAnswerGradingGateway
     {
-        public Task<ShortAnswerGradeResponse?> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ShortAnswerGradeResponse?>(new("unexpected", 2, string.Empty, string.Empty));
+        public Task<ShortAnswerGradingResult> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(ShortAnswerGradingResult.Failure("invalidAiGrade", "Invalid provider output.", true));
     }
 
     private sealed class StaticResponseHandler(HttpResponseMessage response) : HttpMessageHandler

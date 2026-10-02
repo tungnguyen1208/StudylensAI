@@ -88,7 +88,7 @@ components:
     HistoryItem:
       type: object
       additionalProperties: false
-      required: [answerAttemptId, youtubeVideoId, sessionId, questionId, questionPrompt, questionType, submittedAnswer, outcome, score, explanation, timestampMs, submittedAtUtc]
+      required: [answerAttemptId, youtubeVideoId, sessionId, questionId, questionPrompt, questionType, submittedAnswer, referenceAnswer, outcome, score, explanation, timestampMs, submittedAtUtc]
       properties:
         answerAttemptId: { type: string }
         youtubeVideoId: { type: string }
@@ -101,6 +101,7 @@ components:
         questionPrompt: { type: string }
         questionType: { type: string, enum: [multipleChoice, shortAnswer] }
         submittedAnswer: { type: string }
+        referenceAnswer: { type: string, description: Correct/reference answer released only after submission }
         outcome: { type: string, enum: [correct, incorrect, partiallyCorrect] }
         score: { type: number, minimum: 0, maximum: 1 }
         explanation: { type: string }

@@ -19,6 +19,7 @@ export class FakeAssessmentWorkflow {
       submittedAnswer: submission.type === 'multipleChoice'
         ? question.options?.find((option) => option.optionId === submission.selectedOptionId)?.text ?? submission.selectedOptionId
         : submission.answerText,
+      referenceAnswer: grade.referenceAnswer,
       outcome: grade.outcome,
       score: grade.score,
       explanation: grade.explanation,

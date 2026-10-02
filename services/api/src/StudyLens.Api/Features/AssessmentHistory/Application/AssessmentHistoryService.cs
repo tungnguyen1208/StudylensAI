@@ -57,10 +57,13 @@ public sealed class AssessmentHistoryService(
             {
                 if (string.IsNullOrWhiteSpace(question.ReferenceAnswer))
                     return QuizAttemptResult.Invalid("missingReferenceAnswer", "The short-answer question cannot be graded.");
-                var response = await shortAnswers.GradeAsync(new("0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, submitted.AnswerText!), cancellationToken);
-                if (response is null || !IsValidShortAnswerGrade(response))
-                    return QuizAttemptResult.Unavailable("gradingUnavailable", "Short-answer grading is temporarily unavailable.");
-                grade = new GradeData(response.Outcome, response.Score, response.ReferenceAnswer, response.Explanation);
+                var grading = await shortAnswers.GradeAsync(new("0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, submitted.AnswerText!), cancellationToken);
+                if (grading.Grade is null || !IsValidShortAnswerGrade(grading.Grade))
+                    return QuizAttemptResult.Unavailable(
+                        grading.ErrorCode ?? "gradingUnavailable",
+                        grading.ErrorMessage ?? "Short-answer grading is temporarily unavailable.",
+                        grading.Retryable);
+                grade = new GradeData(grading.Grade.Outcome, grading.Grade.Score, grading.Grade.ReferenceAnswer, grading.Grade.Explanation);
             }
 
             graded.Add(new AttemptAnswerEntity
@@ -116,10 +119,24 @@ public sealed class AssessmentHistoryService(
         if (question.Type == "multipleChoice" && !ContainsOption(question, command.SelectedOptionId!))
             return AssessmentResult.Invalid("invalidOption", "The selected option does not belong to the quiz question.");
 
-        var grade = question.Type == "multipleChoice"
-            ? GradeMultipleChoice(question, command.SelectedOptionId!)
-            : await GradeShortAnswerAsync(question, command.AnswerText!, cancellationToken);
-        if (grade is null) return AssessmentResult.Unavailable("gradingUnavailable", "Answer grading is temporarily unavailable.");
+        GradeData grade;
+        if (question.Type == "multipleChoice")
+        {
+            grade = GradeMultipleChoice(question, command.SelectedOptionId!);
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(question.ReferenceAnswer))
+                return AssessmentResult.Invalid("missingReferenceAnswer", "The short-answer question cannot be graded.");
+            var grading = await shortAnswers.GradeAsync(new(
+                "0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, command.AnswerText!), cancellationToken);
+            if (grading.Grade is null || !IsValidShortAnswerGrade(grading.Grade))
+                return AssessmentResult.Unavailable(
+                    grading.ErrorCode ?? "gradingUnavailable",
+                    grading.ErrorMessage ?? "Answer grading is temporarily unavailable.",
+                    grading.Retryable);
+            grade = new GradeData(grading.Grade.Outcome, grading.Grade.Score, grading.Grade.ReferenceAnswer, grading.Grade.Explanation);
+        }
 
         var attempt = new AnswerAttemptEntity
         {
@@ -165,7 +182,7 @@ public sealed class AssessmentHistoryService(
         var legacySource = database.Database.IsSqlite() ? query : query.OrderByDescending(item => item.GradedAtUtc).Take(100);
         var legacyItems = (await legacySource.Select(item => new HistoryItem(
             item.AnswerAttemptId, item.YoutubeVideoId, item.SessionId, item.QuestionId, item.QuestionPrompt,
-            item.QuestionType, item.SubmittedAnswer, item.Outcome, item.Score, item.Explanation,
+            item.QuestionType, item.SubmittedAnswer, item.ReferenceAnswer, item.Outcome, item.Score, item.Explanation,
             item.SourceStartMs, item.GradedAtUtc, null, null)).ToArrayAsync(cancellationToken))
             .OrderByDescending(item => item.SubmittedAtUtc).Take(100).ToArray();
         var currentQuery = db.AttemptAnswers.AsNoTracking().Include(item => item.QuizAttempt).AsQueryable();
@@ -173,7 +190,7 @@ public sealed class AssessmentHistoryService(
         var currentSource = database.Database.IsSqlite() ? currentQuery : currentQuery.OrderByDescending(item => item.QuizAttempt!.SubmittedAtUtc).Take(100);
         var currentItems = (await currentSource.Select(item => new HistoryItem(
             item.AttemptAnswerId, item.YoutubeVideoId, item.QuizAttempt!.SessionId, item.QuestionId, item.QuestionPrompt,
-            item.QuestionType, item.SubmittedAnswer, item.Outcome, item.Score, item.Explanation,
+            item.QuestionType, item.SubmittedAnswer, item.ReferenceAnswer, item.Outcome, item.Score, item.Explanation,
             item.SourceStartMs, item.QuizAttempt.SubmittedAtUtc, item.QuizAttemptId, item.QuizAttempt.Score)).ToArrayAsync(cancellationToken))
             .OrderByDescending(item => item.SubmittedAtUtc).Take(100).ToArray();
         var items = legacyItems.Concat(currentItems).OrderByDescending(item => item.SubmittedAtUtc).Take(100).ToArray();
@@ -227,15 +244,6 @@ public sealed class AssessmentHistoryService(
             : new GradeData("incorrect", 0, reference, "Câu trả lời chưa khớp với đáp án của bài kiểm tra.");
     }
 
-    private async Task<GradeData?> GradeShortAnswerAsync(QuestionForAssessment question, string answerText, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(question.ReferenceAnswer)) return null;
-        var response = await shortAnswers.GradeAsync(new("0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, answerText), cancellationToken);
-        return response is null || !IsValidShortAnswerGrade(response)
-            ? null
-            : new GradeData(response.Outcome, response.Score, response.ReferenceAnswer, response.Explanation);
-    }
-
     private static bool IsValidShortAnswerGrade(ShortAnswerGradeResponse response) =>
         (response.Outcome is "correct" or "incorrect" or "partiallyCorrect") &&
         double.IsFinite(response.Score) && response.Score is >= 0 and <= 1 &&
@@ -266,29 +274,29 @@ public sealed record SubmitAttemptAnswer(string QuestionId, string? SelectedOpti
 public sealed record SubmitQuizAttemptCommand(string ContractVersion, string ClientAttemptId, string QuizId, IReadOnlyList<SubmitAttemptAnswer> Answers);
 public sealed record AttemptAnswerView(string QuestionId, string Outcome, double Score, string SubmittedAnswer, string ReferenceAnswer, string Explanation, SourceRef Source);
 public sealed record QuizAttemptView(string QuizAttemptId, string QuizId, double Score, IReadOnlyList<AttemptAnswerView> Results, DateTimeOffset SubmittedAtUtc);
-public sealed record QuizAttemptResult(QuizAttemptView? Attempt, string? ErrorCode, string? ErrorMessage, int StatusCode)
+public sealed record QuizAttemptResult(QuizAttemptView? Attempt, string? ErrorCode, string? ErrorMessage, int StatusCode, bool Retryable)
 {
-    public static QuizAttemptResult Success(QuizAttemptView attempt) => new(attempt, null, null, StatusCodes.Status200OK);
-    public static QuizAttemptResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest);
-    public static QuizAttemptResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound);
-    public static QuizAttemptResult Conflict() => new(null, "idempotencyConflict", "The client attempt ID was reused with different answers.", StatusCodes.Status409Conflict);
-    public static QuizAttemptResult Unavailable(string code, string message) => new(null, code, message, StatusCodes.Status503ServiceUnavailable);
+    public static QuizAttemptResult Success(QuizAttemptView attempt) => new(attempt, null, null, StatusCodes.Status200OK, false);
+    public static QuizAttemptResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest, false);
+    public static QuizAttemptResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound, false);
+    public static QuizAttemptResult Conflict() => new(null, "idempotencyConflict", "The client attempt ID was reused with different answers.", StatusCodes.Status409Conflict, false);
+    public static QuizAttemptResult Unavailable(string code, string message, bool retryable) => new(null, code, message, StatusCodes.Status503ServiceUnavailable, retryable);
 }
 
 public sealed record SubmitAnswerCommand(string ContractVersion, string ClientAttemptId, string QuizId, string QuestionId, string? SelectedOptionId, string? AnswerText);
 public sealed record GradeData(string Outcome, double Score, string ReferenceAnswer, string Explanation);
 public sealed record GradeView(string AnswerAttemptId, string QuestionId, string Outcome, double Score, string ReferenceAnswer, string Explanation, SourceRef Source, DateTimeOffset GradedAtUtc);
 public sealed record SourceRef(string YoutubeVideoId, long StartMs, long EndMs);
-public sealed record HistoryItem(string AnswerAttemptId, string YoutubeVideoId, string SessionId, string QuestionId, string QuestionPrompt, string QuestionType, string SubmittedAnswer, string Outcome, double Score, string Explanation, long TimestampMs, DateTimeOffset SubmittedAtUtc, string? QuizAttemptId = null, double? AttemptScore = null)
+public sealed record HistoryItem(string AnswerAttemptId, string YoutubeVideoId, string SessionId, string QuestionId, string QuestionPrompt, string QuestionType, string SubmittedAnswer, string ReferenceAnswer, string Outcome, double Score, string Explanation, long TimestampMs, DateTimeOffset SubmittedAtUtc, string? QuizAttemptId = null, double? AttemptScore = null)
 {
     public string? VideoTitle { get; init; }
     public string? VideoUrl { get; init; }
 }
-public sealed record AssessmentResult(GradeView? Grade, string? ErrorCode, string? ErrorMessage, int StatusCode)
+public sealed record AssessmentResult(GradeView? Grade, string? ErrorCode, string? ErrorMessage, int StatusCode, bool Retryable)
 {
-    public static AssessmentResult Success(GradeView grade) => new(grade, null, null, StatusCodes.Status200OK);
-    public static AssessmentResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest);
-    public static AssessmentResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound);
-    public static AssessmentResult Conflict() => new(null, "idempotencyConflict", "The client attempt ID was reused with a different answer.", StatusCodes.Status409Conflict);
-    public static AssessmentResult Unavailable(string code, string message) => new(null, code, message, StatusCodes.Status503ServiceUnavailable);
+    public static AssessmentResult Success(GradeView grade) => new(grade, null, null, StatusCodes.Status200OK, false);
+    public static AssessmentResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest, false);
+    public static AssessmentResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound, false);
+    public static AssessmentResult Conflict() => new(null, "idempotencyConflict", "The client attempt ID was reused with a different answer.", StatusCodes.Status409Conflict, false);
+    public static AssessmentResult Unavailable(string code, string message, bool retryable) => new(null, code, message, StatusCodes.Status503ServiceUnavailable, retryable);
 }

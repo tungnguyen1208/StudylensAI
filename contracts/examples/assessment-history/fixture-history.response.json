@@ -8,6 +8,7 @@
       "questionPrompt": "Trong mô hình TCP/IP, giao thức nào chịu trách nhiệm định tuyến gói tin?",
       "questionType": "multipleChoice",
       "submittedAnswer": "IP",
+      "referenceAnswer": "IP",
       "outcome": "correct",
       "score": 1,
       "explanation": "Câu trả lời phù hợp với nội dung transcript đã dùng để tạo bài kiểm tra.",

@@ -93,6 +93,41 @@ public sealed class QuizAttemptServiceTests
         Assert.Empty(await db.Set<AttemptAnswerEntity>().ToArrayAsync());
     }
 
+    [Fact]
+    public async Task SubmitAttempt_ProviderFailureWritesNothing_AndSameAttemptCanRetry()
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>().UseSqlite("Data Source=:memory:").Options;
+        await using var db = new StudyLensDbContext(options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        SeedQuiz(db);
+        await db.SaveChangesAsync();
+        var gateway = new MutableShortAnswerGateway { Fail = true };
+        var service = new AssessmentHistoryService(new AssessmentHistoryDbContext(db),
+            new SqliteQuestionAssessmentStore(db), gateway, db);
+        var command = new SubmitQuizAttemptCommand(
+            "0.5.0", "99999999-9999-4999-8999-999999999999", QuizId,
+            [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
+             new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets.")]);
+
+        var failed = await service.SubmitAttemptAsync(command, CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, failed.StatusCode);
+        Assert.Equal("providerRateLimited", failed.ErrorCode);
+        Assert.True(failed.Retryable);
+        Assert.Empty(await db.Set<QuizAttemptEntity>().ToArrayAsync());
+        Assert.Empty(await db.Set<AttemptAnswerEntity>().ToArrayAsync());
+        Assert.Equal("active", (await db.Set<StudySessionEntity>().SingleAsync()).Status);
+
+        gateway.Fail = false;
+        var retried = await service.SubmitAttemptAsync(command, CancellationToken.None);
+
+        Assert.NotNull(retried.Attempt);
+        Assert.Single(await db.Set<QuizAttemptEntity>().ToArrayAsync());
+        Assert.Equal(2, await db.Set<AttemptAnswerEntity>().CountAsync());
+        Assert.Equal("completed", (await db.Set<StudySessionEntity>().SingleAsync()).Status);
+    }
+
     private static void SeedQuiz(StudyLensDbContext db)
     {
         db.Add(new StudyVideoEntity
@@ -147,7 +182,19 @@ public sealed class QuizAttemptServiceTests
 
     private sealed class FakeShortAnswerGateway : IShortAnswerGradingGateway
     {
-        public Task<ShortAnswerGradeResponse?> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult<ShortAnswerGradeResponse?>(new("correct", 1, request.ReferenceAnswer, "The answer matches the transcript."));
+        public Task<ShortAnswerGradingResult> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(ShortAnswerGradingResult.Success(new(
+                "correct", 1, request.ReferenceAnswer, "The answer matches the transcript.")));
+    }
+
+    private sealed class MutableShortAnswerGateway : IShortAnswerGradingGateway
+    {
+        public bool Fail { get; set; }
+
+        public Task<ShortAnswerGradingResult> GradeAsync(ShortAnswerGradeRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(Fail
+                ? ShortAnswerGradingResult.Failure("providerRateLimited", "The AI provider quota was reached.", true)
+                : ShortAnswerGradingResult.Success(new(
+                    "correct", 1, request.ReferenceAnswer, "The answer matches the transcript.")));
     }
 }

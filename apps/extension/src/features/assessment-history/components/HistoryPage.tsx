@@ -2,10 +2,11 @@ import type { HistoryEntryReadModel } from '../types/assessment-types';
 
 interface HistoryPageProps {
   entries: HistoryEntryReadModel[];
+  onReviewEvidence?: (youtubeVideoId: string, timestampMs: number) => void;
 }
 
 /** Groups persisted, submitted answers by their YouTube video and learning session. */
-export function HistoryPage({ entries }: HistoryPageProps) {
+export function HistoryPage({ entries, onReviewEvidence }: HistoryPageProps) {
   if (entries.length === 0) return <p role="status">Chưa có lịch sử trả lời.</p>;
 
   const byVideo = groupBy(entries, (entry) => entry.youtubeVideoId);
@@ -45,7 +46,18 @@ export function HistoryPage({ entries }: HistoryPageProps) {
                             <li key={entry.answerAttemptId}>
                               <strong>{entry.questionPrompt}</strong>
                               <p>Câu trả lời: {entry.submittedAnswer}</p>
+                              <p>Đáp án tham khảo: {entry.referenceAnswer}</p>
                               <p>Kết quả: {entry.outcome} · Điểm: {entry.score}</p>
+                              <p>Giải thích: {entry.explanation}</p>
+                              {onReviewEvidence ? (
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() => onReviewEvidence(entry.youtubeVideoId, entry.timestampMs)}
+                                >
+                                  Xem lại tại mốc {formatTimestamp(entry.timestampMs)}
+                                </button>
+                              ) : null}
                             </li>
                           ))}
                         </ol>
@@ -60,6 +72,11 @@ export function HistoryPage({ entries }: HistoryPageProps) {
       })}
     </section>
   );
+}
+
+function formatTimestamp(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
 function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
