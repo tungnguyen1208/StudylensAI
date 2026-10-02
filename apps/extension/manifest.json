@@ -3,6 +3,7 @@
   "name": "StudyLens AI",
   "version": "0.5.0",
   "description": "Active learning companion for YouTube captions and quiz generation.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3wW+lJV2xkRkduaHJW5QP/yz0MdBlRnJN2+ZiomrvOs64ZeVHOYR22bjkzNx2AKtFMxif1+nU0GzOS8mLkFdcYHyhZj2CPvM58BYpwX18LNnxaei52XRdhDBG+6AToe/ujKjAcdpzvY064E+Z6J1DoMA7zqQKeK5jLxVc6WbXegjWHQ2zw66/fHjFpODEZyLOYcDy2nadxcKwVhvghtxT6/utFjDWfTkki5tGzsKOioQy400rdjeATzLfUf6YmsUDGC7Rtgqd9Gu/tigRacMT3U19S9eNuj3MaCDUyE+D2BUQx++GXBTV8xZKrYieWpmUFvjJDKXJHbv8/gOeNX6KwIDAQAB",
   "permissions": ["sidePanel", "activeTab", "scripting", "storage", "tabs"],
   "host_permissions": ["https://www.youtube.com/*", "http://localhost:5000/*"],
   "background": { "service_worker": "service-worker.js", "type": "module" },

@@ -22,6 +22,7 @@ import {
   applyVideoActivationMessage,
   initialActivationState,
   isLearningPreferences,
+  shouldApplyActiveTabMessage,
   type ActivationState,
   type LearningPreferences,
 } from '../features/video-activation';
@@ -193,7 +194,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     const onActivationMessage = (message: ExtensionMessage) => {
       const activeContext = activeVideoContextRef.current;
-      if (activeContext && message.tabId !== activeContext.tabId) return;
+      if (!shouldApplyActiveTabMessage(activeContext, message)) return;
       const context = contextFromVideoActivationMessage(message);
       if (context) presentVideoContext(context);
       if (message.type === 'VIDEO_CONTEXT_UNAVAILABLE') {

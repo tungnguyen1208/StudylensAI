@@ -25,6 +25,7 @@ export { TranscriptPreview } from './components/TranscriptPreview';
 export { ManualActivationManager } from './services/activation-manager';
 export { initialActivationState } from './state/activation-reducer';
 export { applyVideoActivationMessage } from './state/side-panel-activation';
+export { shouldApplyActiveTabMessage } from './state/active-tab-message';
 export type { ActivationState, PreferenceSnapshot } from './models/activation.types';
 export {
   DEFAULT_LEARNING_PREFERENCES,
