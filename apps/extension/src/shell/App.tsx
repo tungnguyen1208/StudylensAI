@@ -3,13 +3,16 @@ import {
   AssessmentHistoryApi,
   AssessmentPanel,
   GradeResult,
-  HistoryPage,
+  HistoryLoadPanel,
+  INITIAL_HISTORY_LOAD_STATE,
   type GradeView,
-  type HistoryEntryReadModel,
   type LocalAnswerSubmission,
   type QuestionSourceRef,
   type QuizAttemptView,
   type QuizAvailable,
+  historyLoadFailed,
+  historyLoadStarted,
+  historyLoadSucceeded,
   isValidEvidenceTarget,
   youtubeEvidenceUrl,
 } from '../features/assessment-history';
@@ -65,9 +68,7 @@ export const App: React.FC = () => {
   const [playerTimeMs, setPlayerTimeMs] = useState<number | null>(null);
   const [seekError, setSeekError] = useState<string | null>(null);
   const [latestGrade, setLatestGrade] = useState<GradeView | null>(null);
-  const [historyEntries, setHistoryEntries] = useState<HistoryEntryReadModel[]>([]);
-  const [historyStatus, setHistoryStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyState, setHistoryState] = useState(INITIAL_HISTORY_LOAD_STATE);
   const [operationStatuses, setOperationStatuses] = useState<Partial<Record<StudyLensOperation, OperationStatusPayload>>>({});
   const [learningPreferences, setLearningPreferences] = useState<LearningPreferences>(DEFAULT_LEARNING_PREFERENCES);
   const [preferencesStatus, setPreferencesStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
@@ -298,14 +299,12 @@ export const App: React.FC = () => {
   };
 
   const refreshHistoryTab = async () => {
-    setHistoryStatus('loading');
-    setHistoryError(null);
+    setHistoryState(historyLoadStarted);
     try {
-      setHistoryEntries(await assessmentHistoryApi.getHistory());
-      setHistoryStatus('ready');
+      setHistoryState(historyLoadSucceeded(await assessmentHistoryApi.getHistory()));
     } catch (error: unknown) {
-      setHistoryStatus('error');
-      setHistoryError(messageOf(error, 'Không thể tải lịch sử học tập.'));
+      const message = messageOf(error, 'Không thể tải lịch sử học tập.');
+      setHistoryState((state) => historyLoadFailed(state, message));
     }
   };
 
@@ -438,8 +437,8 @@ export const App: React.FC = () => {
         <div id="history-panel" role="tabpanel" className="history-view">
           <section className="panel-section"><h2 className="section-heading">Kết quả gần nhất</h2>{latestGrade ? <GradeResult grade={latestGrade} /> : <p className="section-copy">Chưa có kết quả chấm điểm.</p>}</section>
           <section className="panel-section">
-            <div className="section-heading-row"><h2 className="section-heading">Lịch sử học tập</h2><button type="button" className="secondary-button" onClick={() => void refreshHistoryTab()} disabled={historyStatus === 'loading'}>{historyStatus === 'loading' ? 'Đang tải…' : 'Làm mới'}</button></div>
-            {historyError ? <p className="health-error" role="alert">{historyError}</p> : <HistoryPage entries={historyEntries} onReviewEvidence={(videoId, timestampMs) => void reviewEvidence(videoId, timestampMs)} />}
+            <div className="section-heading-row"><h2 className="section-heading">Lịch sử học tập</h2><button type="button" className="secondary-button" onClick={() => void refreshHistoryTab()} disabled={historyState.status === 'loading'}>{historyState.status === 'loading' ? 'Đang tải…' : 'Làm mới'}</button></div>
+            <HistoryLoadPanel state={historyState} onRetry={() => void refreshHistoryTab()} onReviewEvidence={(videoId, timestampMs) => void reviewEvidence(videoId, timestampMs)} />
             {seekError ? <p className="health-error" role="alert">{seekError}</p> : null}
           </section>
         </div>

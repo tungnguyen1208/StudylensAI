@@ -24,9 +24,18 @@ export { AssessmentPanel } from './components/AssessmentPanel';
 export { AssessmentHistoryApi } from './api/assessment-history-api';
 export { GradeResult } from './components/GradeResult';
 export { HistoryPage } from './components/HistoryPage';
+export { HistoryLoadPanel } from './components/HistoryLoadPanel';
 export { MultipleChoiceAnswer } from './components/MultipleChoiceAnswer';
 export { ShortAnswerInput } from './components/ShortAnswerInput';
 export { isValidEvidenceTarget, youtubeEvidenceUrl } from './services/evidence-review';
+export {
+  INITIAL_HISTORY_LOAD_STATE,
+  historyLoadFailed,
+  historyLoadStarted,
+  historyLoadSucceeded,
+  type HistoryLoadState,
+  type HistoryLoadStatus,
+} from './state/history-load-state';
 export {
   ASSESSMENT_HISTORY_CONTRACT_VERSION,
   type AnswerDraft,
