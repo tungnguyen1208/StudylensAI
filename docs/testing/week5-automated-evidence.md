@@ -9,15 +9,16 @@ Recorded on 2026-10-02 for branch `week5/fault-hardening`.
 | Dev 1 - OFF gate, multi-tab and video-change failures | `b72b9be` |
 | Dev 2 - timeout, idempotency and invalid AI output | `e47f29e` |
 | Dev 3 - retry, evidence and history consistency | `9103948` |
+| Week 6 Dev 3 - concurrency, restart history and UI recovery | `7c2bb72` |
 
 ## Verification commands
 
 | Command | Result |
 |---|---|
-| `cd apps/extension && npm.cmd test -- --run --reporter=basic` | Exit 0; Week 5 baseline 27 files/99 tests, Week 6 Dev 1 regression 28 files/101 tests passed. |
+| `cd apps/extension && npm.cmd test -- --run --reporter=basic` | Exit 0; final regression 29 files/103 tests passed. |
 | `cd apps/extension && npm.cmd run typecheck` | Exit 0. |
 | `cd apps/extension && npm.cmd run build` | Exit 0; content script and Side Panel production bundles verified. |
-| `dotnet test .\services\api\StudyLens.sln --no-restore --verbosity minimal` | Exit 0; Video Activation 10, Session Quiz 54, Assessment History 19 tests passed. |
+| `dotnet test .\services\api\StudyLens.sln --no-restore --verbosity minimal` | Exit 0; Video Activation 10, Session Quiz 55, Assessment History 21 tests passed. |
 | `cd services/ai && .\.venv\Scripts\python.exe -m pytest app -q` | Exit 0; 62 tests passed, with one dependency deprecation warning. |
 
 ## Dev 1
@@ -52,8 +53,9 @@ then re-read the same session from the persisted volume.
 - D3-04: negative, equal, reversed ranges and invalid video IDs are rejected before grading and persistence.
 - D3-05: Extension tests reject invalid IDs and non-finite, fractional, negative, or unsafe timestamps; the player adapter enforces the video-duration bound.
 - D3-07: browser-session state retains drafts, the immutable first payload and `clientAttemptId`; Backend retry persists one completed attempt.
-
-D3-03, D3-06 and D3-08 remain `NOT RUN`: the suite does not yet provide one direct two-context full-attempt race, the complete mixed/restart/>100 history scenario, or a UI-level empty/network/recovery history sequence.
+- D3-03: `SubmitAttempt_TwoContextsRace_ConvergesOnOnePersistedAttempt` runs two database contexts through the same full attempt and verifies one attempt, one row per question, and one completed session.
+- D3-06: `History_MixedVideosAndAttempts_RecoversAfterRestart_AndCapsWholeGroupsAtOneHundred` verifies mixed videos, batch and legacy data, restart recovery, stable replay, video titles/URLs and the 100-entry boundary.
+- D3-08: `history-load-panel.spec.ts` verifies distinct empty, loading, network-error and recovered-history UI states without retaining a stale error or duplicating entries.
 
 ## Manual browsers
 
