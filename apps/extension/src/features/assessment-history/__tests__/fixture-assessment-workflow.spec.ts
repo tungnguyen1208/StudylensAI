@@ -8,6 +8,7 @@ import { MultipleChoiceAnswer } from '../components/MultipleChoiceAnswer';
 import { GradeResult } from '../components/GradeResult';
 import { HistoryPage } from '../components/HistoryPage';
 import { youtubeEvidenceUrl } from '../services/evidence-review';
+import { createAssessmentAttemptSession } from '../state/assessment-attempt-session';
 
 describe('assessment view-model workflow', () => {
   it('produces a post-submit result and history entry for a MCQ fixture answer', async () => {
@@ -58,6 +59,7 @@ describe('assessment view-model workflow', () => {
     const historyMarkup = renderToStaticMarkup(createElement(HistoryPage, { entries: workflow.getHistory().slice() }));
     const panelMarkup = renderToStaticMarkup(createElement(AssessmentPanel, {
       quiz: seedQuiz,
+      initialSession: createAssessmentAttemptSession(() => 'fixture-attempt-id'),
       submitAttempt: async () => ({
         quizAttemptId: 'attempt-1', quizId: seedQuiz.quizId, score: grade.score,
         results: [{
@@ -124,5 +126,20 @@ describe('assessment view-model workflow', () => {
       .toBe('https://www.youtube.com/watch?v=RD53wLkH3mQ&t=68s');
     expect(youtubeEvidenceUrl('invalid', 1_000)).toBeNull();
     expect(youtubeEvidenceUrl('RD53wLkH3mQ', -1)).toBeNull();
+    expect(youtubeEvidenceUrl('RD53wLkH3mQ', 1.5)).toBeNull();
+    expect(youtubeEvidenceUrl('RD53wLkH3mQ', Number.POSITIVE_INFINITY)).toBeNull();
+    expect(youtubeEvidenceUrl('RD53wLkH3mQ', Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+  });
+
+  it('does not expose a review action for contract-invalid evidence', () => {
+    const markup = renderToStaticMarkup(createElement(HistoryPage, { entries: [{
+      answerAttemptId: 'invalid-evidence', youtubeVideoId: 'invalid', videoTitle: 'Invalid evidence',
+      videoUrl: '', sessionId: 'session-a', questionId: 'question-a', questionPrompt: 'Question A',
+      questionType: 'multipleChoice', submittedAnswer: 'A', referenceAnswer: 'A', outcome: 'correct',
+      score: 1, explanation: 'Stored legacy row', timestampMs: -1,
+      submittedAtUtc: '2026-10-01T10:00:00Z', quizAttemptId: null, attemptScore: null,
+    }], onReviewEvidence: () => {} }));
+
+    expect(markup).not.toContain('Xem lại tại mốc');
   });
 });

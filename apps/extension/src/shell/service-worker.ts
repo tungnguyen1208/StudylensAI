@@ -310,7 +310,7 @@ async function readActiveSessionProgress(): Promise<{ ok: boolean; state?: unkno
 
 async function seekActivePlayer(youtubeVideoId: string, timestampMs: number): Promise<{ ok: boolean; code?: string }> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!tab?.id || !youtubeUrlMatchesVideo(tab.url, youtubeVideoId) || !Number.isInteger(timestampMs) || timestampMs < 0) {
+  if (!tab?.id || !youtubeUrlMatchesVideo(tab.url, youtubeVideoId) || !Number.isSafeInteger(timestampMs) || timestampMs < 0) {
     return { ok: false, code: 'seekTargetUnavailable' };
   }
   try {
@@ -469,7 +469,7 @@ function isSeekActivePlayerRequest(value: unknown): value is SeekActivePlayerReq
   const item = value as Partial<SeekActivePlayerRequest>;
   return Boolean(item) && item.type === 'STUDYLENS_SEEK_ACTIVE_PLAYER' &&
     typeof item.youtubeVideoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(item.youtubeVideoId) &&
-    typeof item.timestampMs === 'number' && Number.isInteger(item.timestampMs) && item.timestampMs >= 0;
+    typeof item.timestampMs === 'number' && Number.isSafeInteger(item.timestampMs) && item.timestampMs >= 0;
 }
 
 function isActiveYoutubeContext(value: unknown, expectedTabId: number): value is ActiveYoutubeContext {

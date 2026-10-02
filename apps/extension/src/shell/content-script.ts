@@ -91,7 +91,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const youtubeVideoId = message.youtubeVideoId;
     void bootstrap.then(async (ok) => {
       const player = getActivePlayerPort?.();
-      if (!ok || !player || typeof timestampMs !== 'number' || !Number.isInteger(timestampMs) || timestampMs < 0 ||
+      if (!ok || !player || typeof timestampMs !== 'number' || !Number.isSafeInteger(timestampMs) || timestampMs < 0 ||
         typeof youtubeVideoId !== 'string') {
         sendResponse({ ok: false, code: 'seekUnavailable' });
         return;

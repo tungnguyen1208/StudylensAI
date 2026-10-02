@@ -108,7 +108,7 @@ export class YoutubePlayerAdapter implements PlayerPort {
 
   public async seek(timestampMs: number): Promise<void> {
     this.assertContext();
-    if (!Number.isFinite(timestampMs) || !Number.isInteger(timestampMs) || timestampMs < 0) {
+    if (!Number.isSafeInteger(timestampMs) || timestampMs < 0) {
       throw new PlayerAdapterError('invalidTimestamp', 'Timestamp must be a non-negative integer.');
     }
 

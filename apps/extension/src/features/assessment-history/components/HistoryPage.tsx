@@ -1,4 +1,5 @@
 import type { HistoryEntryReadModel } from '../types/assessment-types';
+import { isValidEvidenceTarget } from '../services/evidence-review';
 
 interface HistoryPageProps {
   entries: HistoryEntryReadModel[];
@@ -49,7 +50,7 @@ export function HistoryPage({ entries, onReviewEvidence }: HistoryPageProps) {
                               <p>Đáp án tham khảo: {entry.referenceAnswer}</p>
                               <p>Kết quả: {entry.outcome} · Điểm: {entry.score}</p>
                               <p>Giải thích: {entry.explanation}</p>
-                              {onReviewEvidence ? (
+                              {onReviewEvidence && isValidEvidenceTarget(entry.youtubeVideoId, entry.timestampMs) ? (
                                 <button
                                   type="button"
                                   className="secondary-button"

@@ -21,13 +21,19 @@ public sealed class AssessmentHistoryService(
         var existing = await db.QuizAttempts.AsNoTracking().Include(item => item.Answers)
             .SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
         if (existing is not null)
-            return SameAttempt(existing, command) ? QuizAttemptResult.Success(ToAttemptView(existing)) : QuizAttemptResult.Conflict();
+            return existing.Answers.All(ValidEvidenceSource)
+                ? SameAttempt(existing, command) ? QuizAttemptResult.Success(ToAttemptView(existing)) : QuizAttemptResult.Conflict()
+                : QuizAttemptResult.Invalid("invalidEvidenceSource", "The stored quiz attempt has an invalid evidence source.");
 
         var database = rootDb ?? db.RootDb;
         var quiz = await database.Set<QuizAssessmentEntity>().AsNoTracking().Include(item => item.Questions).ThenInclude(item => item.Options)
             .SingleOrDefaultAsync(item => item.QuizId == command.QuizId, cancellationToken);
         if (quiz is null) return QuizAttemptResult.NotFound("quizNotFound", "The quiz was not found.");
-        if (quiz.Status != "ready" || quiz.Questions.Any(question => question.YoutubeVideoId != quiz.YoutubeVideoId))
+        if (!ValidYoutubeVideoId(quiz.YoutubeVideoId) || quiz.Questions.Any(question =>
+                question.YoutubeVideoId != quiz.YoutubeVideoId ||
+                !ValidEvidenceSource(question.YoutubeVideoId, question.SourceStartMs, question.SourceEndMs)))
+            return QuizAttemptResult.Invalid("invalidEvidenceSource", "Every quiz question requires a valid YouTube evidence range.");
+        if (quiz.Status != "ready")
             return QuizAttemptResult.Invalid("quizNotReady", "The quiz is not ready for this video.");
         var session = await database.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == quiz.SessionId, cancellationToken);
         if (session is null || session.Status is not ("active" or "closed" or "completed") || session.QuizStatus != "ready" ||
@@ -111,10 +117,14 @@ public sealed class AssessmentHistoryService(
 
         var existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
         if (existing is not null)
-            return SameSubmission(existing, command) ? AssessmentResult.Success(ToGrade(existing)) : AssessmentResult.Conflict();
+            return ValidEvidenceSource(existing)
+                ? SameSubmission(existing, command) ? AssessmentResult.Success(ToGrade(existing)) : AssessmentResult.Conflict()
+                : AssessmentResult.Invalid("invalidEvidenceSource", "The stored answer has an invalid evidence source.");
 
         var question = await questions.FindAsync(command.QuizId, command.QuestionId, cancellationToken);
         if (question is null) return AssessmentResult.NotFound("questionNotFound", "The quiz question was not found.");
+        if (!ValidEvidenceSource(question.YoutubeVideoId, question.SourceStartMs, question.SourceEndMs))
+            return AssessmentResult.Invalid("invalidEvidenceSource", "The question requires a valid YouTube evidence range.");
         if (!IsValidAnswer(question.Type, command)) return AssessmentResult.Invalid("invalidAnswer", "The submitted answer does not match the question type.");
         if (question.Type == "multipleChoice" && !ContainsOption(question, command.SelectedOptionId!))
             return AssessmentResult.Invalid("invalidOption", "The selected option does not belong to the quiz question.");
@@ -177,23 +187,55 @@ public sealed class AssessmentHistoryService(
     public async Task<IReadOnlyList<HistoryItem>> ReadHistoryAsync(string? youtubeVideoId, CancellationToken cancellationToken)
     {
         var database = rootDb ?? db.RootDb;
-        var query = db.AnswerAttempts.AsNoTracking().AsQueryable();
-        if (!string.IsNullOrWhiteSpace(youtubeVideoId)) query = query.Where(item => item.YoutubeVideoId == youtubeVideoId);
-        var legacySource = database.Database.IsSqlite() ? query : query.OrderByDescending(item => item.GradedAtUtc).Take(100);
-        var legacyItems = (await legacySource.Select(item => new HistoryItem(
-            item.AnswerAttemptId, item.YoutubeVideoId, item.SessionId, item.QuestionId, item.QuestionPrompt,
-            item.QuestionType, item.SubmittedAnswer, item.ReferenceAnswer, item.Outcome, item.Score, item.Explanation,
-            item.SourceStartMs, item.GradedAtUtc, null, null)).ToArrayAsync(cancellationToken))
-            .OrderByDescending(item => item.SubmittedAtUtc).Take(100).ToArray();
-        var currentQuery = db.AttemptAnswers.AsNoTracking().Include(item => item.QuizAttempt).AsQueryable();
-        if (!string.IsNullOrWhiteSpace(youtubeVideoId)) currentQuery = currentQuery.Where(item => item.YoutubeVideoId == youtubeVideoId);
-        var currentSource = database.Database.IsSqlite() ? currentQuery : currentQuery.OrderByDescending(item => item.QuizAttempt!.SubmittedAtUtc).Take(100);
-        var currentItems = (await currentSource.Select(item => new HistoryItem(
-            item.AttemptAnswerId, item.YoutubeVideoId, item.QuizAttempt!.SessionId, item.QuestionId, item.QuestionPrompt,
-            item.QuestionType, item.SubmittedAnswer, item.ReferenceAnswer, item.Outcome, item.Score, item.Explanation,
-            item.SourceStartMs, item.QuizAttempt.SubmittedAtUtc, item.QuizAttemptId, item.QuizAttempt.Score)).ToArrayAsync(cancellationToken))
-            .OrderByDescending(item => item.SubmittedAtUtc).Take(100).ToArray();
-        var items = legacyItems.Concat(currentItems).OrderByDescending(item => item.SubmittedAtUtc).Take(100).ToArray();
+        if (!string.IsNullOrWhiteSpace(youtubeVideoId) && !ValidYoutubeVideoId(youtubeVideoId)) return [];
+
+        var legacyQuery = db.AnswerAttempts.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(youtubeVideoId)) legacyQuery = legacyQuery.Where(item => item.YoutubeVideoId == youtubeVideoId);
+        var legacyRows = database.Database.IsSqlite()
+            ? (await legacyQuery.ToArrayAsync(cancellationToken)).OrderByDescending(item => item.GradedAtUtc)
+                .ThenBy(item => item.AnswerAttemptId, StringComparer.Ordinal).Take(200).ToArray()
+            : await legacyQuery.OrderByDescending(item => item.GradedAtUtc)
+                .ThenBy(item => item.AnswerAttemptId).Take(200).ToArrayAsync(cancellationToken);
+
+        var attemptQuery = db.QuizAttempts.AsNoTracking().Include(item => item.Answers).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(youtubeVideoId))
+            attemptQuery = attemptQuery.Where(item => item.Answers.Any(answer => answer.YoutubeVideoId == youtubeVideoId));
+        var attempts = database.Database.IsSqlite()
+            ? (await attemptQuery.ToArrayAsync(cancellationToken)).OrderByDescending(item => item.SubmittedAtUtc)
+                .ThenBy(item => item.QuizAttemptId, StringComparer.Ordinal).Take(100).ToArray()
+            : await attemptQuery.OrderByDescending(item => item.SubmittedAtUtc)
+                .ThenBy(item => item.QuizAttemptId).Take(100).ToArrayAsync(cancellationToken);
+        var questionIds = attempts.SelectMany(item => item.Answers).Select(item => item.QuestionId).Distinct().ToArray();
+        var questionPositions = questionIds.Length == 0
+            ? new Dictionary<string, int>(StringComparer.Ordinal)
+            : await database.Set<QuestionAssessmentEntity>().AsNoTracking()
+                .Where(item => questionIds.Contains(item.QuestionId))
+                .ToDictionaryAsync(item => item.QuestionId, item => item.Position, StringComparer.Ordinal, cancellationToken);
+
+        var groups = new List<HistoryGroup>();
+        groups.AddRange(legacyRows.Where(ValidEvidenceSource).Select(item => new HistoryGroup(
+            item.GradedAtUtc, item.AnswerAttemptId,
+            [new HistoryItem(item.AnswerAttemptId, item.YoutubeVideoId, item.SessionId, item.QuestionId, item.QuestionPrompt,
+                item.QuestionType, item.SubmittedAnswer, item.ReferenceAnswer, item.Outcome, item.Score, item.Explanation,
+                item.SourceStartMs, item.GradedAtUtc, null, null)])));
+        groups.AddRange(attempts.Where(item => item.Answers.Count > 0 && item.Answers.All(answer =>
+                ValidEvidenceSource(answer) && answer.YoutubeVideoId == item.Answers[0].YoutubeVideoId &&
+                (string.IsNullOrWhiteSpace(youtubeVideoId) || answer.YoutubeVideoId == youtubeVideoId))).Select(attempt =>
+            new HistoryGroup(attempt.SubmittedAtUtc, attempt.QuizAttemptId, attempt.Answers
+                .OrderBy(answer => questionPositions.GetValueOrDefault(answer.QuestionId, int.MaxValue))
+                .ThenBy(answer => answer.QuestionId, StringComparer.Ordinal)
+                .Select(answer => new HistoryItem(answer.AttemptAnswerId, answer.YoutubeVideoId, attempt.SessionId,
+                    answer.QuestionId, answer.QuestionPrompt, answer.QuestionType, answer.SubmittedAnswer,
+                    answer.ReferenceAnswer, answer.Outcome, answer.Score, answer.Explanation, answer.SourceStartMs,
+                    attempt.SubmittedAtUtc, attempt.QuizAttemptId, attempt.Score)).ToArray())));
+
+        var selected = new List<HistoryItem>(100);
+        foreach (var group in groups.OrderByDescending(item => item.SubmittedAtUtc).ThenBy(item => item.StableId, StringComparer.Ordinal))
+        {
+            if (group.Items.Count > 100 || selected.Count + group.Items.Count > 100) break;
+            selected.AddRange(group.Items);
+        }
+        var items = selected.ToArray();
         if (items.Length == 0) return items;
 
         var sessionIds = items.Select(item => item.SessionId).Distinct().ToArray();
@@ -220,6 +262,15 @@ public sealed class AssessmentHistoryService(
 
     private static bool ValidYoutubeVideoId(string value) => value.Length == 11 &&
         value.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
+
+    private static bool ValidEvidenceSource(string youtubeVideoId, long startMs, long endMs) =>
+        ValidYoutubeVideoId(youtubeVideoId) && startMs >= 0 && endMs > startMs;
+
+    private static bool ValidEvidenceSource(AttemptAnswerEntity item) =>
+        ValidEvidenceSource(item.YoutubeVideoId, item.SourceStartMs, item.SourceEndMs);
+
+    private static bool ValidEvidenceSource(AnswerAttemptEntity item) =>
+        ValidEvidenceSource(item.YoutubeVideoId, item.SourceStartMs, item.SourceEndMs);
 
     private static bool SameSubmission(AnswerAttemptEntity existing, SubmitAnswerCommand command) =>
         existing.QuizId == command.QuizId && existing.QuestionId == command.QuestionId &&
@@ -269,6 +320,8 @@ public sealed class AssessmentHistoryService(
         entity.Answers.Select(answer => new AttemptAnswerView(answer.QuestionId, answer.Outcome, answer.Score, answer.SubmittedAnswer,
             answer.ReferenceAnswer, answer.Explanation, new SourceRef(answer.YoutubeVideoId, answer.SourceStartMs, answer.SourceEndMs))).ToArray(), entity.SubmittedAtUtc);
 }
+
+internal sealed record HistoryGroup(DateTimeOffset SubmittedAtUtc, string StableId, IReadOnlyList<HistoryItem> Items);
 
 public sealed record SubmitAttemptAnswer(string QuestionId, string? SelectedOptionId, string? AnswerText);
 public sealed record SubmitQuizAttemptCommand(string ContractVersion, string ClientAttemptId, string QuizId, IReadOnlyList<SubmitAttemptAnswer> Answers);

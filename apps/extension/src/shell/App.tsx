@@ -10,6 +10,7 @@ import {
   type QuestionSourceRef,
   type QuizAttemptView,
   type QuizAvailable,
+  isValidEvidenceTarget,
   youtubeEvidenceUrl,
 } from '../features/assessment-history';
 import type { LearningPackage, ProcessingOperation } from '../features/session-quiz/models/session-quiz-contracts';
@@ -265,13 +266,17 @@ export const App: React.FC = () => {
 
   const seekToTranscriptCue = async (timestampMs: number) => {
     const context = activationState.context;
-    if (!context) return;
+    if (!context || !isValidEvidenceTarget(context.youtubeVideoId, timestampMs)) return;
     setSeekError(null);
     const result = await seekActivePlayer(context.youtubeVideoId, timestampMs);
     if (!result.ok) setSeekError(`Không thể tua video đến mốc đã chọn (${result.code ?? 'seekFailed'}).`);
   };
 
   const reviewEvidence = async (youtubeVideoId: string, timestampMs: number) => {
+    if (!isValidEvidenceTarget(youtubeVideoId, timestampMs)) {
+      setSeekError('Không thể mở video tại mốc đã lưu.');
+      return;
+    }
     const activeContext = activationState.context;
     if (activeContext?.youtubeVideoId === youtubeVideoId) {
       await seekToTranscriptCue(timestampMs);
@@ -422,7 +427,7 @@ export const App: React.FC = () => {
               ) : (
                 <>
                   <div className="section-heading-row"><h2 id="quiz-ready-heading" className="section-heading">Bài kiểm tra</h2><button type="button" className="secondary-button" onClick={() => setQuizStarted(false)}>Thu gọn</button></div>
-                  <AssessmentPanel quiz={quiz} submitAttempt={submitAssessmentAttempt} onOperationStatus={(status) => setOperationStatuses((current) => ({ ...current, [status.operation]: status }))} onAttempt={handleAttempt} onSeekEvidence={(source: QuestionSourceRef) => void reviewEvidence(source.youtubeVideoId, source.startMs)} />
+                  <AssessmentPanel key={quiz.quizId} quiz={quiz} submitAttempt={submitAssessmentAttempt} onOperationStatus={(status) => setOperationStatuses((current) => ({ ...current, [status.operation]: status }))} onAttempt={handleAttempt} onSeekEvidence={(source: QuestionSourceRef) => void reviewEvidence(source.youtubeVideoId, source.startMs)} />
                 </>
               )}
             </section>
@@ -484,7 +489,7 @@ function ProcessingStages({ learningPackage }: { learningPackage: LearningPackag
 function OperationStatusList({ statuses, onRetry }: { statuses: Partial<Record<StudyLensOperation, OperationStatusPayload>>; onRetry: (operation: StudyLensOperation) => Promise<void> }) {
   const values = Object.values(statuses).filter(Boolean) as OperationStatusPayload[];
   if (values.length === 0) return null;
-  return <div className="operation-status-list">{values.map((status) => <div className={`operation-status operation-status--${status.state}`} key={status.operation}><strong>{operationLabel(status.operation)}</strong><span>{status.message}</span>{status.code ? <small>Mã: {status.code}{status.traceId ? ` · Trace: ${status.traceId}` : ''}</small> : null}{status.state === 'failed' && status.retryable ? <button type="button" className="operation-status__retry" onClick={() => void onRetry(status.operation)}>Thử lại</button> : null}</div>)}</div>;
+  return <div className="operation-status-list">{values.map((status) => <div className={`operation-status operation-status--${status.state}`} key={status.operation}><strong>{operationLabel(status.operation)}</strong><span>{status.message}</span>{status.code ? <small>Mã: {status.code}{status.traceId ? ` · Trace: ${status.traceId}` : ''}</small> : null}{status.state === 'failed' && status.retryable && status.operation !== 'answerSubmit' ? <button type="button" className="operation-status__retry" onClick={() => void onRetry(status.operation)}>Thử lại</button> : null}</div>)}</div>;
 }
 
 function operationLabel(operation: StudyLensOperation | ProcessingOperation): string {

@@ -109,6 +109,7 @@ describe('YoutubePlayerAdapter', () => {
     await expect(adapter.seek(-1)).rejects.toMatchObject({ code: 'invalidTimestamp' });
     await expect(adapter.seek(120001)).rejects.toMatchObject({ code: 'timestampOutOfRange' });
     await expect(adapter.seek(Number.NaN)).rejects.toMatchObject({ code: 'invalidTimestamp' });
+    await expect(adapter.seek(Number.MAX_SAFE_INTEGER + 1)).rejects.toMatchObject({ code: 'invalidTimestamp' });
 
     currentVideoId = 'abcdefghijk';
     await expect(adapter.seek(1000)).rejects.toMatchObject({ code: 'videoContextChanged' });
