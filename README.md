@@ -75,6 +75,24 @@ Load `apps/extension/dist` as an unpacked extension after `npm.cmd run build`.
 When reloading the extension in Chrome/Edge, reload the YouTube page too so
 the current content script is injected.
 
+## Release verification
+
+On Windows, `release.ps1` packages the Extension and manages the local Docker
+release stack:
+
+```powershell
+Copy-Item deploy/release.env.example deploy/release.env
+# Replace the database password; set provider/key as needed.
+.\release.ps1 verify
+.\release.ps1 build
+.\release.ps1 smoke
+.\release.ps1 down
+```
+
+The release stack exposes only Backend at `127.0.0.1:5000`; PostgreSQL and the
+AI Service stay on the private Compose network. See
+[deploy/README.md](deploy/README.md) for migration and health details.
+
 ## Local configuration
 
 Start PostgreSQL with the checked-in development compose file, then export the

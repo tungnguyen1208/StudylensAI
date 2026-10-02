@@ -14,6 +14,7 @@ artifacts/
 .env.*.local
 !.env.example
 deploy/postgres.env
+deploy/release.env
 
 # .NET / C#
 bin/

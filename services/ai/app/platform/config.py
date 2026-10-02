@@ -5,9 +5,14 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 
-# Load only the ignored repository-local environment file. Secrets remain
-# server-side and are never bundled into the Browser Extension.
-load_dotenv(Path(__file__).resolve().parents[4] / ".env")
+# Load an ignored repository-local environment file when running from a source
+# checkout. A production image has no .env file and receives secrets only via
+# its process environment.
+for parent in Path(__file__).resolve().parents:
+    candidate = parent / ".env"
+    if candidate.is_file():
+        load_dotenv(candidate)
+        break
 
 
 class Settings(BaseModel):

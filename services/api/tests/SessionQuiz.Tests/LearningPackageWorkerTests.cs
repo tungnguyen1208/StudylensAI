@@ -241,6 +241,67 @@ public sealed class LearningPackageWorkerTests
     }
 
     [Fact]
+    public async Task RestartRecovery_RequeuesRunningJobWithoutLosingState_AndPublishesAtMostOneQuiz()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>().UseSqlite(connection).Options;
+        string sessionId;
+        string jobId;
+        var recoveredAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        await using (var setup = new StudyLensDbContext(options))
+        {
+            await setup.Database.EnsureCreatedAsync();
+            var service = new LearningPackageService(setup);
+            var started = (await service.StartAsync(new StartLearningSessionCommand(
+                "0.5.0", Guid.NewGuid().ToString(), "session:restart-recovery", "RD53wLkH3mQ",
+                "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
+            sessionId = started.Session.SessionId;
+            await service.SubmitTranscriptAsync(sessionId,
+                new SubmitFullTranscriptCommand("0.5.0", "transcript:restart-recovery", "RD53wLkH3mQ",
+                    "vi", "youtubeCaption", "available", null, 600_000,
+                    [new TranscriptCueView(0, 10_000, "Binary search requires sorted input.")]), CancellationToken.None);
+
+            var running = await setup.Set<ProcessingJobEntity>().SingleAsync();
+            jobId = running.ProcessingJobId;
+            running.Status = "running";
+            running.AttemptCount = 1;
+            running.LastErrorCode = "providerTimeout";
+            running.LastErrorMessage = "Previous attempt timed out.";
+            running.LastErrorRetryable = true;
+            await setup.SaveChangesAsync();
+        }
+
+        await using var restarted = new StudyLensDbContext(options);
+        Assert.Equal(1, await LearningPackageWorker.RecoverRunningJobsAsync(
+            restarted, recoveredAt, CancellationToken.None));
+        var recovered = await restarted.Set<ProcessingJobEntity>().SingleAsync();
+        Assert.Equal(jobId, recovered.ProcessingJobId);
+        Assert.Equal("queued", recovered.Status);
+        Assert.Equal(1, recovered.AttemptCount);
+        Assert.Equal("providerTimeout", recovered.LastErrorCode);
+        Assert.Equal("Previous attempt timed out.", recovered.LastErrorMessage);
+        Assert.True(recovered.LastErrorRetryable);
+        Assert.Equal(recoveredAt, recovered.UpdatedAtUtc);
+
+        using var provider = new ServiceCollection()
+            .AddSingleton(restarted)
+            .AddSingleton<IFullVideoQuestionGenerationGateway>(new ReturningQuestionGateway(3))
+            .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+            .BuildServiceProvider();
+        var worker = new LearningPackageWorker(provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<LearningPackageWorker>.Instance);
+
+        Assert.True(await worker.ProcessNextAsync(CancellationToken.None));
+        Assert.False(await worker.ProcessNextAsync(CancellationToken.None));
+        Assert.Single(await restarted.Set<QuizAssessmentEntity>().ToArrayAsync());
+        Assert.Equal("succeeded", (await restarted.Set<ProcessingJobEntity>().SingleAsync()).Status);
+        Assert.Equal("ready", (await restarted.Set<StudySessionEntity>()
+            .SingleAsync(item => item.SessionId == sessionId)).QuizStatus);
+    }
+
+    [Fact]
     public async Task VideoClosedWhileAiIsGenerating_DiscardsLateQuizAndProvisionalTranscript()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

@@ -1,0 +1,89 @@
+name: studylens-release
+
+services:
+  postgres:
+    image: postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - studylens-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks: [studylens]
+
+  migrate:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    restart: "no"
+    command: ["--migrate-only"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      AiService__BaseUrl: http://ai:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [studylens]
+
+  ai:
+    build:
+      context: ../services/ai
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      TRANSCRIPT_TIMEOUT_SECONDS: ${TRANSCRIPT_TIMEOUT_SECONDS:-300}
+      QUIZ_TIMEOUT_SECONDS: ${QUIZ_TIMEOUT_SECONDS:-180}
+      GRADING_TIMEOUT_SECONDS: ${GRADING_TIMEOUT_SECONDS:-60}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+    networks: [studylens]
+
+  api:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      AiService__BaseUrl: http://ai:8000
+      AiService__QuestionGenerationModel: ${GEMINI_MODEL:-gemini-3.8-flash}
+      Cors__AllowedOrigins__0: chrome-extension://pamlknppggagbabbonlighcagfjemdcp
+      Cors__AllowedOrigins__1: edge-extension://pamlknppggagbabbonlighcagfjemdcp
+    ports:
+      - "127.0.0.1:5000:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ai:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/health/ready"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+    networks: [studylens]
+
+networks:
+  studylens:
+    driver: bridge
+
+volumes:
+  studylens-postgres-data:

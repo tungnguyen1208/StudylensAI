@@ -25,7 +25,24 @@ Docker stack and all three feature slices are complete.
 
 ## Dev 2
 
-Not run yet.
+- Backend: PASS, 84 tests (Video Activation 10, Session Quiz 55,
+  Assessment History 19).
+- AI Service: PASS, 62 tests.
+- D2-04 restart recovery: PASS; the same persisted job was requeued without
+  resetting attempt/error state and produced exactly one quiz.
+- Fresh migration and repeat/idempotent migration: PASS.
+- Previous-to-latest migration: PASS; the last history lookup index was absent
+  at `20261001090000_AddPostgresQuizMetadata` and present after latest.
+- PostgreSQL/Backend restart persistence: PASS; the same session was returned
+  after readiness recovered.
+- Backup/restore: PASS; all 13 public tables were restored into an isolated
+  verification database.
+- Release stack: PostgreSQL, AI and API healthy; migration exited successfully
+  before API startup; only `127.0.0.1:5000` was published.
+- Container users: Backend `app`, AI `studylens`.
+- CORS: configured Extension origin allowed; unconfigured Extension origin not
+  allowed; AI Service exposes no browser CORS middleware.
+- Sanitized log scan found no database password or Gemini key.
 
 ## Dev 3
 

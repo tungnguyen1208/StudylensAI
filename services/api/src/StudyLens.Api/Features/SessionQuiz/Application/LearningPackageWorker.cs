@@ -9,7 +9,11 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await RecoverRunningJobsAsync(stoppingToken);
+        using (var recoveryScope = scopeFactory.CreateScope())
+        {
+            var recoveryDb = recoveryScope.ServiceProvider.GetRequiredService<StudyLensDbContext>();
+            await RecoverRunningJobsAsync(recoveryDb, DateTimeOffset.UtcNow, stoppingToken);
+        }
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -26,14 +30,14 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         }
     }
 
-    private async Task RecoverRunningJobsAsync(CancellationToken cancellationToken)
-    {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<StudyLensDbContext>();
-        var now = DateTimeOffset.UtcNow;
-        await db.Set<ProcessingJobEntity>().Where(item => item.Status == "running")
-            .ExecuteUpdateAsync(update => update.SetProperty(item => item.Status, "queued").SetProperty(item => item.UpdatedAtUtc, now), cancellationToken);
-    }
+    internal static Task<int> RecoverRunningJobsAsync(
+        StudyLensDbContext db,
+        DateTimeOffset recoveredAtUtc,
+        CancellationToken cancellationToken) =>
+        db.Set<ProcessingJobEntity>().Where(item => item.Status == "running")
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(item => item.Status, "queued")
+                .SetProperty(item => item.UpdatedAtUtc, recoveredAtUtc), cancellationToken);
 
     internal async Task<bool> ProcessNextAsync(CancellationToken cancellationToken)
     {

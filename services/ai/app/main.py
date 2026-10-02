@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.platform.config import settings
 from app.platform.health import router as health_router
@@ -11,15 +10,6 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="Stateless AI Microservice for StudyLens Active Learning System",
-)
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 # Register Health Router

@@ -1,5 +1,37 @@
 # StudyLens Deployment Configurations
 
+## Release stack
+
+The release stack keeps PostgreSQL and FastAPI private on the Docker network;
+only ASP.NET Core is published on `127.0.0.1:5000`. Copy the release template,
+set a long random database password, and choose `fake` for deterministic smoke
+tests or `gemini` plus a server-side API key for provider acceptance:
+
+```powershell
+Copy-Item deploy/release.env.example deploy/release.env
+notepad deploy/release.env
+.\release.ps1 build
+.\release.ps1 smoke
+.\release.ps1 down
+```
+
+`migrate` must finish successfully before `api` starts. Production API startup
+does not migrate implicitly. Both application images run as non-root users,
+base images are digest-pinned, Python dependencies are exact-pinned, and the
+ignored `deploy/release.env` is never copied into an image or Extension bundle.
+`down` preserves the named PostgreSQL volume.
+
+Operational probes:
+
+- `GET /api/health/live` checks the API process.
+- `GET /api/health/ready` requires both PostgreSQL and FastAPI.
+- `GET /api/health` remains the Extension-compatible health endpoint.
+
+For a controlled migration test, the migration-only process also accepts an
+optional target, for example
+`--migrate-only --migrate-to=20261001090000_AddPostgresQuizMetadata`. Normal
+release deployment omits the target and migrates to the latest version.
+
 `docker-compose.postgres.yml` starts the development PostgreSQL dependency.
 Copy `postgres.env.example` to the ignored `postgres.env`, replace the sample
 password, then run:

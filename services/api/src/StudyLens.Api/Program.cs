@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using StudyLens.Api.BuildingBlocks.Health;
 using StudyLens.Api.BuildingBlocks.Http;
 using StudyLens.Api.BuildingBlocks.Errors;
@@ -8,26 +10,31 @@ using StudyLens.Api.Features.VideoActivation;
 using StudyLens.Api.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+var migrateOnly = args.Any(argument => string.Equals(argument, "--migrate-only", StringComparison.OrdinalIgnoreCase));
+var migrationTarget = args.FirstOrDefault(argument => argument.StartsWith("--migrate-to=", StringComparison.OrdinalIgnoreCase))
+    ?.Split('=', 2)[1];
 
 // Add services to the container
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Configure CORS for Chrome/Edge extensions and local development
+// Production accepts only explicitly configured Extension origins. Development
+// can add localhost origins without weakening the release policy.
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowLocalAndExtension", policy =>
+    options.AddPolicy("StudyLensClients", policy =>
     {
-        policy.SetIsOriginAllowed(origin =>
-            {
-                if (string.IsNullOrEmpty(origin)) return false;
-                var uri = new Uri(origin);
-                return uri.Host == "localhost"
-                       || uri.Scheme == "chrome-extension"
-                       || uri.Scheme == "edge-extension";
-            })
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+        var developmentOrigins = builder.Environment.IsDevelopment()
+            ? new[] { "http://localhost:3000", "http://localhost:5173" }
+            : [];
+        var allowedOrigins = configuredOrigins.Concat(developmentOrigins)
+            .Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (allowedOrigins.Length > 0) policy.WithOrigins(allowedOrigins);
+        policy.AllowAnyHeader().AllowAnyMethod();
     });
 });
 
@@ -51,9 +58,15 @@ builder.Services.AddAssessmentHistoryModule(builder.Configuration);
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+if (migrateOnly || app.Environment.IsDevelopment())
 {
-    scope.ServiceProvider.GetRequiredService<StudyLensDbContext>().Database.Migrate();
+    await using var scope = app.Services.CreateAsyncScope();
+    var database = scope.ServiceProvider.GetRequiredService<StudyLensDbContext>();
+    if (migrateOnly)
+        await database.GetService<IMigrator>().MigrateAsync(migrationTarget);
+    else
+        await database.Database.MigrateAsync();
+    if (migrateOnly) return;
 }
 
 // Configure the HTTP request pipeline
@@ -76,7 +89,7 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
         true));
 }));
 
-app.UseCors("AllowLocalAndExtension");
+app.UseCors("StudyLensClients");
 
 // Map Health Endpoints
 app.MapHealthEndpoints();

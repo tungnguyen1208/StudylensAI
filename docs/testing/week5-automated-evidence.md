@@ -40,8 +40,10 @@ D1-04 was completed during Week 6 in commit `7ecfd3d`.
 - D2-05: worker validation theories reject contract/prompt mismatch, invalid questions/options/timestamps, duplicates, and over-target output before publication.
 - D2-06: malformed JSON maps to non-retryable `invalidAiResponse`; transport failure maps to retryable `aiUnavailable`.
 - D2-07: `VideoClosedWhileAiIsGenerating_DiscardsLateQuizAndProvisionalTranscript` verifies late AI output leaves no provisional capture or quiz.
+- D2-04: `RestartRecovery_RequeuesRunningJobWithoutLosingState_AndPublishesAtMostOneQuiz` persists a `running` job, creates a new database context, requeues the same job without resetting attempt/error state, then publishes exactly one quiz.
 
-D2-04 remains `NOT RUN`: manual retry is covered, but recovery of a job persisted specifically as `running` across a real Backend process restart does not yet have a direct test.
+The Docker release verification additionally restarted PostgreSQL and Backend,
+then re-read the same session from the persisted volume.
 
 ## Dev 3
 
