@@ -1,0 +1,29 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam componentStyle rectangle
+skinparam ArrowColor #3F6B47
+skinparam RectangleBorderColor #3F6B47
+skinparam RectangleBackgroundColor #F2F8EE
+skinparam DatabaseBorderColor #3F6B47
+skinparam DatabaseBackgroundColor #EDF6E9
+
+actor Learner
+rectangle "Chrome / Edge" as Browser {
+  component "StudyLens Extension\nManifest V3" as Extension
+}
+cloud "YouTube Web" as YouTube
+component "ASP.NET Core Backend\nContract 0.5.0" as Backend
+component "FastAPI AI Service\nStateless provider boundary" as AI
+database "PostgreSQL 16\nBusiness source of truth" as DB
+cloud "Google Gemini API" as Gemini
+
+Learner --> Extension : Use Side Panel
+Extension --> YouTube : Read video context\nand full captions
+Extension --> Backend : REST / JSON
+Backend --> DB : EF Core transactions
+Backend --> AI : Transcript fallback,\nquiz, short-answer grading
+AI --> Gemini : HTTPS with server-side key
+Backend --> Extension : Learning package,\nresults and history
+@enduml

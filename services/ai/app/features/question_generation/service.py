@@ -1,11 +1,12 @@
 import asyncio
+import re
 
 from app.features.question_generation.output_validator import InvalidAiOutputError, validate_chunk_output
 from app.features.question_generation.prompt import MAX_EVIDENCE_CHARS, build_prompt
 from app.features.question_generation.providers import DeterministicQuestionProvider, InsufficientEvidenceError, ProviderCallError
 from app.features.question_generation.schemas import (
     GeneratedQuestion,
-    QuestionGenerationChunkResponse,
+    ProviderQuestionGenerationChunkResponse,
     QuestionGenerationRequest,
     QuestionGenerationResponse,
 )
@@ -33,7 +34,7 @@ def resolve_provider() -> LlmProvider:
         return DeterministicQuestionProvider()
     if settings.llm_provider == "gemini":
         try:
-            return GeminiJsonProvider(QuestionGenerationChunkResponse)
+            return GeminiJsonProvider(ProviderQuestionGenerationChunkResponse)
         except GeminiConfigurationError as error:
             raise ProviderUnavailableError("providerNotConfigured", str(error), retryable=False) from error
     raise ProviderUnavailableError(
@@ -76,9 +77,10 @@ class QuestionGenerationService:
         except Exception as error:  # noqa: BLE001 - provider details must not cross the API boundary
             raise ProviderUnavailableError("providerFailed", "The question provider failed.") from error
 
+        relevant = [question for question in questions if _is_main_topic_candidate(question, request)]
         unique: list[GeneratedQuestion] = []
         seen: set[str] = set()
-        for question in questions:
+        for question in relevant:
             key = " ".join(question.prompt.casefold().split())
             if key not in seen:
                 seen.add(key)
@@ -88,6 +90,30 @@ class QuestionGenerationService:
                 raise InsufficientEvidenceRejected(str(last_insufficient_error)) from last_insufficient_error
             raise InvalidAiOutputError("invalidAiOutput", "The provider returned no usable question.")
         return QuestionGenerationResponse(questions=_select_across_timeline(unique, request))
+
+
+_TEMPORAL_TRIVIA = re.compile(
+    r"\b(?:năm|ngày|tháng)\s+(?:nào|bao\s+nhiêu)\b|\b(?:what|which)\s+(?:year|date)\b",
+    re.IGNORECASE,
+)
+_EXPERIMENT_DETAIL = re.compile(
+    r"\b(?:nghiên\s+cứu|thí\s+nghiệm|study|experiment)\b.*"
+    r"\b(?:nhóm|người\s+tham\s+gia|participant|group|exact|chính\s+xác|phần\s+trăm|percentage|kết\s+quả)\b",
+    re.IGNORECASE,
+)
+_TEMPORAL_TOPIC = re.compile(r"\b(?:lịch\s+sử|niên\s+biểu|tiểu\s+sử|history|timeline|chronology|biography)\b", re.IGNORECASE)
+_RESEARCH_TOPIC = re.compile(r"\b(?:nghiên\s+cứu|thí\s+nghiệm|research|experiment)\b", re.IGNORECASE)
+
+
+def _is_main_topic_candidate(question: GeneratedQuestion, request: QuestionGenerationRequest) -> bool:
+    """Drop obvious peripheral trivia without asking the provider for another pass."""
+    prompt = " ".join(question.prompt.split())
+    title = " ".join(request.videoTitle.split())
+    if _TEMPORAL_TRIVIA.search(prompt) and not _TEMPORAL_TOPIC.search(title):
+        return False
+    if _EXPERIMENT_DETAIL.search(prompt) and not _RESEARCH_TOPIC.search(title):
+        return False
+    return True
 
 
 def _select_across_timeline(questions: list[GeneratedQuestion], request: QuestionGenerationRequest) -> list[GeneratedQuestion]:
@@ -128,8 +154,8 @@ def _chunk_request(request: QuestionGenerationRequest) -> list[QuestionGeneratio
         # The public schema requires at least three questions. Internal chunks
         # may over-generate; the merged output below is deduplicated and capped.
         results.append(request.model_copy(update={
-            "startMs": cues[0].startMs,
-            "endMs": cues[-1].endMs,
+            "startMs": min(cue.startMs for cue in cues),
+            "endMs": max(cue.endMs for cue in cues),
             "questionCount": max(3, chunk_count),
             "cues": cues,
         }))

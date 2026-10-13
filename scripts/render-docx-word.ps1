@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)]
     [string] $InputPath,
     [Parameter(Mandatory)]
-    [string] $OutputPdf
+    [string] $OutputPdf,
+    [switch] $UpdateSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,9 +23,12 @@ $word = New-Object -ComObject Word.Application
 $word.Visible = $false
 $word.DisplayAlerts = 0
 try {
-    $document = $word.Documents.Open($input, $false, $true)
+    $document = $word.Documents.Open($input, $false, -not $UpdateSource)
     try {
         $document.Fields.Update() | Out-Null
+        if ($UpdateSource) {
+            $document.Save()
+        }
         $document.SaveAs2($output, 17)
     } finally {
         $document.Close($false)

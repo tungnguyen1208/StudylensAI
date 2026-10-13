@@ -25,6 +25,14 @@ public sealed class LearningPackageWorkerTests
     public void QuestionCount_UsesVideoDurationBands(long durationMs, int expected) =>
         Assert.Equal(expected, LearningPackageWorker.QuestionCountForDuration(durationMs));
 
+    [Fact]
+    public void VideoTitleForAi_IsWhitespaceNormalizedAndBounded()
+    {
+        Assert.Equal("Manage time before it is too late",
+            LearningPackageWorker.NormalizeVideoTitleForAi("  Manage   time\tbefore it is too late  "));
+        Assert.Equal(512, LearningPackageWorker.NormalizeVideoTitleForAi(new string('x', 513)).Length);
+    }
+
     [Theory]
     [InlineData("providerRateLimited", true, 1, 3, true)]
     [InlineData("providerFailed", true, 1, 3, false)]
@@ -76,6 +84,8 @@ public sealed class LearningPackageWorkerTests
         Assert.Equal(0, request.StartMs);
         Assert.Equal(expectedEndMs, request.EndMs);
         Assert.Equal(expectedQuestionCount, request.QuestionCount);
+        Assert.Equal("Binary search", request.VideoTitle);
+        Assert.Equal(LearningPackageWorker.QuestionPromptVersion, request.PromptVersion);
         Assert.All(request.Cues, cue => Assert.InRange(cue.EndMs, request.StartMs + 1, request.EndMs));
     }
 
@@ -364,7 +374,7 @@ public sealed class LearningPackageWorkerTests
                 [new FullVideoGeneratedOption("a", "Yes"), new FullVideoGeneratedOption("b", "No")],
                 "a", null, "Grounded in the transcript.", 0, 10_000)).ToArray();
             return Task.FromResult(AiGatewayResult<FullVideoQuestionGenerationResponse>.Success(
-                new FullVideoQuestionGenerationResponse("0.5.0", "0.5.0", questions)));
+                new FullVideoQuestionGenerationResponse("0.5.0", LearningPackageWorker.QuestionPromptVersion, questions)));
         }
     }
 
@@ -380,7 +390,7 @@ public sealed class LearningPackageWorkerTests
                 return Task.FromResult(AiGatewayResult<FullVideoQuestionGenerationResponse>.Failure(
                     "invalidAiOutput", "The provider returned no usable questions.", false));
             return Task.FromResult(AiGatewayResult<FullVideoQuestionGenerationResponse>.Success(
-                new FullVideoQuestionGenerationResponse("0.5.0", "0.5.0",
+                new FullVideoQuestionGenerationResponse("0.5.0", LearningPackageWorker.QuestionPromptVersion,
                 [new FullVideoGeneratedQuestion("multipleChoice", "What does binary search require?",
                     [new FullVideoGeneratedOption("a", "Sorted input"), new FullVideoGeneratedOption("b", "Unsorted input")],
                     "a", null, "The video explains sorted input.", 0, 10_000)])));
@@ -405,7 +415,7 @@ public sealed class LearningPackageWorkerTests
                 "a", null, "The cue states the prerequisite.", 0, 10_000);
             var questions = new List<FullVideoGeneratedQuestion> { first };
             var contractVersion = "0.5.0";
-            var promptVersion = "0.5.0";
+            var promptVersion = LearningPackageWorker.QuestionPromptVersion;
 
             switch (fault)
             {
@@ -470,7 +480,7 @@ public sealed class LearningPackageWorkerTests
         {
             await closeSession();
             return AiGatewayResult<FullVideoQuestionGenerationResponse>.Success(
-                new FullVideoQuestionGenerationResponse("0.5.0", "0.5.0",
+                new FullVideoQuestionGenerationResponse("0.5.0", LearningPackageWorker.QuestionPromptVersion,
                 [new FullVideoGeneratedQuestion("multipleChoice", "What does binary search require?",
                     [new FullVideoGeneratedOption("a", "Sorted input"), new FullVideoGeneratedOption("b", "Unsorted input")],
                     "a", null, "The video explains sorted input.", 0, 10_000)]));

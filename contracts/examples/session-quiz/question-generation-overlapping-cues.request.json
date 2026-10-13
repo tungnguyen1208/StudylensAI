@@ -1,0 +1,18 @@
+{
+  "contractVersion": "0.5.0",
+  "promptVersion": "0.5.1",
+  "sessionId": "33333333-3333-4333-8333-333333333333",
+  "transcriptCaptureId": "44444444-4444-4444-8444-444444444444",
+  "youtubeVideoId": "2b5YsAvWyWU",
+  "videoTitle": "Why AI assistants lose context and how to prevent it",
+  "startMs": 65000,
+  "endMs": 71000,
+  "questionCount": 3,
+  "questionType": "multipleChoice",
+  "difficulty": "medium",
+  "cues": [
+    { "startMs": 65000, "endMs": 66000, "text": "The first caption." },
+    { "startMs": 65000, "endMs": 70000, "text": "The extended caption." },
+    { "startMs": 66000, "endMs": 71000, "text": "The next caption." }
+  ]
+}

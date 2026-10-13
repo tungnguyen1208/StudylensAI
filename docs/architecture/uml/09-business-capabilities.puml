@@ -1,0 +1,24 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam componentStyle rectangle
+skinparam componentBackgroundColor #F2F8EE
+skinparam componentBorderColor #3F6B47
+skinparam databaseBackgroundColor #EDF6E9
+skinparam databaseBorderColor #3F6B47
+skinparam ArrowColor #3F6B47
+
+component "StudyLens Extension" as Extension
+component "Backend API" as API
+component "Backend Business Services\n--------------------\nVideo and Session\nTranscript Management\nQuiz Processing\nAssessment\nLearning History" as Services
+component "AI Service\nTranscript fallback\nQuestion generation\nShort-answer grading" as AI
+database "PostgreSQL\nVideos, sessions, transcripts,\njobs, quizzes, attempts and history" as DB
+cloud "Google Gemini API" as Gemini
+
+Extension --> API : Start session, submit transcript,\npoll learning package, submit answers
+API --> Services : Validate and coordinate
+Services --> DB : Persist and query learning data
+Services --> AI : Request AI processing when required
+AI --> Gemini : AI inference
+@enduml

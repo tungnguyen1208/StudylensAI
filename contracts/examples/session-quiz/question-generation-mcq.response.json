@@ -1,6 +1,6 @@
 {
   "contractVersion": "0.5.0",
-  "promptVersion": "0.5.0",
+  "promptVersion": "0.5.1",
   "questions": [{
     "type": "multipleChoice",
     "prompt": "Which statement is supported by the transcript?",

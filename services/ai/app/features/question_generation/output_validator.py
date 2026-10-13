@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from app.features.question_generation.schemas import (
     GeneratedQuestion,
+    ProviderGeneratedQuestion,
     QuestionGenerationRequest,
     QuestionGenerationResponse,
 )
@@ -55,13 +56,14 @@ def _parse(raw: str) -> dict:
 
 def _validate_question(item: object, request: QuestionGenerationRequest) -> GeneratedQuestion:
     try:
-        question = GeneratedQuestion.model_validate(item)
+        provider_question = ProviderGeneratedQuestion.model_validate(item)
     except ValidationError as error:
         raise InvalidAiOutputError("invalidAiOutputSchema", "A generated question does not match the schema.") from error
 
-    if question.type != request.questionType:
+    if provider_question.type != request.questionType:
         raise InvalidAiOutputError("invalidAiOutputType", "The generated question type does not match the request.")
 
+    question = _map_cue_indexes(provider_question, request)
     _validate_source_range(question, request)
     if question.type == "multipleChoice":
         _validate_multiple_choice(question)
@@ -70,11 +72,42 @@ def _validate_question(item: object, request: QuestionGenerationRequest) -> Gene
     return question
 
 
+def _map_cue_indexes(
+    question: ProviderGeneratedQuestion,
+    request: QuestionGenerationRequest,
+) -> GeneratedQuestion:
+    start_index = question.sourceStartCueIndex
+    end_index = question.sourceEndCueIndex
+    if start_index > end_index or end_index >= len(request.cues):
+        raise InvalidAiOutputError("invalidAiOutputTimestamp", "The question source cue indexes are invalid.")
+
+    values = question.model_dump(exclude={"sourceStartCueIndex", "sourceEndCueIndex"})
+    values["sourceStartMs"] = request.cues[start_index].startMs
+    values["sourceEndMs"] = request.cues[end_index].endMs
+    try:
+        return GeneratedQuestion.model_validate(values)
+    except ValidationError as error:
+        raise InvalidAiOutputError("invalidAiOutputTimestamp", "The mapped question source range is invalid.") from error
+
+
 def _validate_source_range(question: GeneratedQuestion, request: QuestionGenerationRequest) -> None:
     if question.sourceEndMs <= question.sourceStartMs:
         raise InvalidAiOutputError("invalidAiOutputTimestamp", "sourceEndMs must be greater than sourceStartMs.")
     if question.sourceStartMs < request.startMs or question.sourceEndMs > request.endMs:
         raise InvalidAiOutputError("invalidAiOutputTimestamp", "The question source falls outside the study segment.")
+    # YouTube caption tracks can contain cues with identical starts or
+    # overlapping intervals. A cited boundary need only match a real cue
+    # fully contained in the range, not every cue that intersects it.
+    has_start = any(
+        cue.startMs == question.sourceStartMs and cue.endMs <= question.sourceEndMs
+        for cue in request.cues
+    )
+    has_end = any(
+        cue.endMs == question.sourceEndMs and cue.startMs >= question.sourceStartMs
+        for cue in request.cues
+    )
+    if not has_start or not has_end:
+        raise InvalidAiOutputError("invalidAiOutputTimestamp", "The question source does not match supplied cue boundaries.")
 
 
 def _validate_multiple_choice(question: GeneratedQuestion) -> None:

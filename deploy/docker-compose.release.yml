@@ -18,6 +18,22 @@ services:
       start_period: 5s
     networks: [studylens]
 
+  pgadmin:
+    image: dpage/pgadmin4:8.14.0
+    profiles: ["admin"]
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:?PGADMIN_DEFAULT_EMAIL is required}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?PGADMIN_DEFAULT_PASSWORD is required}
+    ports:
+      - "127.0.0.1:5050:80"
+    volumes:
+      - studylens-pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [studylens]
+
   migrate:
     build:
       context: ../services/api
@@ -87,3 +103,4 @@ networks:
 
 volumes:
   studylens-postgres-data:
+  studylens-pgadmin-data:

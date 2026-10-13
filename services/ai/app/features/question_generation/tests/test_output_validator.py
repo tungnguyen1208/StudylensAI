@@ -12,10 +12,11 @@ from app.features.question_generation.schemas import QuestionGenerationRequest
 def request_for(question_type: str = "multipleChoice") -> QuestionGenerationRequest:
     return QuestionGenerationRequest(
         contractVersion="0.5.0",
-        promptVersion="0.5.0",
+        promptVersion="0.5.1",
         sessionId="11111111-1111-4111-8111-111111111111",
         transcriptCaptureId="22222222-2222-4222-8222-222222222222",
         youtubeVideoId="dQw4w9WgXcQ",
+        videoTitle="How TCP reliably transfers ordered data",
         startMs=0,
         endMs=300_000,
         questionCount=3,
@@ -36,8 +37,8 @@ def mcq(**overrides) -> str:
         ],
         "correctOptionId": "option-a",
         "explanation": "Grounded in the cited transcript cue.",
-        "sourceStartMs": 0,
-        "sourceEndMs": 30_000,
+        "sourceStartCueIndex": 0,
+        "sourceEndCueIndex": 0,
     }
     question.update(overrides)
     return json.dumps({"questions": [question]})
@@ -49,8 +50,8 @@ def short_answer(**overrides) -> str:
         "prompt": "Tóm tắt vai trò của TCP.",
         "referenceAnswer": "TCP chia dữ liệu thành các segment có thứ tự.",
         "explanation": "Grounded in the cited transcript cue.",
-        "sourceStartMs": 0,
-        "sourceEndMs": 30_000,
+        "sourceStartCueIndex": 0,
+        "sourceEndCueIndex": 0,
     }
     question.update(overrides)
     return json.dumps({"questions": [question]})
@@ -70,7 +71,7 @@ def test_accepts_a_valid_multiple_choice_question() -> None:
     response = validate_output(mcq(), request_for())
 
     assert response.contractVersion == "0.5.0"
-    assert response.promptVersion == "0.5.0"
+    assert response.promptVersion == "0.5.1"
     assert response.questions[0].correctOptionId == "option-a"
 
 
@@ -114,13 +115,72 @@ def test_rejects_a_question_type_the_request_did_not_ask_for() -> None:
 # timestamp rules
 # ============================================================
 
-def test_rejects_a_source_range_outside_the_segment() -> None:
-    assert code_of(mcq(sourceStartMs=400_000, sourceEndMs=420_000), request_for()) == "invalidAiOutputTimestamp"
-    assert code_of(mcq(sourceEndMs=300_001), request_for()) == "invalidAiOutputTimestamp"
+def test_rejects_a_source_cue_index_outside_the_supplied_cues() -> None:
+    assert code_of(mcq(sourceStartCueIndex=1, sourceEndCueIndex=1), request_for()) == "invalidAiOutputTimestamp"
 
 
-def test_rejects_a_backwards_source_range() -> None:
-    assert code_of(mcq(sourceStartMs=20_000, sourceEndMs=10_000), request_for()) == "invalidAiOutputTimestamp"
+def test_rejects_a_backwards_source_cue_range() -> None:
+    request = QuestionGenerationRequest.model_validate(
+        {**request_for().model_dump(), "cues": [
+            {"startMs": 0, "endMs": 30_000, "text": "First cue."},
+            {"startMs": 30_000, "endMs": 60_000, "text": "Second cue."},
+        ]}
+    )
+    assert code_of(mcq(sourceStartCueIndex=1, sourceEndCueIndex=0), request) == "invalidAiOutputTimestamp"
+
+
+def test_exact_cue_timestamp_passes_ai_validation_even_when_caption_cues_overlap() -> None:
+    request = QuestionGenerationRequest.model_validate(
+        {
+            **request_for().model_dump(),
+            "cues": [
+                {"startMs": 65_000, "endMs": 66_000, "text": "The first caption."},
+                {"startMs": 65_000, "endMs": 70_000, "text": "The extended caption."},
+                {"startMs": 66_000, "endMs": 71_000, "text": "The next caption."},
+            ],
+        }
+    )
+
+    response = validate_output(mcq(sourceStartCueIndex=0, sourceEndCueIndex=0), request)
+
+    assert len(response.questions) == 1
+    assert (response.questions[0].sourceStartMs, response.questions[0].sourceEndMs) == (65_000, 66_000)
+
+
+def test_multi_cue_evidence_may_use_boundaries_from_different_overlapping_cues() -> None:
+    request = QuestionGenerationRequest.model_validate(
+        {**request_for().model_dump(), "cues": [
+            {"startMs": 65_000, "endMs": 66_000, "text": "The first caption."},
+            {"startMs": 65_000, "endMs": 70_000, "text": "The extended caption."},
+            {"startMs": 66_000, "endMs": 71_000, "text": "The next caption."},
+        ]}
+    )
+
+    response = validate_output(mcq(sourceStartCueIndex=0, sourceEndCueIndex=2), request)
+
+    assert (response.questions[0].sourceStartMs, response.questions[0].sourceEndMs) == (65_000, 71_000)
+
+
+@pytest.mark.parametrize("start_index,end_index", [(0, 2), (1, 0), (2, 2)])
+def test_rejects_invalid_provider_cue_indexes(start_index: int, end_index: int) -> None:
+    request = QuestionGenerationRequest.model_validate(
+        {**request_for().model_dump(), "cues": [
+            {"startMs": 65_000, "endMs": 66_000, "text": "The first caption."},
+            {"startMs": 65_000, "endMs": 70_000, "text": "The extended caption."},
+        ]}
+    )
+
+    assert code_of(mcq(sourceStartCueIndex=start_index, sourceEndCueIndex=end_index), request) == "invalidAiOutputTimestamp"
+
+
+def test_provider_cannot_return_arbitrary_timestamps_instead_of_cue_indexes() -> None:
+    question = json.loads(mcq())["questions"][0]
+    question.pop("sourceStartCueIndex")
+    question.pop("sourceEndCueIndex")
+    question["sourceStartMs"] = 12_345
+    question["sourceEndMs"] = 23_456
+
+    assert code_of(json.dumps({"questions": [question]}), request_for()) == "invalidAiOutputSchema"
 
 
 # ============================================================

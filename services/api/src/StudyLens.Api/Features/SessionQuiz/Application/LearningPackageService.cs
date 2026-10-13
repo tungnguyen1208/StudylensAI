@@ -328,8 +328,15 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             }
         }
 
+        // Old failed quiz jobs stored retryable=false. They remain eligible for
+        // explicit user retry after evidence validation is corrected; this
+        // projection does not requeue a job or trigger another provider call.
+        var manualQuizRetry = session.Status == "failed" && session.ErrorOperation == "quizGenerate" &&
+            session.TranscriptCaptureId is not null &&
+            session.ErrorCode is ("invalidAiOutput" or "invalidAiOutputTimestamp");
         ProcessingErrorView? error = session.ErrorOperation is null ? null : new(
-            session.ErrorOperation, session.ErrorCode ?? "processingFailed", session.ErrorMessage ?? "Processing failed.", session.ErrorRetryable);
+            session.ErrorOperation, session.ErrorCode ?? "processingFailed", session.ErrorMessage ?? "Processing failed.",
+            session.ErrorRetryable || manualQuizRetry);
         return new LearningPackageView(ToSnapshot(session), transcript, session.QuizStatus, quiz, error);
     }
 

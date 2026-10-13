@@ -18,7 +18,7 @@ public sealed class QuizAssessmentEntity
     public string QuestionType { get; set; } = "multipleChoice";
     public string Difficulty { get; set; } = "medium";
     public string? TranscriptCaptureId { get; set; }
-    public string PromptVersion { get; set; } = "0.5.0";
+    public string PromptVersion { get; set; } = "0.5.1";
     public string? ModelName { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public List<QuestionAssessmentEntity> Questions { get; set; } = [];

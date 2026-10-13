@@ -62,13 +62,19 @@ components:
     QuestionGenerationRequest:
       type: object
       additionalProperties: false
-      required: [contractVersion, promptVersion, sessionId, transcriptCaptureId, youtubeVideoId, startMs, endMs, questionCount, questionType, difficulty, cues]
+      required: [contractVersion, promptVersion, sessionId, transcriptCaptureId, youtubeVideoId, videoTitle, startMs, endMs, questionCount, questionType, difficulty, cues]
       properties:
         contractVersion: { type: string, const: 0.5.0 }
-        promptVersion: { type: string, const: 0.5.0 }
+        promptVersion: { type: string, const: 0.5.1 }
         sessionId: { type: string, format: uuid }
         transcriptCaptureId: { type: string, format: uuid }
         youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
+        videoTitle:
+          type: string
+          minLength: 1
+          maxLength: 512
+          pattern: '.*\S.*'
+          description: Normalized video title used only as a topic hint; transcript cues remain the factual evidence source.
         startMs: { type: integer, minimum: 0 }
         endMs: { type: integer, minimum: 1 }
         questionCount:
@@ -97,15 +103,21 @@ components:
         correctOptionId: { type: string, minLength: 1 }
         referenceAnswer: { type: string, minLength: 1 }
         explanation: { type: string, minLength: 1 }
-        sourceStartMs: { type: integer, minimum: 0 }
-        sourceEndMs: { type: integer, minimum: 1 }
+        sourceStartMs:
+          type: integer
+          minimum: 0
+          description: Start boundary of a supplied cue fully contained in the cited evidence range; overlapping cues are allowed.
+        sourceEndMs:
+          type: integer
+          minimum: 1
+          description: End boundary of a supplied cue fully contained in the cited evidence range; it may belong to a different cue than sourceStartMs.
     QuestionGenerationResponse:
       type: object
       additionalProperties: false
       required: [contractVersion, promptVersion, questions]
       properties:
         contractVersion: { type: string, const: 0.5.0 }
-        promptVersion: { type: string, const: 0.5.0 }
+        promptVersion: { type: string, const: 0.5.1 }
         questions:
           type: array
           minItems: 1

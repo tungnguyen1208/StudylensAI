@@ -1,8 +1,9 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONTRACT_VERSION = "0.5.0"
+PROMPT_VERSION = "0.5.1"
 
 QuestionType = Literal["multipleChoice", "shortAnswer"]
 Difficulty = Literal["easy", "medium", "hard"]
@@ -30,16 +31,25 @@ class QuestionGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     contractVersion: Literal["0.5.0"]
-    promptVersion: Literal["0.5.0"]
+    promptVersion: Literal["0.5.1"]
     sessionId: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
     transcriptCaptureId: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
     youtubeVideoId: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    videoTitle: str = Field(min_length=1, max_length=512)
     startMs: int = Field(ge=0)
     endMs: int = Field(gt=0)
     questionCount: int = Field(ge=3, le=15)
     questionType: QuestionType
     difficulty: Difficulty
     cues: list[TranscriptCue] = Field(min_length=1)
+
+    @field_validator("videoTitle")
+    @classmethod
+    def normalize_video_title(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("videoTitle must contain visible text")
+        return normalized
 
     @model_validator(mode="after")
     def validate_versions_and_range(self) -> "QuestionGenerationRequest":
@@ -80,15 +90,29 @@ class QuestionGenerationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     contractVersion: str = CONTRACT_VERSION
-    promptVersion: str = CONTRACT_VERSION
+    promptVersion: Literal["0.5.1"] = PROMPT_VERSION
     questions: list[GeneratedQuestion] = Field(min_length=1, max_length=15)
 
 
-class QuestionGenerationChunkResponse(BaseModel):
+class ProviderGeneratedQuestion(BaseModel):
+    """Provider-only shape; cue indexes are mapped to trusted timestamps locally."""
+    model_config = ConfigDict(extra="forbid")
+
+    type: QuestionType
+    prompt: str = Field(min_length=1)
+    options: list[GeneratedOption] | None = None
+    correctOptionId: str | None = None
+    referenceAnswer: str | None = None
+    explanation: str = Field(min_length=1)
+    sourceStartCueIndex: int = Field(ge=0)
+    sourceEndCueIndex: int = Field(ge=0)
+
+
+class ProviderQuestionGenerationChunkResponse(BaseModel):
     """Internal provider schema: one evidence chunk may support no questions."""
     model_config = ConfigDict(extra="forbid")
 
-    questions: list[GeneratedQuestion] = Field(max_length=15)
+    questions: list[ProviderGeneratedQuestion] = Field(max_length=15)
 
 
 # ============================================================

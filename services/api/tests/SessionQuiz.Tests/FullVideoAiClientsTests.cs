@@ -96,13 +96,13 @@ public sealed class FullVideoAiClientsTests
         using var httpClient = new HttpClient(new ResponseFactoryHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                "{\"contractVersion\":\"0.5.0\",\"promptVersion\":\"0.5.0\",\"questions\":[]}",
+                "{\"contractVersion\":\"0.5.0\",\"promptVersion\":\"0.5.1\",\"questions\":[]}",
                 Encoding.UTF8, "application/json"),
         }));
         var client = new FullVideoQuestionGenerationClient(httpClient, new ConfigurationBuilder().Build());
         var request = new FullVideoQuestionGenerationRequest(
-            "0.5.0", "0.5.0", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "dQw4w9WgXcQ",
-            0, 1_000, 3, "multipleChoice", "medium", [new TranscriptCueView(0, 1_000, "Evidence")]);
+            "0.5.0", LearningPackageWorker.QuestionPromptVersion, Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "dQw4w9WgXcQ",
+            "Video title", 0, 1_000, 3, "multipleChoice", "medium", [new TranscriptCueView(0, 1_000, "Evidence")]);
 
         var first = await client.GenerateAsync(request, CancellationToken.None);
         var second = await client.GenerateAsync(request, CancellationToken.None);

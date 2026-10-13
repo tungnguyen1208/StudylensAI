@@ -1,9 +1,10 @@
 {
   "contractVersion": "0.5.0",
-  "promptVersion": "0.5.0",
+  "promptVersion": "0.5.1",
   "sessionId": "33333333-3333-4333-8333-333333333333",
   "transcriptCaptureId": "44444444-4444-4444-8444-444444444444",
   "youtubeVideoId": "dQw4w9WgXcQ",
+  "videoTitle": "How TCP reliably transfers ordered data",
   "startMs": 0,
   "endMs": 900000,
   "questionCount": 5,

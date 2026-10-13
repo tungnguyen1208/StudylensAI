@@ -212,7 +212,9 @@ components:
           type: string
           description: providerRateLimited means the AI quota is exhausted; the learner may retry the failed step after quota renewal.
         message: { type: string }
-        retryable: { type: boolean }
+        retryable:
+          type: boolean
+          description: Whether the learner may manually retry the failed step. It does not imply an automatic provider retry.
     LearningPackage:
       type: object
       additionalProperties: false

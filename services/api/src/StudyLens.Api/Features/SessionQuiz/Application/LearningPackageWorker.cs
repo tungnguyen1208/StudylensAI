@@ -7,6 +7,9 @@ namespace StudyLens.Api.Features.SessionQuiz.Application;
 
 public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILogger<LearningPackageWorker> logger) : BackgroundService
 {
+    internal const string QuestionPromptVersion = "0.5.1";
+    private const int MaxAiVideoTitleLength = 512;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using (var recoveryScope = scopeFactory.CreateScope())
@@ -207,16 +210,23 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         // Count by the stored player duration, not a caption that slightly
         // extends past a threshold. Fall back to the last cue for old captures.
         var questionCount = QuestionCountForDuration(capture.DurationMs is > 0 ? capture.DurationMs.Value : lastCueEndMs);
+        var videoTitle = NormalizeVideoTitleForAi(session.VideoTitle);
         var gateway = services.GetRequiredService<IFullVideoQuestionGenerationGateway>();
-        var generated = await gateway.GenerateAsync(new(LearningPackageService.ContractVersion, LearningPackageService.ContractVersion,
-            session.SessionId, capture.TranscriptCaptureId, session.YoutubeVideoId, startMs, endMs, questionCount,
+        var generated = await gateway.GenerateAsync(new(LearningPackageService.ContractVersion, QuestionPromptVersion,
+            session.SessionId, capture.TranscriptCaptureId, session.YoutubeVideoId, videoTitle, startMs, endMs, questionCount,
             session.QuestionType, session.Difficulty, cues), cancellationToken);
         if (generated.Value is null) return AiJobOutcome.Fail(generated.ErrorCode!, generated.ErrorMessage!, generated.Retryable);
         if (generated.Value.ContractVersion != LearningPackageService.ContractVersion ||
-            generated.Value.PromptVersion != LearningPackageService.ContractVersion)
+            generated.Value.PromptVersion != QuestionPromptVersion)
             return AiJobOutcome.Fail("invalidAiResponse", "The AI Service returned an unsupported response version.", false);
-        if (!ValidQuestionSet(generated.Value.Questions, questionCount, session.QuestionType, startMs, endMs, cues))
+        var validationFailure = ValidateQuestionSet(generated.Value.Questions, questionCount, session.QuestionType, startMs, endMs, cues);
+        if (validationFailure is not null)
+        {
+            services.GetService<ILogger<LearningPackageWorker>>()?.LogWarning(
+                "Quiz validation rejected job {JobId} for session {SessionId}: {Reason} at question index {QuestionIndex}.",
+                job.ProcessingJobId, session.SessionId, validationFailure.Reason, validationFailure.QuestionIndex);
             return AiJobOutcome.Fail("invalidAiOutput", "The AI Service returned an invalid quiz payload.", false);
+        }
 
         // The AI Service normally applies the target. Validate the complete
         // payload before capping so an invalid trailing question cannot be
@@ -279,49 +289,69 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         _ => 15,
     };
 
-    private static bool ValidQuestionSet(IReadOnlyList<FullVideoGeneratedQuestion>? questions, int questionCount,
-        string requestedType, long startMs, long endMs, IReadOnlyList<TranscriptCueView> cues)
+    internal static string NormalizeVideoTitleForAi(string title)
     {
-        if (questions is not { Count: > 0 } || questions.Count > questionCount || questions.Count > 15 ||
-            questions.Any(question => question is null) || questions.Any(question =>
-                !ValidQuestion(question, requestedType, startMs, endMs, cues)))
-            return false;
-
-        var prompts = questions.Select(question => NormalizeGeneratedText(question.Prompt)).ToArray();
-        return prompts.Distinct(StringComparer.OrdinalIgnoreCase).Count() == prompts.Length;
+        var normalized = NormalizeGeneratedText(title);
+        return normalized.Length <= MaxAiVideoTitleLength
+            ? normalized
+            : normalized[..MaxAiVideoTitleLength].TrimEnd();
     }
 
-    private static bool ValidQuestion(FullVideoGeneratedQuestion question, string requestedType, long startMs, long endMs,
+    private static QuestionValidationFailure? ValidateQuestionSet(IReadOnlyList<FullVideoGeneratedQuestion>? questions, int questionCount,
+        string requestedType, long startMs, long endMs, IReadOnlyList<TranscriptCueView> cues)
+    {
+        if (questions is not { Count: > 0 }) return new("emptyQuestionSet", -1);
+        if (questions.Count > questionCount || questions.Count > 15) return new("overTarget", -1);
+
+        for (var index = 0; index < questions.Count; index++)
+        {
+            var question = questions[index];
+            if (question is null) return new("nullQuestion", index);
+            var reason = InvalidQuestionReason(question, requestedType, startMs, endMs, cues);
+            if (reason is not null) return new(reason, index);
+        }
+
+        var prompts = questions.Select(question => NormalizeGeneratedText(question.Prompt)).ToArray();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < prompts.Length; index++)
+            if (!seen.Add(prompts[index])) return new("duplicatePrompt", index);
+        return null;
+    }
+
+    private static string? InvalidQuestionReason(FullVideoGeneratedQuestion question, string requestedType, long startMs, long endMs,
         IReadOnlyList<TranscriptCueView> cues)
     {
-        if (question.Type != requestedType || string.IsNullOrWhiteSpace(question.Prompt) ||
-            string.IsNullOrWhiteSpace(question.Explanation) || question.SourceStartMs < startMs ||
-            question.SourceEndMs > endMs || question.SourceEndMs <= question.SourceStartMs ||
-            !GroundedInCues(question.SourceStartMs, question.SourceEndMs, cues))
-            return false;
+        if (question.Type != requestedType) return "questionType";
+        if (string.IsNullOrWhiteSpace(question.Prompt)) return "promptMissing";
+        if (string.IsNullOrWhiteSpace(question.Explanation)) return "explanationMissing";
+        if (question.SourceStartMs < startMs || question.SourceEndMs > endMs ||
+            question.SourceEndMs <= question.SourceStartMs) return "timestampOutOfRange";
+        if (!GroundedInCues(question.SourceStartMs, question.SourceEndMs, cues)) return "evidenceBoundary";
 
         if (question.Type == "shortAnswer")
-            return !string.IsNullOrWhiteSpace(question.ReferenceAnswer) &&
-                question.Options is null or { Count: 0 } && string.IsNullOrWhiteSpace(question.CorrectOptionId);
+            return string.IsNullOrWhiteSpace(question.ReferenceAnswer) ||
+                question.Options is not (null or { Count: 0 }) || !string.IsNullOrWhiteSpace(question.CorrectOptionId)
+                ? "shortAnswerShape" : null;
 
         if (question.Options is not { Count: >= 2 } || string.IsNullOrWhiteSpace(question.CorrectOptionId) ||
             !string.IsNullOrWhiteSpace(question.ReferenceAnswer) ||
             question.Options.Any(option => option is null || string.IsNullOrWhiteSpace(option.OptionId) || string.IsNullOrWhiteSpace(option.Text)))
-            return false;
+            return "multipleChoiceShape";
 
         var optionIds = question.Options.Select(option => option.OptionId.Trim()).ToArray();
         var optionTexts = question.Options.Select(option => NormalizeGeneratedText(option.Text)).ToArray();
-        return optionIds.Distinct(StringComparer.Ordinal).Count() == optionIds.Length &&
-            optionTexts.Distinct(StringComparer.OrdinalIgnoreCase).Count() == optionTexts.Length &&
-            optionIds.Contains(question.CorrectOptionId.Trim(), StringComparer.Ordinal);
+        if (optionIds.Distinct(StringComparer.Ordinal).Count() != optionIds.Length) return "duplicateOptionId";
+        if (optionTexts.Distinct(StringComparer.OrdinalIgnoreCase).Count() != optionTexts.Length) return "duplicateOptionText";
+        return optionIds.Contains(question.CorrectOptionId.Trim(), StringComparer.Ordinal) ? null : "answerKey";
     }
 
     private static bool GroundedInCues(long sourceStartMs, long sourceEndMs, IReadOnlyList<TranscriptCueView> cues)
     {
-        var cited = cues.Where(cue => cue.EndMs > sourceStartMs && cue.StartMs < sourceEndMs)
-            .OrderBy(cue => cue.StartMs).ThenBy(cue => cue.EndMs).ToArray();
-        return cited.Length > 0 && cited[0].StartMs == sourceStartMs && cited[^1].EndMs == sourceEndMs;
+        return cues.Any(cue => cue.StartMs == sourceStartMs && cue.EndMs <= sourceEndMs) &&
+            cues.Any(cue => cue.EndMs == sourceEndMs && cue.StartMs >= sourceStartMs);
     }
+
+    private sealed record QuestionValidationFailure(string Reason, int QuestionIndex);
 
     private static string NormalizeGeneratedText(string value) =>
         string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));

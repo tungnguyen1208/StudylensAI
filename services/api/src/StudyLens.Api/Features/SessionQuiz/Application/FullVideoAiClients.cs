@@ -111,7 +111,7 @@ public sealed record AiErrorResponse(string Code, string Message, bool Retryable
 public sealed record TranscriptGenerationRequest(string ContractVersion, string YoutubeVideoId);
 public sealed record TranscriptGenerationResponse(string ContractVersion, string YoutubeVideoId, string Source, string Language, long? DurationMs, IReadOnlyList<TranscriptCueView> Cues);
 public sealed record FullVideoQuestionGenerationRequest(string ContractVersion, string PromptVersion, string SessionId,
-    string TranscriptCaptureId, string YoutubeVideoId, long StartMs, long EndMs, int QuestionCount,
+    string TranscriptCaptureId, string YoutubeVideoId, string VideoTitle, long StartMs, long EndMs, int QuestionCount,
     string QuestionType, string Difficulty, IReadOnlyList<TranscriptCueView> Cues);
 public sealed record FullVideoQuestionGenerationResponse(string ContractVersion, string PromptVersion, IReadOnlyList<FullVideoGeneratedQuestion> Questions);
 public sealed record FullVideoGeneratedQuestion(string Type, string Prompt, IReadOnlyList<FullVideoGeneratedOption>? Options,

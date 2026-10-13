@@ -1,0 +1,16 @@
+{
+  "contractVersion": "0.5.0",
+  "promptVersion": "0.5.1",
+  "questions": [{
+    "type": "multipleChoice",
+    "prompt": "What does the first caption say?",
+    "options": [
+      { "optionId": "a", "text": "The first caption." },
+      { "optionId": "b", "text": "Something else." }
+    ],
+    "correctOptionId": "a",
+    "explanation": "The cited caption supplies the answer.",
+    "sourceStartMs": 65000,
+    "sourceEndMs": 66000
+  }]
+}

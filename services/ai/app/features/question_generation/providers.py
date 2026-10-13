@@ -40,8 +40,8 @@ class DeterministicQuestionProvider:
                     ],
                     "correctOptionId": "option-a",
                     "explanation": f"Đáp án được trích trực tiếp từ transcript tại {anchor['startMs']} ms.",
-                    "sourceStartMs": anchor["startMs"],
-                    "sourceEndMs": anchor["endMs"],
+                    "sourceStartCueIndex": anchor["cueIndex"],
+                    "sourceEndCueIndex": anchor["cueIndex"],
                 }
             else:
                 question = {
@@ -49,8 +49,8 @@ class DeterministicQuestionProvider:
                     "prompt": f"Câu {index + 1}: Hãy tóm tắt nội dung transcript tại mốc này.",
                     "referenceAnswer": _shorten(anchor["text"], limit=240),
                     "explanation": "Câu trả lời cần bám sát transcript được tham chiếu.",
-                    "sourceStartMs": anchor["startMs"],
-                    "sourceEndMs": anchor["endMs"],
+                    "sourceStartCueIndex": anchor["cueIndex"],
+                    "sourceEndCueIndex": anchor["cueIndex"],
                 }
             questions.append(question)
 

@@ -60,13 +60,13 @@ digraph backend {
   node [shape=box, style="rounded,filled", fillcolor="#EEF5FB", color="#496B8A", fontname="Arial", fontsize=12, margin="0.15,0.1"];
   edge [color="#496B8A", fontcolor="#496B8A", fontname="Arial", fontsize=9, penwidth=1.3];
   ext [label="StudyLens Extension"];
-  endpoints [label="HTTP Endpoints\nSessions + transcript + attempts + history"];
-  services [label="Application Services\nValidation + idempotency + transactions"];
-  jobs [label="Background Worker\nDurable ProcessingJobs + retry/recovery"];
-  ai [label="AI Clients\nTranscript fallback + quiz + grading"];
-  ef [label="Entity Framework Core\nExplicit migrations"];
-  db [shape=cylinder, fillcolor="#EFF7EC", color="#48765B", label="PostgreSQL 16"];
-  fast [label="FastAPI AI Service"];
+  endpoints [label="HTTP Endpoints\nReceive sessions, transcripts, attempts & history"];
+  services [label="Application Services\nValidate input, enforce idempotency & transactions"];
+  jobs [label="Background Worker\nRun durable jobs, retries & restart recovery"];
+  ai [label="AI Clients\nRequest transcript fallback, quiz & grading"];
+  ef [label="Entity Framework Core\nPersist domain data & apply migrations"];
+  db [shape=cylinder, fillcolor="#EFF7EC", color="#48765B", label="PostgreSQL 16\nStore sessions, transcripts, quizzes & history"];
+  fast [label="FastAPI AI Service\nAI orchestration boundary"];
   ext -> endpoints [label="REST"];
   endpoints -> services;
   services -> jobs;
@@ -127,11 +127,14 @@ digraph deployment {
   graph [bgcolor="white", pad="0.2", ranksep="0.5", nodesep="0.35"];
   node [shape=box, style="rounded,filled", fillcolor="#EEF5FB", color="#496B8A", fontname="Arial", fontsize=12, margin="0.16,0.1"];
   edge [color="#496B8A", fontcolor="#496B8A", fontname="Arial", fontsize=9, penwidth=1.3];
-  ext [label="Chrome / Edge\nStudyLens Extension"];
-  api [label="api container\nASP.NET Core 8\n127.0.0.1:5000 only"];
-  migrate [label="migrate one-shot job\n--migrate-only"];
-  ai [label="ai container\nPython 3.12 FastAPI\nprivate Docker network"];
-  db [shape=cylinder, fillcolor="#EFF7EC", color="#48765B", label="postgres container\nPostgreSQL 16 + named volume\nprivate Docker network"];
+  ext [label="User Device\nChrome / Edge + StudyLens Extension"];
+  subgraph cluster_server {
+    label="StudyLens Server (Docker Host)"; color="#A8C995"; style="rounded,dashed";
+    api [label="API Container\nASP.NET Core 8\nHost: 127.0.0.1:5000"];
+    migrate [label="Migration Job\nRun --migrate-only before API"];
+    ai [label="AI Container\nPython 3.12 + FastAPI\nInternal Docker network"];
+    db [shape=cylinder, fillcolor="#EFF7EC", color="#48765B", label="PostgreSQL Container\nPostgreSQL 16 + named volume\nInternal Docker network"];
+  }
   gem [shape=ellipse, fillcolor="#FFF6E5", color="#9B6E24", label="Google AI Gemini API"];
   ext -> api [label="HTTP / REST"];
   migrate -> db [label="EF Core migrations"];

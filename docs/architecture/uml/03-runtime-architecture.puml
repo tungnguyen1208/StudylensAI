@@ -1,0 +1,46 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam nodeBackgroundColor #F8FBF6
+skinparam nodeBorderColor #7EAA68
+skinparam componentBackgroundColor #F2F8EE
+skinparam componentBorderColor #3F6B47
+skinparam databaseBackgroundColor #EDF6E9
+skinparam databaseBorderColor #3F6B47
+skinparam ArrowColor #3F6B47
+
+node "Learner Environment" {
+  node "Chrome / Edge" {
+    component "StudyLens Extension\nSide Panel and YouTube Adapter" as Extension
+  }
+}
+
+cloud "YouTube Web" as YouTube
+
+node "StudyLens Application" {
+  component "ASP.NET Core Backend" as Backend
+  component "Session Management" as Session
+  component "Transcript Processing" as Transcript
+  component "Quiz and Grading" as Quiz
+  component "Learning History" as History
+  component "FastAPI AI Service" as AI
+  database "PostgreSQL" as Postgres
+
+  Backend --> Session
+  Backend --> Transcript
+  Backend --> Quiz
+  Backend --> History
+  Transcript --> AI : Transcript fallback
+  Quiz --> AI : Question generation\nand short-answer grading
+  Session --> Postgres
+  Transcript --> Postgres
+  Quiz --> Postgres
+  History --> Postgres
+}
+
+cloud "Google Gemini API" as Gemini
+Extension --> YouTube : Video context and captions
+Extension --> Backend : Study operations and state
+AI --> Gemini : AI requests
+@enduml

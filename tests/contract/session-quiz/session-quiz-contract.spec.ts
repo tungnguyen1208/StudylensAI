@@ -107,6 +107,13 @@ describe('Backend-to-AI full-video contract 0.5.0', () => {
     const response = aiValidator('QuestionGenerationResponse').validate;
     const exampleRequest = fixture('question-generation.request.json');
     expect(request(exampleRequest), JSON.stringify(request.errors)).toBe(true);
+    expect(exampleRequest.promptVersion).toBe('0.5.1');
+    expect(exampleRequest.videoTitle).toBeTruthy();
+    const { videoTitle: _missingTitle, ...withoutTitle } = exampleRequest;
+    expect(request(withoutTitle)).toBe(false);
+    expect(request({ ...exampleRequest, videoTitle: '' })).toBe(false);
+    expect(request({ ...exampleRequest, videoTitle: '   ' })).toBe(false);
+    expect(request({ ...exampleRequest, videoTitle: 'x'.repeat(513) })).toBe(false);
     expect(exampleRequest.endMs).toBe(900_000);
     expect(exampleRequest.questionCount).toBe(5);
     for (const name of ['question-generation-mcq.response.json', 'question-generation-short-answer.response.json']) {
@@ -114,6 +121,18 @@ describe('Backend-to-AI full-video contract 0.5.0', () => {
       expect(response(exampleResponse), `${name}: ${JSON.stringify(response.errors)}`).toBe(true);
       expect(exampleResponse.questions.length).toBeLessThan(exampleRequest.questionCount);
     }
+  });
+
+  it('documents a quiz sourced from real boundaries in overlapping caption cues', () => {
+    const request = fixture('question-generation-overlapping-cues.request.json');
+    const response = fixture('question-generation-overlapping-cues.response.json');
+    const requestValidator = aiValidator('QuestionGenerationRequest').validate;
+    const responseValidator = aiValidator('QuestionGenerationResponse').validate;
+    expect(requestValidator(request), JSON.stringify(requestValidator.errors)).toBe(true);
+    expect(responseValidator(response), JSON.stringify(responseValidator.errors)).toBe(true);
+    const source = response.questions[0];
+    expect(request.cues.some((cue: any) => cue.startMs === source.sourceStartMs && cue.endMs <= source.sourceEndMs)).toBe(true);
+    expect(request.cues.some((cue: any) => cue.endMs === source.sourceEndMs && cue.startMs >= source.sourceStartMs)).toBe(true);
   });
 
   it('keeps every generated evidence range inside the requested full video', () => {

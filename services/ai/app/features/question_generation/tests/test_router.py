@@ -11,10 +11,11 @@ LONG_CUE = "TCP chia dữ liệu thành các segment có thứ tự và truyền
 
 VALID_BODY = {
     "contractVersion": "0.5.0",
-    "promptVersion": "0.5.0",
+    "promptVersion": "0.5.1",
     "sessionId": "11111111-1111-4111-8111-111111111111",
     "transcriptCaptureId": "22222222-2222-4222-8222-222222222222",
     "youtubeVideoId": "dQw4w9WgXcQ",
+    "videoTitle": "How TCP reliably transfers ordered data",
     "startMs": 0,
     "endMs": 300000,
     "questionCount": 3,
@@ -79,7 +80,7 @@ def test_returns_a_public_safe_multiple_choice_payload() -> None:
 
     assert response.status_code == 200
     assert body["contractVersion"] == "0.5.0"
-    assert body["promptVersion"] == "0.5.0"
+    assert body["promptVersion"] == "0.5.1"
     assert body["questions"][0]["correctOptionId"] == "option-a"
     assert "referenceAnswer" not in body["questions"][0]
 
@@ -118,6 +119,13 @@ def test_unknown_field_is_rejected_by_the_forbidden_extra_rule() -> None:
     assert post({**VALID_BODY, "modelHint": "gemini"}).status_code == 400
 
 
+def test_video_title_is_required_visible_and_bounded() -> None:
+    without_title = {key: value for key, value in VALID_BODY.items() if key != "videoTitle"}
+    assert post(without_title).status_code == 400
+    assert post({**VALID_BODY, "videoTitle": "   "}).status_code == 400
+    assert post({**VALID_BODY, "videoTitle": "x" * 513}).status_code == 400
+
+
 def test_insufficient_transcript_returns_a_non_retryable_400() -> None:
     response = post({**VALID_BODY, "cues": [{"startMs": 0, "endMs": 1000, "text": "Ngắn."}]})
 
@@ -130,7 +138,7 @@ def test_insufficient_transcript_returns_a_non_retryable_400() -> None:
 
 
 def test_invalid_provider_output_returns_a_non_retryable_422() -> None:
-    override_provider(payload='{"questions": [{"type": "multipleChoice", "prompt": "x", "explanation": "x", "sourceStartMs": 0, "sourceEndMs": 5}]}')
+    override_provider(payload='{"questions": [{"type": "multipleChoice", "prompt": "x", "explanation": "x", "sourceStartCueIndex": 0, "sourceEndCueIndex": 0}]}')
 
     response = post()
 
