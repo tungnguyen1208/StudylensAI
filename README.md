@@ -68,7 +68,9 @@ cd /d ..\..
 dotnet test .\services\api\StudyLens.sln
 
 cd /d services\ai
-py -m pytest app -q
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m pytest -q
 ```
 
 Load `apps/extension/dist` as an unpacked extension after `npm.cmd run build`.
@@ -88,6 +90,12 @@ Copy-Item deploy/release.env.example deploy/release.env
 .\release.ps1 smoke
 .\release.ps1 down
 ```
+
+`verify` runs the Extension source tests, all three contract suites, typecheck,
+Extension build, Backend tests, AI tests, package validation and Compose
+configuration validation. It rejects a ZIP whose embedded `commitSha` differs
+from the current Git `HEAD`. CI uses `-SkipComposeConfig` only because the
+hosted Windows runner does not provide the local Linux Docker engine.
 
 The release stack exposes only Backend at `127.0.0.1:5000`; PostgreSQL and the
 AI Service stay on the private Compose network. See

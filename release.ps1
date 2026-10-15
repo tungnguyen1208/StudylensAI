@@ -2,7 +2,8 @@ param(
     [ValidateSet('build', 'verify', 'smoke', 'down')]
     [string] $Action = 'verify',
     [ValidateSet('configured', 'fake')]
-    [string] $Provider = 'configured'
+    [string] $Provider = 'configured',
+    [switch] $SkipComposeConfig
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,6 +15,9 @@ $packageScript = Join-Path $extensionRoot 'scripts/package-extension.ps1'
 $apiRoot = Join-Path $repoRoot 'services/api'
 $aiRoot = Join-Path $repoRoot 'services/ai'
 $aiPython = Join-Path $aiRoot '.venv/Scripts/python.exe'
+$vitest = Join-Path $extensionRoot 'node_modules/.bin/vitest.cmd'
+$sessionQuizContractRoot = Join-Path $repoRoot 'tests/contract/session-quiz'
+$assessmentHistoryContractRoot = Join-Path $repoRoot 'tests/contract/assessment-history'
 $composeFile = Join-Path $repoRoot 'deploy/docker-compose.release.yml'
 $releaseEnv = Join-Path $repoRoot 'deploy/release.env'
 $releaseEnvExample = Join-Path $repoRoot 'deploy/release.env.example'
@@ -108,16 +112,21 @@ switch ($Action) {
     }
     'verify' {
         Invoke-Checked 'npm.cmd' @('test', '--', '--run', '--reporter=basic') $extensionRoot
+        Invoke-Checked $vitest @('--run', '--config', 'vitest.config.mjs', '--reporter=basic') $sessionQuizContractRoot
+        Invoke-Checked $vitest @('--run', '--config', 'vitest.config.mjs', '--reporter=basic') $assessmentHistoryContractRoot
         Invoke-Checked 'npm.cmd' @('run', 'typecheck') $extensionRoot
+        Invoke-Checked 'npm.cmd' @('run', 'build') $extensionRoot
         Invoke-Checked 'dotnet' @('test', 'StudyLens.sln', '--configuration', 'Release') $apiRoot
         if (Test-Path -LiteralPath $aiPython) {
             Invoke-Checked $aiPython @('-m', 'pytest', '-q') $aiRoot
         } else {
             Invoke-Checked 'py' @('-3.12', '-m', 'pytest', '-q') $aiRoot
         }
-        & $packageScript
+        & $packageScript -SkipBuild
         & $packageScript -VerifyOnly
-        Invoke-Compose @('config', '--quiet') -SelectedProvider $Provider
+        if (-not $SkipComposeConfig) {
+            Invoke-Compose @('config', '--quiet') -SelectedProvider $Provider
+        }
         break
     }
     'smoke' {

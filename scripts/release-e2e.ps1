@@ -31,8 +31,9 @@ function Invoke-JsonRequest {
         TimeoutSec = 60
     }
     if ($null -ne $Body) {
-        $parameters.ContentType = 'application/json'
-        $parameters.Body = $Body | ConvertTo-Json -Depth 20 -Compress
+        $parameters.ContentType = 'application/json; charset=utf-8'
+        $json = $Body | ConvertTo-Json -Depth 20 -Compress
+        $parameters.Body = [System.Text.Encoding]::UTF8.GetBytes($json)
     }
     Invoke-RestMethod @parameters
 }

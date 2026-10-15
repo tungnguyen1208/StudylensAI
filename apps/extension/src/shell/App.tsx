@@ -33,6 +33,7 @@ import { httpClient } from '../shared/http/http-client';
 import { messageBus } from '../shared/messaging/message-bus';
 import type { ExtensionMessage } from '../shared/messaging/message-types';
 import { isOperationStatusMessage, type OperationStatusPayload, type StudyLensOperation } from '../shared/messaging/operation-status';
+import { formatElapsedWait, resolveProcessingStage } from './processing-stage';
 
 interface BackendHealthResponse {
   status: string;
@@ -401,7 +402,7 @@ export const App: React.FC = () => {
           <section className="panel-section" aria-labelledby="operations-heading">
             <h2 id="operations-heading" className="section-heading">Trạng thái xử lý</h2>
             <ProcessingStages learningPackage={learningPackage} />
-            <p className="section-copy">{learningStateSummary(activationState, learningPackage)}</p>
+            <p className="section-copy">{resolveProcessingStage(activationState, learningPackage).summary}</p>
             {learningPackage?.error ? (
               <div className="operation-status operation-status--failed">
                 <strong>{operationLabel(learningPackage.error.operation)}</strong>
@@ -465,12 +466,27 @@ export const App: React.FC = () => {
 };
 
 function ProcessingProgressCard({ activationState, learningPackage }: { activationState: ActivationState; learningPackage: LearningPackage | null }) {
-  const progress = processingPercent(activationState, learningPackage);
+  const stage = resolveProcessingStage(activationState, learningPackage);
+  const [stageStartedAt, setStageStartedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const changedAt = Date.now();
+    setStageStartedAt(changedAt);
+    setNow(changedAt);
+  }, [stage.code]);
+
+  useEffect(() => {
+    if (!stage.waiting) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [stage.waiting, stage.code]);
+
   return (
     <section className="panel-section study-cycle">
-      <div className="section-heading-row"><h2 className="section-heading">Tiến độ xử lý</h2><strong>{progress}%</strong></div>
-      <div className="study-cycle__track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
-      <p className="section-copy">{learningStateSummary(activationState, learningPackage)}</p>
+      <div className="section-heading-row"><h2 className="section-heading">Trạng thái xử lý</h2>{stage.waiting ? <strong>{formatElapsedWait(now - stageStartedAt)}</strong> : null}</div>
+      <p className={`study-cycle__stage study-cycle__stage--${stage.code}`} role="status" aria-live="polite">{stage.label}</p>
+      <p className="section-copy">{stage.summary}</p>
     </section>
   );
 }
@@ -494,30 +510,6 @@ function OperationStatusList({ statuses, onRetry }: { statuses: Partial<Record<S
 
 function operationLabel(operation: StudyLensOperation | ProcessingOperation): string {
   return { transcriptUpload: 'Gửi transcript', transcriptGenerate: 'Tạo transcript dự phòng', sessionStart: 'Tạo phiên học', quizGenerate: 'Tạo quiz', answerSubmit: 'Nộp bài', historyLoad: 'Lịch sử' }[operation];
-}
-
-function processingPercent(state: ActivationState, value: LearningPackage | null): number {
-  if (state.status !== 'active' || !state.context) return 0;
-  if (!value) return 15;
-  if (value.quizStatus === 'ready') return 100;
-  if (value.quizStatus === 'generating' || value.quizStatus === 'queued') return 75;
-  if (value.transcript.status === 'ready') return 55;
-  if (value.transcript.status === 'generating' || value.transcript.status === 'validating') return 35;
-  return 20;
-}
-
-function learningStateSummary(state: ActivationState, value: LearningPackage | null): string {
-  if (!state.context) return 'Chưa mở video YouTube hợp lệ.';
-  if (state.status !== 'active') return 'StudyLens đang tắt. Bật lại trong Cài đặt để bắt đầu.';
-  if (!value) return 'Đang tạo phiên học và thu thập transcript toàn video.';
-  if (value.transcript.status === 'generating') return 'AI Service đang tạo transcript dự phòng từ video công khai.';
-  if (value.transcript.status === 'unavailable') return 'Transcript không khả dụng cho video này.';
-  if (value.transcript.status === 'failed') return 'Bước tạo transcript đã thất bại. Có thể thử lại đúng bước.';
-  if (value.quizStatus === 'queued') return 'Transcript đã xác thực; yêu cầu tạo quiz đang chờ xử lý.';
-  if (value.quizStatus === 'generating') return 'AI Service đang tạo câu hỏi từ transcript toàn video.';
-  if (value.quizStatus === 'failed') return 'Bước tạo quiz đã thất bại. Có thể thử lại đúng bước.';
-  if (value.quizStatus === 'ready') return 'Quiz toàn video đã sẵn sàng.';
-  return 'Backend đang xác thực transcript.';
 }
 
 function transcriptStatusLabel(status: LearningPackage['transcript']['status'] | undefined): string | undefined {

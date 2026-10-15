@@ -16,7 +16,9 @@ related work, read the latest applicable record.
 
 ## Records
 
-- [2026-10-02 v0.5 - Week 6 release readiness](2026-10-02-v0.5-week6-release-readiness.md) - proposed
+- [2026-10-15 v0.5 - Release quality hardening and observable processing](2026-10-15-v0.5-release-quality-hardening.md) - accepted; automated and live Gemini gates pass, two-browser manual matrix pending
+
+- [2026-10-02 v0.5 - Week 6 release readiness](2026-10-02-v0.5-week6-release-readiness.md) - accepted; live Gemini passes, two-browser manual matrix pending
 
 - [2026-10-02 v0.5 - Week 5 fault hardening](2026-10-02-v0.5-week5-fault-hardening.md) - accepted; implementation and automated gates complete, browser evidence pending
 

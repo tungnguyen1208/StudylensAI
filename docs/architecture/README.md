@@ -11,7 +11,7 @@ flowchart LR
   D -->|unavailable only| R[Transcript DOM fallback]
   D -->|available| E[Normalized cue-only capture]
   R --> E
-  E --> B[ASP.NET Core + SQLite session]
+  E --> B[ASP.NET Core + PostgreSQL persistence]
   B -->|unavailable or insufficient| F[Public-video Gemini fallback]
   F --> B
   B -->|full transcript| A[FastAPI AI]

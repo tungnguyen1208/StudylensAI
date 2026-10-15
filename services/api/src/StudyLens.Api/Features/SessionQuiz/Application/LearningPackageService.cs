@@ -143,13 +143,15 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         session.TranscriptSubmissionKey = command.IdempotencyKey;
         session.TranscriptSubmissionFingerprint = fingerprint;
         ClearError(session);
+        var video = await db.Set<StudyVideoEntity>()
+            .SingleAsync(item => item.YoutubeVideoId == session.YoutubeVideoId, cancellationToken);
+        if (command.DurationMs is > 0) video.DurationMs = command.DurationMs;
 
         if (command.Status == "available")
         {
             var capture = CreateCapture(session, command.Language, "youtubeCaption", contentHash!,
                 command.DurationMs ?? normalized.Max(item => item.EndMs), normalized, command.IdempotencyKey);
             db.Add(capture);
-            var video = await db.Set<StudyVideoEntity>().SingleAsync(item => item.YoutubeVideoId == session.YoutubeVideoId, cancellationToken);
             video.DurationMs = capture.DurationMs;
             session.TranscriptCaptureId = capture.TranscriptCaptureId;
             session.TranscriptStatus = "ready";
@@ -258,7 +260,6 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         if (session.Status is "completed" or "failed")
             return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         session.CompletionId = command.ClientCompletionId;
         session.CompletionReason = command.Reason;
         if (session.Status == "active")
@@ -293,7 +294,6 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             job.UpdatedAtUtc = now;
         }
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 

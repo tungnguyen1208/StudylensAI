@@ -185,14 +185,20 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .study-cycle { display: grid; gap: 7px; }
 .study-cycle .section-heading-row strong { color: var(--sl-primary-hover); font-size: 12px; white-space: nowrap; }
-.study-cycle__track {
-  height: 5px;
-  overflow: hidden;
+.study-cycle__stage {
+  width: fit-content;
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--sl-border-strong);
   border-radius: 999px;
-  background: #e4ecd9;
+  background: var(--sl-primary-soft);
+  color: var(--sl-primary-hover);
+  font-size: 12px;
+  font-weight: 720;
 }
-.study-cycle__track span { display: block; height: 100%; border-radius: inherit; background: var(--sl-primary); transition: width 180ms ease; }
-.study-cycle__stage { margin: 0; color: var(--sl-primary-hover); font-size: 11px; }
+.study-cycle__stage--quizFailed,
+.study-cycle__stage--transcriptFailed,
+.study-cycle__stage--transcriptUnavailable { border-color: #efb1b1; background: #fff4f4; color: #b42929; }
 
 .transcript-preview { display: grid; gap: 9px; }
 .transcript-preview__actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; }

@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using StudyLens.Api.Features.SessionQuiz.Application;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
+using StudyLens.Api.Features.VideoActivation.Infrastructure;
 using StudyLens.Api.Infrastructure.Persistence;
 using Xunit;
 
@@ -251,6 +252,46 @@ public sealed class LearningPackageWorkerTests
     }
 
     [Fact]
+    public async Task GeneratedTranscript_UsesKnownPlayerDurationForQuestionTarget_WithoutClippingEvidenceRange()
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>().UseSqlite("Data Source=:memory:").Options;
+        await using var db = new StudyLensDbContext(options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        var service = new LearningPackageService(db);
+        var started = (await service.StartAsync(new StartLearningSessionCommand(
+            "0.5.0", Guid.NewGuid().ToString(), "session:fallback-duration", "2b5YsAvWyWU",
+            "Claude skills", "multipleChoice", "medium"), CancellationToken.None)).Package!;
+        await service.SubmitTranscriptAsync(started.Session.SessionId,
+            new SubmitFullTranscriptCommand("0.5.0", "transcript:fallback-duration", "2b5YsAvWyWU",
+                "und", "youtubeCaption", "unavailable", null, 577_000, []), CancellationToken.None);
+
+        var questionGateway = new CapturingQuestionGateway();
+        using var provider = new ServiceCollection()
+            .AddSingleton(db)
+            .AddSingleton<ITranscriptGenerationGateway>(new SuccessfulTranscriptGateway())
+            .AddSingleton<IFullVideoQuestionGenerationGateway>(questionGateway)
+            .BuildServiceProvider();
+        var worker = new LearningPackageWorker(provider.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<LearningPackageWorker>.Instance);
+
+        Assert.True(await worker.ProcessNextAsync(CancellationToken.None));
+        var capture = await db.Set<TranscriptCaptureEntity>().SingleAsync();
+        var video = await db.Set<StudyVideoEntity>().SingleAsync();
+        Assert.Equal(577_000, capture.DurationMs);
+        Assert.Equal(577_000, video.DurationMs);
+
+        var session = await db.Set<StudySessionEntity>().SingleAsync();
+        var quizJob = await db.Set<ProcessingJobEntity>().SingleAsync(item => item.JobType == "quizGenerate");
+        var outcome = await LearningPackageWorker.GenerateQuizAsync(provider, db, session, quizJob, CancellationToken.None);
+
+        Assert.Equal("testStop", outcome.Code);
+        Assert.Equal(3, questionGateway.Request!.QuestionCount);
+        Assert.Equal(577_000, questionGateway.Request.EndMs);
+        Assert.All(questionGateway.Request.Cues, cue => Assert.InRange(cue.EndMs, 1, 577_000));
+    }
+
+    [Fact]
     public async Task RestartRecovery_RequeuesRunningJobWithoutLosingState_AndPublishesAtMostOneQuiz()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -471,6 +512,16 @@ public sealed class LearningPackageWorkerTests
             TranscriptGenerationRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(AiGatewayResult<TranscriptGenerationResponse>.Failure(
                 "videoUnavailable", "The public video is unavailable.", false));
+    }
+
+    private sealed class SuccessfulTranscriptGateway : ITranscriptGenerationGateway
+    {
+        public Task<AiGatewayResult<TranscriptGenerationResponse>> GenerateAsync(
+            TranscriptGenerationRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(AiGatewayResult<TranscriptGenerationResponse>.Success(
+                new TranscriptGenerationResponse("0.5.0", request.YoutubeVideoId, "geminiVideo", "vi", 797_372,
+                    [new TranscriptCueView(0, 10_000, "The main topic starts here."),
+                     new TranscriptCueView(787_372, 797_372, "The final evidence is here.")])));
     }
 
     private sealed class ClosingQuestionGateway(Func<Task> closeSession) : IFullVideoQuestionGenerationGateway

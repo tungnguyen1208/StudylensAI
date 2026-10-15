@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.vite/
 
 # Build outputs
 dist/
@@ -23,6 +24,7 @@ obj/
 *.suo
 *.userosscache
 *.sln.docstates
+~$*.docx
 
 # SQLite databases
 *.db

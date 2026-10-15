@@ -54,17 +54,26 @@ verification does not replace the two-browser evidence requirement.
   groups at 100 entries.
 - D3-08: PASS; the Side Panel renders distinct empty, loading, network-error
   and recovered-history states.
-- Final automated regression: Extension 29 files/103 tests, Backend 86 tests
-  (10 Video Activation, 55 Session Quiz, 21 Assessment History), AI Service 62
+- Final automated regression: Extension 30 files/106 tests, Backend 97 tests
+  (10 Video Activation, 66 Session Quiz, 21 Assessment History), AI Service 72
   tests; typecheck, production build and package verification passed.
 - Deterministic release E2E with the **explicit fake provider** passed all three
   shapes: caption MCQ (540000 ms, target/actual 3), caption short answer
   (840000 ms, target/actual 5), and unavailable-caption transcript fallback
   (900000 ms, source `geminiVideo`, target/actual 5). Attempts, scores,
   evidence and video-linked history persisted across PostgreSQL/API restart.
-- Live Gemini wiring was exercised with provider `gemini` and a configured
-  server-only key. The provider accepted the request but returned
-  `providerRateLimited`; therefore no live Gemini case is marked PASS.
+- Live Gemini question generation passed for all three release shapes:
+  caption MCQ (591000 ms, 157 cues, target/actual 3), caption short answer
+  (1235000 ms, 678 cues, target/actual 5), and unavailable-caption fallback
+  (577000 ms, 137 bounded cues, source `geminiVideo`, target/actual 3).
+- Topic review found all eleven questions addressed central lesson concepts;
+  no question selected a greeting, advertisement, isolated name, year or side
+  experiment. The current prompt therefore remained `0.5.1` and no additional
+  ranking/provider stage was introduced.
+- The fallback session stored one capture, one quiz and the two expected jobs.
+  Maximum cue end was 577000 ms and maximum quiz evidence end was 543785 ms.
+  Transcript and quiz jobs completed in about 37.0 s and 4.5 s. Attempts and
+  video-linked history were exercised for all three live quiz shapes.
 
 ## Final release
 
@@ -77,7 +86,11 @@ verification does not replace the two-browser evidence requirement.
 - The configured Docker stack was restarted after that correction; AI health
   reported provider `gemini` with a key present. Existing fake-provider rows
   remain historical test data and are not evidence of a live Gemini run.
-- M-01...M-08 on Chrome and Edge remain `NOT RUN`.
-- The three live Gemini smoke cases remain blocked by provider quota/rate
-  availability. Consequently the Week 6 change log is not `implemented` and
-  tag `v0.5.0` is not created.
+- Stage-based processing status replaced fixed percentages and now shows the
+  elapsed wait. Backend logs queue, provider, persistence and total durations
+  using only session/job identifiers and safe result codes.
+- A PostgreSQL smoke exposed and verified the incomplete-session completion
+  fix: closing a session without a transcript now returns `closed` instead of
+  failing because of an incompatible user-managed transaction.
+- M-01...M-08 on Chrome and Edge remain `NOT RUN`. Consequently the Week 6
+  release record remains `accepted` and tag `v0.5.0` is not created.

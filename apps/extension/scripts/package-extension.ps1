@@ -60,6 +60,10 @@ function Test-Package([string] $Path) {
     if ($metadata.contractVersion -ne '0.5.0' -or $metadata.extensionId -ne $extensionId) {
         throw 'Release metadata does not match contract 0.5.0 or the stable extension ID.'
     }
+    $currentCommitSha = (& git -C $repoRoot rev-parse HEAD).Trim()
+    if ([string] $metadata.commitSha -ne $currentCommitSha) {
+        throw "Release archive commitSha '$($metadata.commitSha)' does not match HEAD '$currentCommitSha'. Rebuild the package."
+    }
 }
 
 New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null

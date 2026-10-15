@@ -63,10 +63,15 @@ describe('TranscriptService 0.5', () => {
   });
 
   it('queues fallback without fake cues when YouTube captions are unavailable', async () => {
-    const request = await createTranscriptRequest(sessionId, youtubeVideoId, { status: 'unavailable', language: 'vi', cues: [] });
+    const request = await createTranscriptRequest(
+      sessionId,
+      youtubeVideoId,
+      { status: 'unavailable', language: 'vi', cues: [] },
+      577_000,
+    );
     expect(request).toEqual({
       contractVersion: '0.5.0', idempotencyKey: `transcript:${sessionId}:${youtubeVideoId}:unavailable`,
-      youtubeVideoId, language: 'vi', source: 'youtubeCaption', status: 'unavailable', cues: [],
+      youtubeVideoId, language: 'vi', source: 'youtubeCaption', status: 'unavailable', durationMs: 577_000, cues: [],
     });
   });
 });

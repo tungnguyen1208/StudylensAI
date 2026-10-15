@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
 using StudyLens.Api.Features.VideoActivation.Infrastructure;
@@ -52,6 +53,12 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             : await queued.OrderBy(item => item.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
         if (job is null) return false;
 
+        var jobTimer = Stopwatch.StartNew();
+        var queueWaitMs = Math.Max(0L, (long)(DateTimeOffset.UtcNow - job.UpdatedAtUtc).TotalMilliseconds);
+        logger.LogInformation(
+            "Processing job {JobId} for session {SessionId} started. JobType {JobType}; attempt {AttemptCount}; queue wait {QueueWaitMs} ms.",
+            job.ProcessingJobId, job.SessionId, job.JobType, job.AttemptCount + 1, queueWaitMs);
+
         var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == job.SessionId, cancellationToken);
         if (session is null || session.Status is "closed" or "completed" or "failed")
         {
@@ -91,6 +98,9 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         if (persistedSession?.GetValue<string>(nameof(StudySessionEntity.Status)) != "active" ||
             persistedJob?.GetValue<string>(nameof(ProcessingJobEntity.Status)) != "running")
         {
+            logger.LogInformation(
+                "Processing job {JobId} for session {SessionId} discarded after {ElapsedMs} ms because its persisted context is no longer active.",
+                job.ProcessingJobId, job.SessionId, jobTimer.ElapsedMilliseconds);
             db.ChangeTracker.Clear();
             return true;
         }
@@ -132,7 +142,12 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             }
         }
         job.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        var persistenceTimer = Stopwatch.StartNew();
         await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation(
+            "Processing job {JobId} for session {SessionId} persisted as {JobStatus}. JobType {JobType}; attempt {AttemptCount}; total {ElapsedMs} ms; persistence {PersistenceMs} ms; outcome {OutcomeCode}.",
+            job.ProcessingJobId, job.SessionId, job.Status, job.JobType, job.AttemptCount,
+            jobTimer.ElapsedMilliseconds, persistenceTimer.ElapsedMilliseconds, outcome.Code ?? "succeeded");
         return true;
     }
 
@@ -143,11 +158,18 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         StudySessionEntity session, ProcessingJobEntity job, CancellationToken cancellationToken)
     {
         var gateway = services.GetRequiredService<ITranscriptGenerationGateway>();
+        var aiTimer = Stopwatch.StartNew();
         var generated = await gateway.GenerateAsync(new(LearningPackageService.ContractVersion, session.YoutubeVideoId), cancellationToken);
+        services.GetService<ILogger<LearningPackageWorker>>()?.LogInformation(
+            "AI transcript request for job {JobId} and session {SessionId} completed in {AiCallMs} ms with result {ResultCode}.",
+            job.ProcessingJobId, session.SessionId, aiTimer.ElapsedMilliseconds, generated.ErrorCode ?? "received");
         if (generated.Value is null) return AiJobOutcome.Fail(generated.ErrorCode!, generated.ErrorMessage!, generated.Retryable);
         if (generated.Value.ContractVersion != LearningPackageService.ContractVersion || generated.Value.YoutubeVideoId != session.YoutubeVideoId || generated.Value.Source != "geminiVideo")
             return AiJobOutcome.Fail("invalidAiResponse", "The generated transcript did not match the requested video.", false);
-        var cues = LearningPackageService.NormalizeCues(generated.Value.Cues);
+        var video = await db.Set<StudyVideoEntity>()
+            .SingleAsync(item => item.YoutubeVideoId == session.YoutubeVideoId, cancellationToken);
+        var trustedDurationMs = video.DurationMs is > 0 ? video.DurationMs : null;
+        var cues = BoundGeneratedCues(generated.Value.Cues, trustedDurationMs);
         if (!LearningPackageService.ValidCues(cues))
             return AiJobOutcome.Fail("invalidAiTranscript", "The AI Service did not return usable timestamped transcript cues.", false);
 
@@ -162,7 +184,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             Source = "geminiVideo",
             Status = "available",
             ContentHash = hash,
-            DurationMs = generated.Value.DurationMs ?? cues.Max(item => item.EndMs),
+            DurationMs = trustedDurationMs ?? generated.Value.DurationMs ?? cues.Max(item => item.EndMs),
             Version = 1,
             CreateIdempotencyKey = job.IdempotencyKey,
             CreatedAtUtc = DateTimeOffset.UtcNow,
@@ -173,7 +195,6 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             }).ToList(),
         };
         db.Add(capture);
-        var video = await db.Set<StudyVideoEntity>().SingleAsync(item => item.YoutubeVideoId == session.YoutubeVideoId, cancellationToken);
         video.DurationMs = capture.DurationMs;
         session.TranscriptCaptureId = captureId;
         session.TranscriptStatus = "ready";
@@ -189,6 +210,19 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             CreatedAtUtc = DateTimeOffset.UtcNow, UpdatedAtUtc = DateTimeOffset.UtcNow,
         });
         return AiJobOutcome.Ok();
+    }
+
+    internal static IReadOnlyList<TranscriptCueView> BoundGeneratedCues(
+        IReadOnlyList<TranscriptCueView> generatedCues,
+        long? trustedDurationMs)
+    {
+        var normalized = LearningPackageService.NormalizeCues(generatedCues);
+        if (trustedDurationMs is not > 0) return normalized;
+        return normalized
+            .Where(cue => cue.StartMs < trustedDurationMs.Value)
+            .Select(cue => cue with { EndMs = Math.Min(cue.EndMs, trustedDurationMs.Value) })
+            .Where(cue => cue.EndMs > cue.StartMs)
+            .ToArray();
     }
 
     internal static async Task<AiJobOutcome> GenerateQuizAsync(IServiceProvider services, StudyLensDbContext db,
@@ -212,9 +246,13 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         var questionCount = QuestionCountForDuration(capture.DurationMs is > 0 ? capture.DurationMs.Value : lastCueEndMs);
         var videoTitle = NormalizeVideoTitleForAi(session.VideoTitle);
         var gateway = services.GetRequiredService<IFullVideoQuestionGenerationGateway>();
+        var aiTimer = Stopwatch.StartNew();
         var generated = await gateway.GenerateAsync(new(LearningPackageService.ContractVersion, QuestionPromptVersion,
             session.SessionId, capture.TranscriptCaptureId, session.YoutubeVideoId, videoTitle, startMs, endMs, questionCount,
             session.QuestionType, session.Difficulty, cues), cancellationToken);
+        services.GetService<ILogger<LearningPackageWorker>>()?.LogInformation(
+            "AI quiz request for job {JobId} and session {SessionId} completed in {AiCallMs} ms with result {ResultCode}; target questions {QuestionCount}.",
+            job.ProcessingJobId, session.SessionId, aiTimer.ElapsedMilliseconds, generated.ErrorCode ?? "received", questionCount);
         if (generated.Value is null) return AiJobOutcome.Fail(generated.ErrorCode!, generated.ErrorMessage!, generated.Retryable);
         if (generated.Value.ContractVersion != LearningPackageService.ContractVersion ||
             generated.Value.PromptVersion != QuestionPromptVersion)

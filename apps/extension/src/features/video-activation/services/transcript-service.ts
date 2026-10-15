@@ -45,11 +45,12 @@ export async function createTranscriptRequest(
   const contentHash = transcript.status === 'available'
     ? await hashTranscript(cues)
     : undefined;
-  const durationMs = transcript.status === 'available'
-    ? videoDurationMs && Number.isFinite(videoDurationMs) && videoDurationMs > 0
-      ? Math.round(videoDurationMs)
-      : cues.reduce((maximum, cue) => Math.max(maximum, cue.endMs), 0)
+  const trustedPlayerDurationMs = videoDurationMs && Number.isFinite(videoDurationMs) && videoDurationMs > 0
+    ? Math.round(videoDurationMs)
     : undefined;
+  const durationMs = trustedPlayerDurationMs ?? (transcript.status === 'available'
+    ? cues.reduce((maximum, cue) => Math.max(maximum, cue.endMs), 0)
+    : undefined);
   const identity = contentHash ?? transcript.status;
 
   return {
