@@ -24,6 +24,8 @@ import {
   type SessionQuizBackendPort,
 } from '../features/session-quiz/api/session-quiz-worker-bridge';
 import { httpClient } from '../shared/http/http-client';
+import { HttpError } from '../shared/http/http-error';
+import { ACCOUNT_REQUEST_MESSAGE, type AccountStatus, type QuotaCounter, type StudyLensAccount } from '../features/account/account-worker-bridge';
 
 type ToggleRequest = { type: 'STUDYLENS_MANUAL_TOGGLE'; requestedState: 'on' | 'off' };
 type StateRequest = { type: 'STUDYLENS_GET_ACTIVATION_STATE' };
@@ -36,6 +38,8 @@ type ActivePlayerTimeRequest = { type: 'STUDYLENS_GET_ACTIVE_PLAYER_TIME' };
 type ActiveSessionProgressRequest = { type: 'STUDYLENS_GET_ACTIVE_SESSION_PROGRESS' };
 type ActiveLearningPackageRequest = { type: 'STUDYLENS_GET_ACTIVE_LEARNING_PACKAGE' };
 type SeekActivePlayerRequest = { type: 'STUDYLENS_SEEK_ACTIVE_PLAYER'; youtubeVideoId: string; timestampMs: number };
+type AccountRequest = { type: typeof ACCOUNT_REQUEST_MESSAGE; operation: 'status' | 'signIn' | 'register' | 'signOut' | 'quota' | 'changePassword'; username?: string; password?: string; displayName?: string; currentPassword?: string; newPassword?: string };
+type AssessmentRequest = { type: 'STUDYLENS_ASSESSMENT_REQUEST'; operation: 'submitAnswer' | 'submitAttempt' | 'getHistory'; quizId?: string; body?: unknown; youtubeVideoId?: string };
 type ActiveYoutubeContext = { tabId: number; youtubeVideoId: string; title: string };
 const relayableMessageTypes = new Set([
   'PLAYER_PLAYING', 'PLAYER_PAUSED', 'PLAYER_BUFFERING', 'PLAYER_SEEKED', 'PLAYER_ENDED',
@@ -46,12 +50,17 @@ const panelRefreshTimers = new Map<number, number>();
 const activationGate = new GlobalActivationGateCoordinator<PersistedActivationState>();
 let activationStateSource: 'user' | 'storageRestore' = 'storageRestore';
 let activationSourceRevision = 0;
+let accessToken: string | null = null;
+let accessExpiresAtUtc = 0;
+let currentAccount: StudyLensAccount | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
+const authReady = initializeAuthentication();
 const sessionQuizBackend: SessionQuizBackendPort = {
-  start: (request) => httpClient.post('api/sessions', request),
-  complete: (sessionId, request) => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/complete`, request),
-  submitTranscript: (sessionId, request) => httpClient.put(`api/sessions/${encodeURIComponent(sessionId)}/transcript`, request),
-  getLearningPackage: (sessionId) => httpClient.get(`api/sessions/${encodeURIComponent(sessionId)}/learning-package`),
-  retry: (sessionId, request) => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/retry`, request),
+  start: (request) => withAuthenticatedRequest(() => httpClient.post('api/sessions', request)),
+  complete: (sessionId, request) => withAuthenticatedRequest(() => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/complete`, request)),
+  submitTranscript: (sessionId, request) => withAuthenticatedRequest(() => httpClient.put(`api/sessions/${encodeURIComponent(sessionId)}/transcript`, request)),
+  getLearningPackage: (sessionId) => withAuthenticatedRequest(() => httpClient.get(`api/sessions/${encodeURIComponent(sessionId)}/learning-package`)),
+  retry: (sessionId, request) => withAuthenticatedRequest(() => httpClient.post(`api/sessions/${encodeURIComponent(sessionId)}/retry`, request)),
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -75,6 +84,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (isAccountRequest(message)) {
+    void handleAccountRequest(message).then(sendResponse);
+    return true;
+  }
+  if (isAssessmentRequest(message)) {
+    void handleAssessmentRequest(message).then(sendResponse);
+    return true;
+  }
   if ((message as { type?: unknown })?.type === SESSION_QUIZ_REQUEST_MESSAGE) {
     void handleSessionQuizRequest(message, sender, sessionQuizBackend).then((response) => {
       if (response) sendResponse(response);
@@ -146,6 +163,170 @@ function storage(): LocalStoragePort {
   return chrome.storage.local as unknown as LocalStoragePort;
 }
 
+async function initializeAuthentication(): Promise<void> {
+  if (chrome.storage.local.setAccessLevel) {
+    await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => undefined);
+  }
+  await restoreAccessFromRefreshToken();
+}
+
+async function restoreAccessFromRefreshToken(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = restoreAccessFromRefreshTokenCore().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function restoreAccessFromRefreshTokenCore(): Promise<boolean> {
+  const stored = await chrome.storage.local.get('studylensRefreshToken');
+  const refreshToken = typeof stored.studylensRefreshToken === 'string' ? stored.studylensRefreshToken : null;
+  if (!refreshToken) return false;
+  try {
+    const tokens = await httpClient.post<TokenPair>('api/auth/refresh', { contractVersion: '0.7.0', refreshToken });
+    await acceptTokens(tokens);
+    return true;
+  } catch {
+    await clearAuthentication();
+    return false;
+  }
+}
+
+async function ensureAuthenticated(): Promise<void> {
+  await authReady;
+  if (accessToken && accessExpiresAtUtc > Date.now() + 30_000) return;
+  if (await restoreAccessFromRefreshToken()) return;
+  throw new HttpError({ code: 'authenticationRequired', status: 401, message: 'Sign in to StudyLens before starting a learning session.', retryable: false });
+}
+
+async function withAuthenticatedRequest<T>(operation: () => Promise<T>): Promise<T> {
+  await ensureAuthenticated();
+  try {
+    return await operation();
+  } catch (error: unknown) {
+    if (!(error instanceof HttpError) || error.status !== 401 || !(await restoreAccessFromRefreshToken())) throw error;
+    return operation();
+  }
+}
+
+async function handleAccountRequest(request: AccountRequest): Promise<AccountStatus> {
+  await authReady;
+  try {
+    if (request.operation === 'signIn') await signIn(request.username, request.password);
+    if (request.operation === 'register') await register(request.username, request.password, request.displayName);
+    if (request.operation === 'changePassword') {
+      await changePassword(request.currentPassword, request.newPassword);
+      await clearAuthentication();
+      await resetAccountScopedContexts();
+      return { authenticated: false };
+    }
+    if (request.operation === 'signOut') await signOut();
+    if (!currentAccount) return { authenticated: false };
+    const quota = request.operation === 'status' || request.operation === 'quota' ? await readQuota() : undefined;
+    return { authenticated: true, account: currentAccount, quota };
+  } catch (error: unknown) {
+    return { authenticated: Boolean(currentAccount), ...(currentAccount ? { account: currentAccount } : {}), error: error instanceof Error ? error.message : 'accountRequestFailed' };
+  }
+}
+
+async function signIn(username?: string, password?: string): Promise<void> {
+  if (!username || !password) throw new Error('invalidAuthRequest');
+  const tokens = await httpClient.post<TokenPair>('api/auth/login', { contractVersion: '0.7.0', username, password });
+  await acceptTokens(tokens);
+  await resetAccountScopedContexts();
+}
+
+async function register(username?: string, password?: string, displayName?: string): Promise<void> {
+  if (!username || !password || !displayName) throw new Error('invalidRegistration');
+  const tokens = await httpClient.post<TokenPair>('api/auth/register', { contractVersion: '0.7.0', username, password, displayName });
+  await acceptTokens(tokens);
+  await resetAccountScopedContexts();
+}
+
+async function changePassword(currentPassword?: string, newPassword?: string): Promise<void> {
+  if (!currentPassword || !newPassword) throw new Error('invalidPasswordRequest');
+  await withAuthenticatedRequest(() => httpClient.post<void>('api/account/password', {
+    contractVersion: '0.7.0', currentPassword, newPassword,
+  }));
+}
+
+async function signOut(): Promise<void> {
+  const stored = await chrome.storage.local.get('studylensRefreshToken');
+  const refreshToken = typeof stored.studylensRefreshToken === 'string' ? stored.studylensRefreshToken : undefined;
+  if (accessToken) await httpClient.post<void>('api/auth/logout', { contractVersion: '0.7.0', refreshToken }).catch(() => undefined);
+  await clearAuthentication();
+  await resetAccountScopedContexts();
+}
+
+async function acceptTokens(tokens: TokenPair): Promise<void> {
+  if (tokens.contractVersion !== '0.7.0') throw new Error('unsupportedAuthContract');
+  accessToken = tokens.accessToken;
+  accessExpiresAtUtc = Date.parse(tokens.accessExpiresAtUtc);
+  currentAccount = tokens.account;
+  httpClient.setAccessToken(accessToken);
+  await chrome.storage.local.set({ studylensRefreshToken: tokens.refreshToken });
+}
+
+async function clearAuthentication(): Promise<void> {
+  accessToken = null;
+  accessExpiresAtUtc = 0;
+  currentAccount = null;
+  httpClient.setAccessToken(null);
+  await chrome.storage.local.remove('studylensRefreshToken');
+}
+
+async function readQuota(): Promise<QuotaCounter[]> {
+  const response = await withAuthenticatedRequest(() => httpClient.get<{ contractVersion: '0.7.0'; items: QuotaCounter[] }>('api/account/quota'));
+  return response.items;
+}
+
+async function resetAccountScopedContexts(): Promise<void> {
+  const state = await readActivationState();
+  await broadcastGlobalActivation('off', {
+    queryTabs: () => chrome.tabs.query({}), ensureContentScriptReady,
+    sendToggle: (tabId, request) => chrome.tabs.sendMessage(tabId, request), createCorrelationId: () => crypto.randomUUID(),
+  }).catch(() => undefined);
+  if (state.enabled && currentAccount) {
+    await broadcastGlobalActivation('on', {
+      queryTabs: () => chrome.tabs.query({}), ensureContentScriptReady,
+      sendToggle: (tabId, request) => chrome.tabs.sendMessage(tabId, request), createCorrelationId: () => crypto.randomUUID(),
+    }).catch(() => undefined);
+  }
+  await chrome.runtime.sendMessage({ type: 'STUDYLENS_ACCOUNT_CHANGED' }).catch(() => undefined);
+}
+
+async function handleAssessmentRequest(request: AssessmentRequest): Promise<unknown> {
+  if (request.operation === 'submitAttempt' && request.quizId && request.body)
+    return withAuthenticatedRequest(() => httpClient.post(`api/quizzes/${encodeURIComponent(request.quizId!)}/attempts`, request.body));
+  if (request.operation === 'submitAnswer' && request.quizId && request.body)
+    return withAuthenticatedRequest(() => httpClient.post(`api/quizzes/${encodeURIComponent(request.quizId!)}/answer`, request.body));
+  if (request.operation === 'getHistory') {
+    const path = request.youtubeVideoId ? `api/history/videos/${encodeURIComponent(request.youtubeVideoId)}` : 'api/history';
+    return withAuthenticatedRequest(() => httpClient.get(path));
+  }
+  throw new Error('invalidAssessmentRequest');
+}
+
+function isAccountRequest(value: unknown): value is AccountRequest {
+  const item = value as Partial<AccountRequest>;
+  return item?.type === ACCOUNT_REQUEST_MESSAGE && ['status', 'signIn', 'register', 'signOut', 'quota', 'changePassword'].includes(item.operation ?? '');
+}
+
+function isAssessmentRequest(value: unknown): value is AssessmentRequest {
+  const item = value as Partial<AssessmentRequest>;
+  return item?.type === 'STUDYLENS_ASSESSMENT_REQUEST' &&
+    (item.operation === 'submitAnswer' || item.operation === 'submitAttempt' || item.operation === 'getHistory');
+}
+
+interface TokenPair {
+  contractVersion: '0.7.0';
+  accessToken: string;
+  accessExpiresAtUtc: string;
+  refreshToken: string;
+  refreshExpiresAtUtc: string;
+  account: StudyLensAccount;
+}
+
 function scheduleSidePanelContextRefresh(tabId: number): void {
   const existing = panelRefreshTimers.get(tabId);
   if (existing !== undefined) clearTimeout(existing);
@@ -212,7 +393,7 @@ async function retryForActiveTab(operation: string): Promise<{ ok: boolean; code
     const sessionId = sessionIdFromProgress(progress.state);
     if (!sessionId) return { ok: false, code: 'sessionRuntimeUnavailable' };
     try {
-      await sessionQuizBackend.retry(sessionId, { contractVersion: '0.5.0', operation });
+      await sessionQuizBackend.retry(sessionId, { contractVersion: '0.7.0', operation });
       return { ok: true };
     } catch (error) {
       return { ok: false, code: errorCode(error, 'retryFailed') };
@@ -223,7 +404,7 @@ async function retryForActiveTab(operation: string): Promise<{ ok: boolean; code
   try {
     await ensureContentScriptReady(tab.id);
     await chrome.tabs.sendMessage(tab.id, {
-      type: 'OPERATION_RETRY_REQUEST', contractVersion: '0.5.0', correlationId: crypto.randomUUID(),
+      type: 'OPERATION_RETRY_REQUEST', contractVersion: '0.7.0', correlationId: crypto.randomUUID(),
       tabId: tab.id, youtubeVideoId: '', occurredAtUtc: new Date().toISOString(), payload: { operation },
     });
     return { ok: true };
@@ -479,10 +660,10 @@ function isActiveYoutubeContext(value: unknown, expectedTabId: number): value is
     typeof item.title === 'string' && item.title.trim().length > 0;
 }
 
-function isRelayableContentMessage(value: unknown): value is { type: string; contractVersion: '0.5.0'; tabId: number; youtubeVideoId: string; payload: unknown } {
+function isRelayableContentMessage(value: unknown): value is { type: string; contractVersion: '0.7.0'; tabId: number; youtubeVideoId: string; payload: unknown } {
   const item = value as Partial<{ type: string; contractVersion: string; tabId: number; youtubeVideoId: string; payload: unknown }>;
   return Boolean(item) && typeof item.type === 'string' && relayableMessageTypes.has(item.type) &&
-    item.contractVersion === '0.5.0' && Number.isInteger(item.tabId) &&
+    item.contractVersion === '0.7.0' && Number.isInteger(item.tabId) &&
     typeof item.youtubeVideoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(item.youtubeVideoId) && 'payload' in item;
 }
 

@@ -25,6 +25,31 @@ public sealed class PostgresMigrationTests
         Assert.Contains("ix_quizassessments_youtubevideoid", script);
         Assert.Contains("ix_quizattempts_sessionid", script);
         Assert.Contains("ix_attemptanswers_youtubevideoid", script);
+        Assert.Contains("appusers", script);
+        Assert.Contains("dailyquotas", script);
+        Assert.Contains("quotareservations", script);
+        Assert.Contains("ix_studysessions_userid_activationid", script);
+        Assert.Contains("ix_quotareservations_userid_quotadateutc_resourcetype_operationkey", script);
+        Assert.Contains("truncate table", script);
         Assert.DoesNotContain("autoincrement", script);
+    }
+
+    [Fact]
+    public void LocalCredentialMigration_PreservesLearningData()
+    {
+        var options = new DbContextOptionsBuilder<StudyLensDbContext>()
+            .UseNpgsql("Host=localhost;Database=studylens_test;Username=studylens;Password=test")
+            .Options;
+        using var db = new StudyLensDbContext(options);
+
+        var script = db.GetService<IMigrator>().GenerateScript(
+            "20261015130000_ScopeQuotaReservationIdempotencyByDay",
+            "20261015140000_UseLocalCredentials").ToLowerInvariant();
+
+        Assert.Contains("localcredentials", script);
+        Assert.Contains("normalizedusername", script);
+        Assert.Contains("drop table \"authtickets\"", script);
+        Assert.DoesNotContain("truncate table", script);
+        Assert.DoesNotContain("delete from", script);
     }
 }

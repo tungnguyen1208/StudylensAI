@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: StudyLens Public API - Video Activation Boundary
-  version: 0.5.0
+  version: 0.7.0
   description: >-
     Video activation is an Extension-local event boundary. Full transcript
     ingestion and learning-package retrieval are public Session Quiz APIs;

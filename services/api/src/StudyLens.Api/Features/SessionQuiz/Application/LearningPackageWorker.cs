@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
 using StudyLens.Api.Features.VideoActivation.Infrastructure;
 using StudyLens.Api.Infrastructure.Persistence;
+using StudyLens.Api.Features.Accounts.Application;
 
 namespace StudyLens.Api.Features.SessionQuiz.Application;
 
@@ -47,6 +48,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<StudyLensDbContext>();
+        var quota = scope.ServiceProvider.GetService<QuotaService>();
         var queued = db.Set<ProcessingJobEntity>().Where(item => item.Status == "queued");
         var job = db.Database.IsSqlite()
             ? (await queued.ToArrayAsync(cancellationToken)).OrderBy(item => item.CreatedAtUtc).FirstOrDefault()
@@ -65,6 +67,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
             job.Status = "cancelled";
             job.UpdatedAtUtc = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(cancellationToken);
+            if (quota is not null) await quota.ReleaseAsync(job.QuotaReservationId, cancellationToken);
             return true;
         }
 
@@ -144,6 +147,8 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         job.UpdatedAtUtc = DateTimeOffset.UtcNow;
         var persistenceTimer = Stopwatch.StartNew();
         await db.SaveChangesAsync(cancellationToken);
+        if (quota is not null && outcome.Succeeded) await quota.ConsumeAsync(job.QuotaReservationId, cancellationToken);
+        else if (quota is not null && job.Status == "failed") await quota.ReleaseAsync(job.QuotaReservationId, cancellationToken);
         logger.LogInformation(
             "Processing job {JobId} for session {SessionId} persisted as {JobStatus}. JobType {JobType}; attempt {AttemptCount}; total {ElapsedMs} ms; persistence {PersistenceMs} ms; outcome {OutcomeCode}.",
             job.ProcessingJobId, job.SessionId, job.Status, job.JobType, job.AttemptCount,
@@ -159,12 +164,12 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
     {
         var gateway = services.GetRequiredService<ITranscriptGenerationGateway>();
         var aiTimer = Stopwatch.StartNew();
-        var generated = await gateway.GenerateAsync(new(LearningPackageService.ContractVersion, session.YoutubeVideoId), cancellationToken);
+        var generated = await gateway.GenerateAsync(new(LearningPackageService.AiContractVersion, session.YoutubeVideoId), cancellationToken);
         services.GetService<ILogger<LearningPackageWorker>>()?.LogInformation(
             "AI transcript request for job {JobId} and session {SessionId} completed in {AiCallMs} ms with result {ResultCode}.",
             job.ProcessingJobId, session.SessionId, aiTimer.ElapsedMilliseconds, generated.ErrorCode ?? "received");
         if (generated.Value is null) return AiJobOutcome.Fail(generated.ErrorCode!, generated.ErrorMessage!, generated.Retryable);
-        if (generated.Value.ContractVersion != LearningPackageService.ContractVersion || generated.Value.YoutubeVideoId != session.YoutubeVideoId || generated.Value.Source != "geminiVideo")
+        if (generated.Value.ContractVersion != LearningPackageService.AiContractVersion || generated.Value.YoutubeVideoId != session.YoutubeVideoId || generated.Value.Source != "geminiVideo")
             return AiJobOutcome.Fail("invalidAiResponse", "The generated transcript did not match the requested video.", false);
         var video = await db.Set<StudyVideoEntity>()
             .SingleAsync(item => item.YoutubeVideoId == session.YoutubeVideoId, cancellationToken);
@@ -207,6 +212,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         {
             ProcessingJobId = Guid.NewGuid().ToString(), SessionId = session.SessionId, JobType = "quizGenerate",
             Status = "queued", IdempotencyKey = $"quiz:{session.SessionId}:{hash}", MaxAttempts = 3,
+            QuotaReservationId = session.QuizQuotaReservationId,
             CreatedAtUtc = DateTimeOffset.UtcNow, UpdatedAtUtc = DateTimeOffset.UtcNow,
         });
         return AiJobOutcome.Ok();
@@ -247,14 +253,14 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         var videoTitle = NormalizeVideoTitleForAi(session.VideoTitle);
         var gateway = services.GetRequiredService<IFullVideoQuestionGenerationGateway>();
         var aiTimer = Stopwatch.StartNew();
-        var generated = await gateway.GenerateAsync(new(LearningPackageService.ContractVersion, QuestionPromptVersion,
+        var generated = await gateway.GenerateAsync(new(LearningPackageService.AiContractVersion, QuestionPromptVersion,
             session.SessionId, capture.TranscriptCaptureId, session.YoutubeVideoId, videoTitle, startMs, endMs, questionCount,
             session.QuestionType, session.Difficulty, cues), cancellationToken);
         services.GetService<ILogger<LearningPackageWorker>>()?.LogInformation(
             "AI quiz request for job {JobId} and session {SessionId} completed in {AiCallMs} ms with result {ResultCode}; target questions {QuestionCount}.",
             job.ProcessingJobId, session.SessionId, aiTimer.ElapsedMilliseconds, generated.ErrorCode ?? "received", questionCount);
         if (generated.Value is null) return AiJobOutcome.Fail(generated.ErrorCode!, generated.ErrorMessage!, generated.Retryable);
-        if (generated.Value.ContractVersion != LearningPackageService.ContractVersion ||
+        if (generated.Value.ContractVersion != LearningPackageService.AiContractVersion ||
             generated.Value.PromptVersion != QuestionPromptVersion)
             return AiJobOutcome.Fail("invalidAiResponse", "The AI Service returned an unsupported response version.", false);
         var validationFailure = ValidateQuestionSet(generated.Value.Questions, questionCount, session.QuestionType, startMs, endMs, cues);
@@ -273,6 +279,7 @@ public sealed class LearningPackageWorker(IServiceScopeFactory scopeFactory, ILo
         var quizId = Guid.NewGuid().ToString();
         var quiz = new QuizAssessmentEntity
         {
+            UserId = session.UserId,
             QuizId = quizId,
             IdempotencyKey = job.IdempotencyKey,
             SessionId = session.SessionId,

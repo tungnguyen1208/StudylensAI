@@ -14,7 +14,7 @@ export interface AssessmentHistoryFeatureMetadata {
 export function registerAssessmentHistoryFeature(): AssessmentHistoryFeatureMetadata {
   return {
     name: 'assessment-history',
-    version: '0.5.0',
+    version: '0.7.0',
     owner: 'Dev 3',
   };
 }

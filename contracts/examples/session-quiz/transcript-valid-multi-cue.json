@@ -1,5 +1,5 @@
 {
-  "contractVersion": "0.5.0",
+  "contractVersion": "0.7.0",
   "idempotencyKey": "transcript:33333333-3333-4333-8333-333333333333:dQw4w9WgXcQ:hash",
   "youtubeVideoId": "dQw4w9WgXcQ",
   "language": "vi",

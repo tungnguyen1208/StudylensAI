@@ -6,6 +6,7 @@ namespace StudyLens.Api.Features.AssessmentHistory.Infrastructure;
 
 public sealed class AnswerAttemptEntity
 {
+    public string UserId { get; set; } = string.Empty;
     public string AnswerAttemptId { get; set; } = string.Empty;
     public string ClientAttemptId { get; set; } = string.Empty;
     public string QuizId { get; set; } = string.Empty;
@@ -26,6 +27,7 @@ public sealed class AnswerAttemptEntity
 
 public sealed class QuizAttemptEntity
 {
+    public string UserId { get; set; } = string.Empty;
     public string QuizAttemptId { get; set; } = string.Empty;
     public string ClientAttemptId { get; set; } = string.Empty;
     public string QuizId { get; set; } = string.Empty;
@@ -69,10 +71,11 @@ public sealed class QuizAttemptEntityConfiguration : IEntityTypeConfiguration<Qu
     {
         builder.ToTable("QuizAttempts");
         builder.HasKey(entity => entity.QuizAttemptId);
+        builder.Property(entity => entity.UserId).HasMaxLength(64).IsRequired();
         builder.Property(entity => entity.ClientAttemptId).HasMaxLength(128).IsRequired();
         builder.Property(entity => entity.QuizId).HasMaxLength(64).IsRequired();
         builder.Property(entity => entity.SessionId).HasMaxLength(64).IsRequired();
-        builder.HasIndex(entity => entity.ClientAttemptId).IsUnique();
+        builder.HasIndex(entity => new { entity.UserId, entity.ClientAttemptId }).IsUnique();
         builder.HasIndex(entity => entity.SessionId);
         builder.HasMany(entity => entity.Answers).WithOne(entity => entity.QuizAttempt!).HasForeignKey(entity => entity.QuizAttemptId).OnDelete(DeleteBehavior.Cascade);
     }
@@ -100,8 +103,9 @@ public sealed class AnswerAttemptEntityConfiguration : IEntityTypeConfiguration<
     {
         builder.ToTable("AnswerAttempts");
         builder.HasKey(entity => entity.AnswerAttemptId);
-        builder.HasIndex(entity => entity.ClientAttemptId).IsUnique();
-        builder.HasIndex(entity => new { entity.YoutubeVideoId, entity.GradedAtUtc });
+        builder.Property(entity => entity.UserId).HasMaxLength(64).IsRequired();
+        builder.HasIndex(entity => new { entity.UserId, entity.ClientAttemptId }).IsUnique();
+        builder.HasIndex(entity => new { entity.UserId, entity.YoutubeVideoId, entity.GradedAtUtc });
         builder.Property(entity => entity.ClientAttemptId).HasMaxLength(128).IsRequired();
         builder.Property(entity => entity.QuizId).HasMaxLength(64).IsRequired();
         builder.Property(entity => entity.SessionId).HasMaxLength(64).IsRequired();

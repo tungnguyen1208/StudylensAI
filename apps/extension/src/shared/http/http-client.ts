@@ -7,9 +7,14 @@ export interface RequestOptions extends RequestInit {
 
 export class HttpClient {
   private readonly baseUrl: string;
+  private accessToken: string | null = null;
 
   constructor(baseUrl: string = extensionConfig.backendUrl) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+  }
+
+  public setAccessToken(token: string | null): void {
+    this.accessToken = token;
   }
 
   public async get<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -49,6 +54,12 @@ export class HttpClient {
     try {
       const response = await fetch(url, {
         ...options,
+        headers: {
+          ...(options.headers || {}),
+          // Authentication is owned by the service worker. Feature callers
+          // cannot replace its bearer value through RequestOptions.
+          ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
+        },
         signal: options.signal || controller.signal,
       });
 
@@ -70,6 +81,7 @@ export class HttpClient {
         });
       }
 
+      if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
     } catch (err: unknown) {
       if (err instanceof HttpError) {

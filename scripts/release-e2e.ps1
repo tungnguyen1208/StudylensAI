@@ -11,11 +11,77 @@ param(
     [string] $TranscriptStatus = 'available',
     [long] $DurationMs = 540000,
     [int] $TimeoutSeconds = 360,
+    [string] $AccessToken = $env:STUDYLENS_E2E_ACCESS_TOKEN,
+    [switch] $SeedLocalAccount,
     [switch] $SkipAttempt
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+function ConvertTo-Base64Url {
+    param([byte[]] $Bytes)
+    return [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+}
+
+function Get-Sha256Hex {
+    param([string] $Value)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Value))
+        return -join ($bytes | ForEach-Object { $_.ToString('x2') })
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+function New-LocalE2eAccount {
+    $containerId = (& docker ps --filter 'label=com.docker.compose.project=studylens-release' --filter 'label=com.docker.compose.service=postgres' --format '{{.ID}}').Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {
+        throw 'The StudyLens release PostgreSQL container is not running. Start it with .\release.ps1 smoke -Provider fake.'
+    }
+
+    $postgresUser = (& docker exec $containerId printenv POSTGRES_USER).Trim()
+    $postgresDatabase = (& docker exec $containerId printenv POSTGRES_DB).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($postgresUser) -or [string]::IsNullOrWhiteSpace($postgresDatabase)) {
+        throw 'Could not read the PostgreSQL connection identity from the release container.'
+    }
+
+    $tokenBytes = New-Object byte[] 32
+    $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $random.GetBytes($tokenBytes)
+    } finally {
+        $random.Dispose()
+    }
+    $rawToken = ConvertTo-Base64Url $tokenBytes
+    $tokenHash = Get-Sha256Hex $rawToken
+    $suffix = [guid]::NewGuid().ToString('N')
+    $userId = "e2e-$suffix"
+    $username = "e2e-$($suffix.Substring(0, 20))"
+    if ($username.Length -gt 32 -or $username -notmatch '^[A-Za-z0-9._-]{3,32}$') {
+        throw 'The generated E2E username does not satisfy the public account contract.'
+    }
+    $now = [DateTimeOffset]::UtcNow
+    $nowText = $now.ToString('O')
+    $expiresText = $now.AddMinutes(15).ToString('O')
+    $sql = @"
+BEGIN;
+INSERT INTO "AppUsers" ("UserId", "GoogleSubject", "Email", "DisplayName", "PictureUrl", "CreatedAtUtc", "LastLoginAtUtc")
+VALUES ('$userId', NULL, NULL, 'Release E2E', NULL, '$nowText', '$nowText');
+INSERT INTO "LocalCredentials" ("UserId", "Username", "NormalizedUsername", "PasswordHash", "FailedAccessAttempts", "LockoutEndUtc", "PasswordChangedAtUtc")
+VALUES ('$userId', '$username', '$($username.ToUpperInvariant())', 'e2e-seed-does-not-support-password-login', 0, NULL, '$nowText');
+INSERT INTO "AuthTokens" ("TokenHash", "UserId", "TokenType", "CreatedAtUtc", "ExpiresAtUtc", "RevokedAtUtc")
+VALUES ('$tokenHash', '$userId', 'access', '$nowText', '$expiresText', NULL);
+COMMIT;
+"@
+
+    $sql | & docker exec -i $containerId psql --username $postgresUser --dbname $postgresDatabase --set ON_ERROR_STOP=1 --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Could not seed the local E2E account.' }
+
+    return [pscustomobject]@{ UserId = $userId; AccessToken = $rawToken }
+}
 
 function Invoke-JsonRequest {
     param(
@@ -29,6 +95,7 @@ function Invoke-JsonRequest {
         Method = $Method
         Uri = $Uri
         TimeoutSec = 60
+        Headers = $script:authHeaders
     }
     if ($null -ne $Body) {
         $parameters.ContentType = 'application/json; charset=utf-8'
@@ -65,10 +132,23 @@ function Get-ExpectedQuestionCount {
     return 15
 }
 
+if ($SeedLocalAccount) {
+    if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
+        throw 'Use either -SeedLocalAccount or -AccessToken/STUDYLENS_E2E_ACCESS_TOKEN, not both.'
+    }
+    $seededAccount = New-LocalE2eAccount
+    $AccessToken = $seededAccount.AccessToken
+    Write-Host "Seeded local E2E account $($seededAccount.UserId)."
+}
+if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    throw 'Authentication is required. Use -SeedLocalAccount for the local fake stack, or set STUDYLENS_E2E_ACCESS_TOKEN to a valid StudyLens access token.'
+}
+$script:authHeaders = @{ Authorization = "Bearer $AccessToken" }
+
 $runId = [guid]::NewGuid()
 $activationId = [guid]::NewGuid()
 $session = Invoke-JsonRequest POST "$BaseUrl/api/sessions" @{
-    contractVersion = '0.5.0'
+    contractVersion = '0.7.0'
     activationId = $activationId
     idempotencyKey = "release-e2e:session:$runId"
     youtubeVideoId = $VideoId
@@ -99,7 +179,7 @@ if ($TranscriptStatus -eq 'available') {
 }
 
 $transcriptBody = @{
-    contractVersion = '0.5.0'
+    contractVersion = '0.7.0'
     idempotencyKey = "release-e2e:transcript:$runId"
     youtubeVideoId = $VideoId
     language = 'en'
@@ -157,7 +237,7 @@ if (-not $SkipAttempt) {
         }
     })
     $clientAttemptId = [guid]::NewGuid()
-    $attemptBody = @{ contractVersion = '0.5.0'; clientAttemptId = $clientAttemptId; answers = $answers }
+    $attemptBody = @{ contractVersion = '0.7.0'; clientAttemptId = $clientAttemptId; answers = $answers }
     $attempt = Invoke-JsonRequest POST "$BaseUrl/api/quizzes/$($package.quiz.quizId)/attempts" $attemptBody
     $attemptReplay = Invoke-JsonRequest POST "$BaseUrl/api/quizzes/$($package.quiz.quizId)/attempts" $attemptBody
     if ($attemptReplay.quizAttemptId -ne $attempt.quizAttemptId) { throw 'Attempt replay was not idempotent.' }

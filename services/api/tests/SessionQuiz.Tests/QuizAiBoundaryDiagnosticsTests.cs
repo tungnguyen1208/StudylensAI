@@ -30,7 +30,7 @@ public sealed class QuizAiBoundaryDiagnosticsTests
 
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), $"session:overlap:{overlappingCaption}",
+            "0.7.0", Guid.NewGuid().ToString(), $"session:overlap:{overlappingCaption}",
             "2b5YsAvWyWU", "Caption overlap", "multipleChoice", "medium"), CancellationToken.None)).Package!;
 
         // Both variants include the exact cited cue. The overlapping variant
@@ -40,7 +40,7 @@ public sealed class QuizAiBoundaryDiagnosticsTests
                new(66_000, 71_000, "The next caption.")]
             : [new(65_000, 66_000, "The first caption."), new(70_000, 71_000, "The next caption.")];
         var submitted = await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", $"transcript:overlap:{overlappingCaption}",
+            new SubmitFullTranscriptCommand("0.7.0", $"transcript:overlap:{overlappingCaption}",
                 "2b5YsAvWyWU", "vi", "youtubeCaption", "available", null, 120_000, cues), CancellationToken.None);
         Assert.Equal("queued", submitted.Package!.QuizStatus);
         Assert.Equal(cues.Length, await db.Set<StudyLens.Api.Features.VideoActivation.Infrastructure.TranscriptCaptureCueEntity>().CountAsync());
@@ -96,10 +96,10 @@ public sealed class QuizAiBoundaryDiagnosticsTests
 
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), $"session:manual-retry:{errorCode}",
+            "0.7.0", Guid.NewGuid().ToString(), $"session:manual-retry:{errorCode}",
             "2b5YsAvWyWU", "Caption overlap", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", $"transcript:manual-retry:{errorCode}",
+            new SubmitFullTranscriptCommand("0.7.0", $"transcript:manual-retry:{errorCode}",
                 "2b5YsAvWyWU", "vi", "youtubeCaption", "available", null, 120_000,
                 [new TranscriptCueView(65_000, 66_000, "The first caption."),
                  new TranscriptCueView(65_000, 70_000, "The extended caption.")]), CancellationToken.None);
@@ -125,7 +125,7 @@ public sealed class QuizAiBoundaryDiagnosticsTests
         var jobId = job.ProcessingJobId;
         var idempotencyKey = job.IdempotencyKey;
 
-        var retried = await service.RetryAsync(started.Session.SessionId, "0.5.0", "quizGenerate", CancellationToken.None);
+        var retried = await service.RetryAsync(started.Session.SessionId, "0.7.0", "quizGenerate", CancellationToken.None);
         Assert.Equal("queued", retried.Package!.QuizStatus);
         Assert.Equal(jobId, (await db.Set<ProcessingJobEntity>().SingleAsync()).ProcessingJobId);
         Assert.Equal(idempotencyKey, (await db.Set<ProcessingJobEntity>().SingleAsync()).IdempotencyKey);

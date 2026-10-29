@@ -1,0 +1,165 @@
+openapi: 3.0.3
+info:
+  title: StudyLens Public API - Account Access and Quota
+  version: 0.7.0
+paths:
+  /api/auth/register:
+    post:
+      operationId: registerLocalAccount
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AuthRegisterRequest' } } }
+      responses:
+        '200': { description: StudyLens token pair, content: { application/json: { schema: { $ref: '#/components/schemas/TokenPair' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/auth/login:
+    post:
+      operationId: loginLocalAccount
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AuthLoginRequest' } } }
+      responses:
+        '200': { description: StudyLens token pair, content: { application/json: { schema: { $ref: '#/components/schemas/TokenPair' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/auth/refresh:
+    post:
+      operationId: refreshStudyLensToken
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AuthRefreshRequest' } } }
+      responses:
+        '200': { description: Rotated StudyLens token pair, content: { application/json: { schema: { $ref: '#/components/schemas/TokenPair' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/auth/logout:
+    post:
+      operationId: logoutStudyLens
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AuthRefreshRequest' } } }
+      responses:
+        '204': { description: Tokens revoked }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/account/password:
+    post:
+      operationId: changeLocalPassword
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordChangeRequest' } } }
+      responses:
+        '204': { description: Password changed and all tokens revoked }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/account:
+    get:
+      operationId: getCurrentAccount
+      responses:
+        '200': { description: Current StudyLens account }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/account/quota:
+    get:
+      operationId: getCurrentQuota
+      responses:
+        '200': { description: UTC daily quota counters, content: { application/json: { schema: { $ref: '#/components/schemas/QuotaView' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    StudyLensBearer: { type: http, scheme: bearer, bearerFormat: opaque }
+  responses:
+    Error: { description: Contract-shaped error, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  schemas:
+    AuthRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, username, password, displayName]
+      properties:
+        contractVersion: { type: string, const: 0.7.0 }
+        username: { type: string, pattern: '^[A-Za-z0-9._-]{3,32}$' }
+        password: { type: string, minLength: 15, maxLength: 128 }
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+    AuthLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, username, password]
+      properties:
+        contractVersion: { type: string, const: 0.7.0 }
+        username: { type: string, pattern: '^[A-Za-z0-9._-]{3,32}$' }
+        password: { type: string, minLength: 1, maxLength: 128 }
+    AuthRefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, refreshToken]
+      properties:
+        contractVersion: { type: string, const: 0.7.0 }
+        refreshToken: { type: string, minLength: 32 }
+    PasswordChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, currentPassword, newPassword]
+      properties:
+        contractVersion: { type: string, const: 0.7.0 }
+        currentPassword: { type: string, minLength: 1, maxLength: 128 }
+        newPassword: { type: string, minLength: 15, maxLength: 128 }
+    Account:
+      type: object
+      additionalProperties: false
+      required: [userId, username, displayName]
+      properties:
+        userId: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        email: { type: string, format: email, nullable: true }
+        pictureUrl: { type: string, format: uri, nullable: true }
+    TokenPair:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, accessToken, accessExpiresAtUtc, refreshToken, refreshExpiresAtUtc, account]
+      properties:
+        contractVersion: { type: string, const: 0.7.0 }
+        accessToken: { type: string }
+        accessExpiresAtUtc: { type: string, format: date-time }
+        refreshToken: { type: string }
+        refreshExpiresAtUtc: { type: string, format: date-time }
+        account: { $ref: '#/components/schemas/Account' }
+    QuotaCounter:
+      type: object
+      additionalProperties: false
+      required: [resourceType, limit, used, reserved, remaining, resetAtUtc]
+      properties:
+        resourceType: { type: string, enum: [quizGenerate, transcriptGenerate, shortAnswerGrade] }
+        limit: { type: integer, minimum: 0 }
+        used: { type: integer, minimum: 0 }
+        reserved: { type: integer, minimum: 0 }
+        remaining: { type: integer, minimum: 0 }
+        resetAtUtc: { type: string, format: date-time }
+    QuotaView:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, items]
+      properties:
+        contractVersion: { type: string, const: 0.7.0 }
+        items: { type: array, items: { $ref: '#/components/schemas/QuotaCounter' } }
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [code, status, message, traceId, retryable]
+      properties:
+        code: { type: string }
+        status: { type: integer }
+        message: { type: string }
+        traceId: { type: string }
+        retryable: { type: boolean }
+        resetAtUtc: { type: string, format: date-time, nullable: true }
+security:
+  - StudyLensBearer: []

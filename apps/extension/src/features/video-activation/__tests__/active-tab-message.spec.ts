@@ -4,7 +4,7 @@ import { shouldApplyActiveTabMessage } from '../state/active-tab-message';
 
 const message = (tabId: number, youtubeVideoId: string, type: ExtensionMessage['type'] = 'ACTIVATION_ENABLED') => ({
   type,
-  contractVersion: '0.5.0',
+  contractVersion: '0.7.0',
   correlationId: `${tabId}:${youtubeVideoId}:${type}`,
   tabId,
   youtubeVideoId,

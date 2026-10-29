@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: StudyLens Public API - Full-video Learning Package
-  version: 0.5.0
+  version: 0.7.0
   description: >-
     Extension-to-Backend contract for immediate sessions, full transcript ingestion,
     processing state and full-video quizzes. Sessions and jobs are provisional
@@ -20,7 +20,9 @@ paths:
       responses:
         '200': { description: Session created or replayed, content: { application/json: { schema: { $ref: '#/components/schemas/SessionSnapshot' } } } }
         '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /api/sessions/{sessionId}/transcript:
     put:
       operationId: submitFullTranscript
@@ -32,8 +34,10 @@ paths:
       responses:
         '200': { description: Transcript accepted and processing queued, content: { application/json: { schema: { $ref: '#/components/schemas/LearningPackage' } } } }
         '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /api/sessions/{sessionId}/learning-package:
     get:
       operationId: getLearningPackage
@@ -41,7 +45,9 @@ paths:
       parameters: [{ $ref: '#/components/parameters/SessionId' }]
       responses:
         '200': { description: Current learning package, content: { application/json: { schema: { $ref: '#/components/schemas/LearningPackage' } } } }
+        '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /api/sessions/{sessionId}/retry:
     post:
       operationId: retryLearningPackageStep
@@ -53,8 +59,10 @@ paths:
       responses:
         '200': { description: Processing step requeued, content: { application/json: { schema: { $ref: '#/components/schemas/LearningPackage' } } } }
         '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /api/sessions/{sessionId}/complete:
     post:
       operationId: completeStudySession
@@ -65,8 +73,12 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/CompleteStudySessionRequest' } } }
       responses:
         '200': { description: Closed session, content: { application/json: { schema: { $ref: '#/components/schemas/SessionSnapshot' } } } }
+        '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
 components:
+  securitySchemes:
+    StudyLensBearer: { type: http, scheme: bearer, bearerFormat: opaque }
   parameters:
     SessionId: { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
   responses:
@@ -93,7 +105,7 @@ components:
       additionalProperties: false
       required: [contractVersion, activationId, idempotencyKey, youtubeVideoId, videoTitle, preferences]
       properties:
-        contractVersion: { type: string, const: 0.5.0 }
+        contractVersion: { type: string, const: 0.7.0 }
         activationId: { type: string, format: uuid }
         idempotencyKey: { type: string, minLength: 1 }
         youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
@@ -112,7 +124,7 @@ components:
       additionalProperties: false
       required: [contractVersion, idempotencyKey, youtubeVideoId, language, source, status, cues]
       properties:
-        contractVersion: { type: string, const: 0.5.0 }
+        contractVersion: { type: string, const: 0.7.0 }
         idempotencyKey: { type: string, minLength: 1 }
         youtubeVideoId: { type: string, pattern: '^[A-Za-z0-9_-]{11}$' }
         language: { type: string, minLength: 2 }
@@ -133,14 +145,14 @@ components:
       additionalProperties: false
       required: [contractVersion, operation]
       properties:
-        contractVersion: { type: string, const: 0.5.0 }
+        contractVersion: { type: string, const: 0.7.0 }
         operation: { $ref: '#/components/schemas/ProcessingOperation' }
     CompleteStudySessionRequest:
       type: object
       additionalProperties: false
       required: [contractVersion, clientCompletionId, reason]
       properties:
-        contractVersion: { type: string, const: 0.5.0 }
+        contractVersion: { type: string, const: 0.7.0 }
         clientCompletionId: { type: string, format: uuid }
         reason: { type: string, enum: [activationDisabled, videoEnded, videoContextChanged, unsupportedWatchPage] }
     SessionSnapshot:
@@ -235,3 +247,6 @@ components:
         message: { type: string }
         traceId: { type: string }
         retryable: { type: boolean }
+        resetAtUtc: { type: string, format: date-time, nullable: true }
+security:
+  - StudyLensBearer: []

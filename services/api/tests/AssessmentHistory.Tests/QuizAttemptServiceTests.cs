@@ -21,7 +21,7 @@ public sealed class QuizAttemptServiceTests
         await db.SaveChangesAsync();
         var store = new SqliteQuestionAssessmentStore(db);
         var service = new AssessmentHistoryService(new AssessmentHistoryDbContext(db), store, new FakeShortAnswerGateway(), db);
-        var command = new SubmitQuizAttemptCommand("0.5.0", "77777777-7777-4777-8777-777777777777", QuizId,
+        var command = new SubmitQuizAttemptCommand("0.7.0", "77777777-7777-4777-8777-777777777777", QuizId,
         [
             new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
             new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets."),
@@ -71,7 +71,7 @@ public sealed class QuizAttemptServiceTests
         var service = new AssessmentHistoryService(new AssessmentHistoryDbContext(db), store, new FakeShortAnswerGateway(), db);
 
         var result = await service.SubmitAttemptAsync(new SubmitQuizAttemptCommand(
-            "0.5.0", "88888888-8888-4888-8888-888888888888", QuizId,
+            "0.7.0", "88888888-8888-4888-8888-888888888888", QuizId,
             [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null)]), CancellationToken.None);
 
         Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
@@ -94,7 +94,7 @@ public sealed class QuizAttemptServiceTests
             new SqliteQuestionAssessmentStore(db), new FakeShortAnswerGateway(), db);
 
         var result = await service.SubmitAttemptAsync(new SubmitQuizAttemptCommand(
-            "0.5.0", Guid.NewGuid().ToString(), QuizId,
+            "0.7.0", Guid.NewGuid().ToString(), QuizId,
             [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
              new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets.")]), CancellationToken.None);
 
@@ -116,7 +116,7 @@ public sealed class QuizAttemptServiceTests
         var service = new AssessmentHistoryService(new AssessmentHistoryDbContext(db),
             new SqliteQuestionAssessmentStore(db), gateway, db);
         var command = new SubmitQuizAttemptCommand(
-            "0.5.0", "99999999-9999-4999-8999-999999999999", QuizId,
+            "0.7.0", "99999999-9999-4999-8999-999999999999", QuizId,
             [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
              new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets.")]);
 
@@ -162,7 +162,7 @@ public sealed class QuizAttemptServiceTests
             var secondService = new AssessmentHistoryService(new AssessmentHistoryDbContext(secondDb),
                 new SqliteQuestionAssessmentStore(secondDb), gateway, secondDb);
             var command = new SubmitQuizAttemptCommand(
-                "0.5.0", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", QuizId,
+                "0.7.0", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", QuizId,
                 [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
                  new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets.")]);
 
@@ -204,7 +204,7 @@ public sealed class QuizAttemptServiceTests
             new SqliteQuestionAssessmentStore(db), gateway, db);
 
         var result = await service.SubmitAttemptAsync(new SubmitQuizAttemptCommand(
-            "0.5.0", Guid.NewGuid().ToString(), QuizId,
+            "0.7.0", Guid.NewGuid().ToString(), QuizId,
             [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
              new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets.")]), CancellationToken.None);
 
@@ -232,7 +232,7 @@ public sealed class QuizAttemptServiceTests
             new SqliteQuestionAssessmentStore(db), gateway, db);
 
         var result = await service.SubmitAttemptAsync(new SubmitQuizAttemptCommand(
-            "0.5.0", Guid.NewGuid().ToString(), QuizId,
+            "0.7.0", Guid.NewGuid().ToString(), QuizId,
             [new SubmitAttemptAnswer(MultipleChoiceId, "option-a", null),
              new SubmitAttemptAnswer(ShortAnswerId, null, "IP routes packets.")]), CancellationToken.None);
 

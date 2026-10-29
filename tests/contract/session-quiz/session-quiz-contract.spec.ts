@@ -31,7 +31,7 @@ function fixture(name: string): any {
   return JSON.parse(readFileSync(`${repoRoot}/contracts/examples/session-quiz/${name}`, 'utf8'));
 }
 
-describe('full-video learning package contract 0.5.0', () => {
+describe('full-video learning package contract 0.7.0', () => {
   it('exposes immediate session, full transcript, polling, retry and completion only', () => {
     const { contract } = publicValidator('StartStudySessionRequest');
     expect(Object.keys(contract.paths)).toEqual([
@@ -68,7 +68,7 @@ describe('full-video learning package contract 0.5.0', () => {
     const retryValidator = publicValidator('RetryProcessingRequest').validate;
     expect(packageValidator(fixture('learning-package-ready.response.json')), JSON.stringify(packageValidator.errors)).toBe(true);
     expect(retryValidator(fixture('retry-quiz.request.json')), JSON.stringify(retryValidator.errors)).toBe(true);
-    expect(retryValidator({ contractVersion: '0.5.0', operation: 'segmentCreate' })).toBe(false);
+    expect(retryValidator({ contractVersion: '0.7.0', operation: 'segmentCreate' })).toBe(false);
   });
 
   it('validates idempotent session completion reasons', () => {

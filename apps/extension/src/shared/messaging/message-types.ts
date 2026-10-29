@@ -1,6 +1,6 @@
 export interface ExtensionMessage<T = unknown> {
   type: string;
-  contractVersion: '0.5.0';
+  contractVersion: '0.7.0';
   correlationId: string;
   tabId: number;
   youtubeVideoId: string;

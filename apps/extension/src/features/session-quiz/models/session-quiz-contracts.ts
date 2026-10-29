@@ -10,7 +10,7 @@ export type {
   QuizPublic,
 } from '../../../shared/contracts';
 
-export const SESSION_QUIZ_CONTRACT_VERSION = '0.5.0' as const;
+export const SESSION_QUIZ_CONTRACT_VERSION = '0.7.0' as const;
 
 export type SessionStatus = 'active' | 'completed' | 'closed' | 'failed';
 export type TranscriptProcessingStatus = 'waiting' | 'validating' | 'generating' | 'ready' | 'unavailable' | 'failed';

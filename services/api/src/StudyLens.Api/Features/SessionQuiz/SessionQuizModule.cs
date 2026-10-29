@@ -4,6 +4,7 @@ using StudyLens.Api.Features.SessionQuiz.Api;
 using StudyLens.Api.Features.SessionQuiz.Application;
 using StudyLens.Api.Features.SessionQuiz.Application.Abstractions;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
+using StudyLens.Api.Features.Accounts;
 
 public static class SessionQuizModule
 {
@@ -23,11 +24,11 @@ public static class SessionQuizModule
     public static IEndpointRouteBuilder MapSessionQuizEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/api/sessions", LearningPackageEndpoints.Start).WithName("StartStudySession").WithTags("Session Quiz");
-        endpoints.MapPut("/api/sessions/{sessionId}/transcript", LearningPackageEndpoints.SubmitTranscript).WithName("SubmitFullTranscript").WithTags("Session Quiz");
-        endpoints.MapGet("/api/sessions/{sessionId}/learning-package", LearningPackageEndpoints.Get).WithName("GetLearningPackage").WithTags("Session Quiz");
-        endpoints.MapPost("/api/sessions/{sessionId}/retry", LearningPackageEndpoints.Retry).WithName("RetryLearningPackageStep").WithTags("Session Quiz");
-        endpoints.MapPost("/api/sessions/{sessionId}/complete", LearningPackageEndpoints.Complete).WithName("CompleteStudySession").WithTags("Session Quiz");
+        endpoints.MapPost("/api/sessions", LearningPackageEndpoints.Start).WithName("StartStudySession").WithTags("Session Quiz").RequireAuthorization().RequireRateLimiting(AccountsModule.WritePolicy);
+        endpoints.MapPut("/api/sessions/{sessionId}/transcript", LearningPackageEndpoints.SubmitTranscript).WithName("SubmitFullTranscript").WithTags("Session Quiz").RequireAuthorization().RequireRateLimiting(AccountsModule.WritePolicy);
+        endpoints.MapGet("/api/sessions/{sessionId}/learning-package", LearningPackageEndpoints.Get).WithName("GetLearningPackage").WithTags("Session Quiz").RequireAuthorization().RequireRateLimiting(AccountsModule.ReadPolicy);
+        endpoints.MapPost("/api/sessions/{sessionId}/retry", LearningPackageEndpoints.Retry).WithName("RetryLearningPackageStep").WithTags("Session Quiz").RequireAuthorization().RequireRateLimiting(AccountsModule.WritePolicy);
+        endpoints.MapPost("/api/sessions/{sessionId}/complete", LearningPackageEndpoints.Complete).WithName("CompleteStudySession").WithTags("Session Quiz").RequireAuthorization().RequireRateLimiting(AccountsModule.WritePolicy);
         return endpoints;
     }
 }

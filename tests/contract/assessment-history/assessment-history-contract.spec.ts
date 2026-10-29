@@ -17,7 +17,7 @@ function validator(name) {
   return ajv.compile({ $defs: definitions, $ref: `#/$defs/${name}` });
 }
 
-describe('assessment history contract 0.5.0', () => {
+describe('assessment history contract 0.7.0', () => {
   it('validates one atomic full-quiz attempt and one answer shape per question', () => {
     const validate = validator('SubmitQuizAttemptRequest');
     const fixture = JSON.parse(readFileSync(`${root}/contracts/examples/assessment-history/submit-quiz-attempt.request.json`, 'utf8'));

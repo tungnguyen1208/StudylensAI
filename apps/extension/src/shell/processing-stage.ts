@@ -16,36 +16,36 @@ export function resolveProcessingStage(
     return stage('noVideo', 'Chưa có video', 'Chưa mở video YouTube hợp lệ.', false);
   }
   if (state.status !== 'active') {
-    return stage('inactive', 'StudyLens đang tắt', 'Bật lại trong Cài đặt để bắt đầu.', false);
+    return stage('inactive', 'StudyLens đang tắt', '', false);
   }
   if (!value) {
-    return stage('sessionStart', 'Đang tạo phiên học', 'Đang tạo phiên học và thu thập transcript toàn video.', true);
+    return stage('sessionStart', 'Đang chuẩn bị bài học', 'Đang lấy nội dung video.', true);
   }
   if (value.transcript.status === 'generating') {
-    return stage('transcriptAi', 'Đang gọi AI tạo transcript', 'AI Service đang tạo transcript dự phòng từ video công khai.', true);
+    return stage('transcriptAi', 'Đang xử lý nội dung video', 'Video chưa có đủ phụ đề; StudyLens đang bổ sung nội dung.', true);
   }
   if (value.transcript.status === 'validating') {
-    return stage('transcriptValidation', 'Đang kiểm tra transcript', 'Backend đang xác thực timestamp và nội dung transcript.', true);
+    return stage('transcriptValidation', 'Đang kiểm tra nội dung', 'Đang chuẩn bị nội dung để tạo câu hỏi.', true);
   }
   if (value.transcript.status === 'unavailable') {
     return stage('transcriptUnavailable', 'Transcript không khả dụng', 'Không thể tạo quiz khi chưa có transcript đủ bằng chứng.', false);
   }
   if (value.transcript.status === 'failed') {
-    return stage('transcriptFailed', 'Tạo transcript thất bại', 'Có thể thử lại đúng bước mà không tạo phiên trùng.', false);
+    return stage('transcriptFailed', 'Không thể xử lý nội dung video', 'Vui lòng thử lại.', false);
   }
   if (value.quizStatus === 'queued') {
-    return stage('quizQueued', 'Đang chờ job tạo quiz', 'Transcript đã xác thực; yêu cầu đang chờ Backend xử lý.', true);
+    return stage('quizQueued', 'Đang chuẩn bị câu hỏi', 'Bài kiểm tra sẽ sớm sẵn sàng.', true);
   }
   if (value.quizStatus === 'generating') {
-    return stage('quizAi', 'Đang gọi AI tạo quiz', 'AI Service đang tạo và Backend sẽ kiểm tra kết quả.', true);
+    return stage('quizAi', 'Đang tạo câu hỏi', 'StudyLens đang tạo bài kiểm tra từ nội dung video.', true);
   }
   if (value.quizStatus === 'failed') {
-    return stage('quizFailed', 'Tạo quiz thất bại', 'Có thể thử lại đúng bước mà không tạo quiz trùng.', false);
+    return stage('quizFailed', 'Không thể tạo bài kiểm tra', 'Vui lòng thử lại.', false);
   }
   if (value.quizStatus === 'ready') {
-    return stage('ready', 'Quiz đã sẵn sàng', 'Quiz toàn video đã được kiểm tra và lưu.', false);
+    return stage('ready', 'Bài kiểm tra đã sẵn sàng', '', false);
   }
-  return stage('transcriptWaiting', 'Đang chờ transcript', 'Extension đang lấy phụ đề toàn video.', true);
+  return stage('transcriptWaiting', 'Đang lấy nội dung video', 'StudyLens đang chuẩn bị bài kiểm tra.', true);
 }
 
 export function formatElapsedWait(elapsedMs: number): string {

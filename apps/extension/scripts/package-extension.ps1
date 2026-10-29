@@ -57,8 +57,8 @@ function Test-Package([string] $Path) {
     if ($manifest.host_permissions -notcontains 'http://localhost:5000/*') { throw 'Backend host permission is missing.' }
 
     $metadata = Get-Content -LiteralPath (Join-Path $verifyRoot 'release-manifest.json') -Raw | ConvertFrom-Json
-    if ($metadata.contractVersion -ne '0.5.0' -or $metadata.extensionId -ne $extensionId) {
-        throw 'Release metadata does not match contract 0.5.0 or the stable extension ID.'
+    if ($metadata.contractVersion -ne '0.7.0' -or $metadata.extensionId -ne $extensionId) {
+        throw 'Release metadata does not match contract 0.7.0 or the stable extension ID.'
     }
     $currentCommitSha = (& git -C $repoRoot rev-parse HEAD).Trim()
     if ([string] $metadata.commitSha -ne $currentCommitSha) {
@@ -88,7 +88,7 @@ Copy-Item -Path (Join-Path $distRoot '*') -Destination $stagingRoot -Recurse -Fo
 
 $contractText = Get-Content -LiteralPath (Join-Path $repoRoot 'contracts/public-api/root.yaml') -Raw
 $contractVersion = [regex]::Match($contractText, '(?m)^\s*version:\s*([0-9.]+)\s*$').Groups[1].Value
-if ($contractVersion -ne '0.5.0') { throw "Unexpected public contract version: $contractVersion" }
+if ($contractVersion -ne '0.7.0') { throw "Unexpected public contract version: $contractVersion" }
 $commitSha = (& git -C $repoRoot rev-parse HEAD).Trim()
 $commitTime = (& git -C $repoRoot show -s --format=%cI HEAD).Trim()
 @{

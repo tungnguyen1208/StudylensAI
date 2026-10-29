@@ -6,20 +6,16 @@ export interface TranscriptPreviewDetails {
 
 export interface TranscriptPreviewProps {
   details: TranscriptPreviewDetails | null;
-  loading: boolean;
-  error: string | null;
   currentTimeMs: number | null;
-  statusText?: string;
-  onRefresh: () => void;
+  statusText: string;
   onSeek: (timestampMs: number) => void;
 }
 
 /** Read-only, time-synchronised subtitle view from the active video/session. */
-export function TranscriptPreview({ details, loading, error, currentTimeMs, statusText, onRefresh, onSeek }: TranscriptPreviewProps) {
+export function TranscriptPreview({ details, currentTimeMs, statusText, onSeek }: TranscriptPreviewProps) {
   const cues = details?.cues ?? [];
   const activeCueIndex = useMemo(() => findActiveCueIndex(cues, currentTimeMs), [cues, currentTimeMs]);
   const activeCueRef = useRef<HTMLLIElement | null>(null);
-  const cueStatus = details ? `${cues.length} đoạn` : loading ? 'Đang tải' : null;
 
   useEffect(() => {
     activeCueRef.current?.scrollIntoView({ block: 'nearest' });
@@ -28,21 +24,11 @@ export function TranscriptPreview({ details, loading, error, currentTimeMs, stat
   return (
     <div className="transcript-preview">
       <div className="section-heading-row">
-        <div>
-          <h2 id="transcript-preview-heading" className="section-heading">Transcript</h2>
-          <p className="section-copy">Subtitles có timestamp. Dòng tô sáng là nội dung đang phát.</p>
-        </div>
-        <div className="transcript-preview__actions">
-          {cueStatus ? <span className="transcript-preview__status">{cueStatus}</span> : null}
-          {error ? <button type="button" className="secondary-button" onClick={onRefresh} disabled={loading}>Thử lại</button> : null}
-        </div>
+        <h2 id="transcript-preview-heading" className="section-heading">Transcript</h2>
+        {cues.length > 0 ? <span className="transcript-preview__status">{cues.length} đoạn</span> : null}
       </div>
-
-      {statusText ? <p className="section-copy" role="status">{statusText}</p> : null}
-      {error ? <p className="health-error" role="alert">Không thể tải transcript: {error}</p> : null}
-      {details ? (
-        cues.length > 0 ? (
-          <ol className="transcript-preview__cues" aria-label="Transcript theo thời gian">
+      <p className="section-copy" role="status">{statusText}</p>
+      {cues.length > 0 ? <ol className="transcript-preview__cues" aria-label="Transcript theo thời gian">
             {cues.map((cue, index) => {
               const isActive = index === activeCueIndex;
               return (
@@ -64,11 +50,7 @@ export function TranscriptPreview({ details, loading, error, currentTimeMs, stat
                 </li>
               );
             })}
-          </ol>
-        ) : <p className="section-copy" role="status">Chưa có cue transcript hợp lệ.</p>
-      ) : !loading ? (
-        <p className="section-copy" role="status">Transcript sẽ xuất hiện ngay khi Extension đọc được phụ đề YouTube.</p>
-      ) : null}
+      </ol> : null}
     </div>
   );
 }

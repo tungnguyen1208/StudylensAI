@@ -14,6 +14,7 @@ public sealed class StudyVideoEntity
 
 public sealed class StudySessionEntity
 {
+    public string UserId { get; set; } = string.Empty;
     public string SessionId { get; set; } = string.Empty;
     public string ActivationId { get; set; } = string.Empty;
     public string StartIdempotencyKey { get; set; } = string.Empty;
@@ -36,6 +37,7 @@ public sealed class StudySessionEntity
     public DateTimeOffset? CompletedAtUtc { get; set; }
     public string? CompletionId { get; set; }
     public string? CompletionReason { get; set; }
+    public string? QuizQuotaReservationId { get; set; }
 }
 
 public sealed class ProcessingJobEntity
@@ -52,6 +54,7 @@ public sealed class ProcessingJobEntity
     public bool LastErrorRetryable { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
+    public string? QuotaReservationId { get; set; }
 }
 
 internal sealed class StudyVideoEntityConfiguration : IEntityTypeConfiguration<StudyVideoEntity>
@@ -72,6 +75,7 @@ internal sealed class StudySessionEntityConfiguration : IEntityTypeConfiguration
         builder.ToTable("StudySessions");
         builder.HasKey(item => item.SessionId);
         builder.Property(item => item.SessionId).HasMaxLength(64);
+        builder.Property(item => item.UserId).HasMaxLength(64).IsRequired();
         builder.Property(item => item.ActivationId).HasMaxLength(64).IsRequired();
         builder.Property(item => item.StartIdempotencyKey).HasMaxLength(200).IsRequired();
         builder.Property(item => item.YoutubeVideoId).HasMaxLength(32).IsRequired();
@@ -84,8 +88,8 @@ internal sealed class StudySessionEntityConfiguration : IEntityTypeConfiguration
         builder.Property(item => item.TranscriptSubmissionFingerprint).HasMaxLength(64);
         builder.Property(item => item.ErrorOperation).HasMaxLength(32);
         builder.Property(item => item.ErrorCode).HasMaxLength(64);
-        builder.HasIndex(item => item.ActivationId).IsUnique();
-        builder.HasIndex(item => item.StartIdempotencyKey).IsUnique();
+        builder.HasIndex(item => new { item.UserId, item.ActivationId }).IsUnique();
+        builder.HasIndex(item => new { item.UserId, item.StartIdempotencyKey }).IsUnique();
         builder.HasIndex(item => item.TranscriptSubmissionKey).IsUnique();
         builder.HasOne<StudyVideoEntity>().WithMany().HasForeignKey(item => item.YoutubeVideoId).OnDelete(DeleteBehavior.Restrict);
     }
@@ -103,6 +107,7 @@ internal sealed class ProcessingJobEntityConfiguration : IEntityTypeConfiguratio
         builder.Property(item => item.Status).HasMaxLength(16).IsRequired().IsConcurrencyToken();
         builder.Property(item => item.IdempotencyKey).HasMaxLength(200).IsRequired();
         builder.Property(item => item.LastErrorCode).HasMaxLength(64);
+        builder.Property(item => item.QuotaReservationId).HasMaxLength(64);
         builder.HasIndex(item => item.IdempotencyKey).IsUnique();
         builder.HasIndex(item => new { item.Status, item.CreatedAtUtc });
         builder.HasOne<StudySessionEntity>().WithMany().HasForeignKey(item => item.SessionId).OnDelete(DeleteBehavior.Cascade);

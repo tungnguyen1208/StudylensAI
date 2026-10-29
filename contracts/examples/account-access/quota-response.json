@@ -1,0 +1,8 @@
+{
+  "contractVersion": "0.7.0",
+  "items": [
+    { "resourceType": "quizGenerate", "limit": 5, "used": 1, "reserved": 1, "remaining": 3, "resetAtUtc": "2026-10-16T00:00:00Z" },
+    { "resourceType": "transcriptGenerate", "limit": 2, "used": 0, "reserved": 0, "remaining": 2, "resetAtUtc": "2026-10-16T00:00:00Z" },
+    { "resourceType": "shortAnswerGrade", "limit": 20, "used": 5, "reserved": 0, "remaining": 15, "resetAtUtc": "2026-10-16T00:00:00Z" }
+  ]
+}

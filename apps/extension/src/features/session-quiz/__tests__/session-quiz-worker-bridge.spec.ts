@@ -8,7 +8,7 @@ import {
 import type { LearningPackage, StartStudySessionRequest } from '../models/session-quiz-contracts';
 
 const request: StartStudySessionRequest = {
-  contractVersion: '0.5.0', activationId: 'activation-1', idempotencyKey: 'session:activation-1:dQw4w9WgXcQ',
+  contractVersion: '0.7.0', activationId: 'activation-1', idempotencyKey: 'session:activation-1:dQw4w9WgXcQ',
   youtubeVideoId: 'dQw4w9WgXcQ', videoTitle: 'Video',
   preferences: { questionType: 'multipleChoice', difficulty: 'medium' },
 };

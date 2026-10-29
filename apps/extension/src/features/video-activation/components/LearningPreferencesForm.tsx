@@ -43,7 +43,6 @@ export function LearningPreferencesForm({
           ))}
         </div>
       </fieldset>
-      <p className="learning-preferences__hint">Tùy chọn áp dụng cho phiên video tiếp theo và được gửi cùng yêu cầu tạo quiz toàn video.</p>
       {saving ? <p className="learning-preferences__hint" role="status">Đang lưu tùy chọn…</p> : null}
       {error ? <p className="health-error" role="alert">Lỗi: {error}</p> : null}
     </div>

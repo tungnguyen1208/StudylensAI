@@ -5,4 +5,5 @@ public record ErrorEnvelope(
     int Status,
     string Message,
     string? TraceId = null,
-    bool Retryable = false);
+    bool Retryable = false,
+    DateTimeOffset? ResetAtUtc = null);

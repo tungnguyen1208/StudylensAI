@@ -5,6 +5,8 @@ using StudyLens.Api.BuildingBlocks.Health;
 using StudyLens.Api.BuildingBlocks.Http;
 using StudyLens.Api.BuildingBlocks.Errors;
 using StudyLens.Api.Features.AssessmentHistory;
+using StudyLens.Api.Features.Accounts;
+using StudyLens.Api.Features.Accounts.Application;
 using StudyLens.Api.Features.SessionQuiz;
 using StudyLens.Api.Features.VideoActivation;
 using StudyLens.Api.Infrastructure.Persistence;
@@ -13,6 +15,8 @@ var builder = WebApplication.CreateBuilder(args);
 var migrateOnly = args.Any(argument => string.Equals(argument, "--migrate-only", StringComparison.OrdinalIgnoreCase));
 var migrationTarget = args.FirstOrDefault(argument => argument.StartsWith("--migrate-to=", StringComparison.OrdinalIgnoreCase))
     ?.Split('=', 2)[1];
+var accountAdminAction = args.FirstOrDefault(argument => argument.StartsWith("--account-admin=", StringComparison.OrdinalIgnoreCase))
+    ?.Split('=', 2)[1].ToLowerInvariant();
 
 // Add services to the container
 builder.Services.AddEndpointsApiExplorer();
@@ -52,11 +56,37 @@ builder.Services.AddDbContext<StudyLensDbContext>(options =>
 builder.Services.AddHttpClient<AiHealthClient>();
 
 // Register Vertical Feature Modules (Dev 1, Dev 2, Dev 3)
+builder.Services.AddAccountsModule(builder.Configuration);
 builder.Services.AddVideoActivationModule(builder.Configuration);
 builder.Services.AddSessionQuizModule(builder.Configuration);
 builder.Services.AddAssessmentHistoryModule(builder.Configuration);
 
 var app = builder.Build();
+
+if (accountAdminAction is not null)
+{
+    var username = args.FirstOrDefault(argument => argument.StartsWith("--username=", StringComparison.OrdinalIgnoreCase))?.Split('=', 2)[1] ?? string.Empty;
+    var userId = args.FirstOrDefault(argument => argument.StartsWith("--user-id=", StringComparison.OrdinalIgnoreCase))?.Split('=', 2)[1] ?? string.Empty;
+    var password = await Console.In.ReadLineAsync() ?? string.Empty;
+    await using var scope = app.Services.CreateAsyncScope();
+    var auth = scope.ServiceProvider.GetRequiredService<AccountAuthService>();
+    var result = accountAdminAction switch
+    {
+        "reset" => await auth.ResetPasswordAsync(username, password, CancellationToken.None),
+        "assign" => await auth.AssignCredentialAsync(userId, username, password, CancellationToken.None),
+        _ => AdminCredentialResult.Invalid("Supported account admin actions are assign and reset."),
+    };
+    if (!result.Succeeded)
+    {
+        Console.Error.WriteLine(result.Error);
+        Environment.ExitCode = 1;
+    }
+    else
+    {
+        Console.WriteLine($"Account credential updated for {result.Username} ({result.UserId}). Existing sessions were revoked when applicable.");
+    }
+    return;
+}
 
 if (migrateOnly || app.Environment.IsDevelopment())
 {
@@ -90,9 +120,13 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
 }));
 
 app.UseCors("StudyLensClients");
+app.UseAuthentication();
+app.UseRateLimiter();
+app.UseAuthorization();
 
 // Map Health Endpoints
 app.MapHealthEndpoints();
+app.MapAccountEndpoints();
 
 // Map Vertical Feature Endpoints
 app.MapVideoActivationEndpoints();

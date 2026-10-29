@@ -161,7 +161,7 @@ describe('transcript request identity', () => {
       cues: [],
     });
     expect(request).toEqual({
-      contractVersion: '0.5.0',
+      contractVersion: '0.7.0',
       idempotencyKey: 'transcript:session-1:dQw4w9WgXcQ:insufficient',
       youtubeVideoId: 'dQw4w9WgXcQ',
       language: 'vi',

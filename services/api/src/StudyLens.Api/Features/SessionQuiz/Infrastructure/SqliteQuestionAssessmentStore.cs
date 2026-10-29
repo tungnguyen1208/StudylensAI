@@ -9,6 +9,7 @@ namespace StudyLens.Api.Features.SessionQuiz.Infrastructure;
 
 public sealed class QuizAssessmentEntity
 {
+    public string UserId { get; set; } = string.Empty;
     public string QuizId { get; set; } = string.Empty;
     public string IdempotencyKey { get; set; } = string.Empty;
     public string SessionId { get; set; } = string.Empty;
@@ -58,6 +59,7 @@ public sealed class QuizAssessmentEntityConfiguration : IEntityTypeConfiguration
     {
         builder.ToTable("QuizAssessments");
         builder.HasKey(entity => entity.QuizId);
+        builder.Property(entity => entity.UserId).HasMaxLength(64).IsRequired();
         builder.HasIndex(entity => entity.IdempotencyKey).IsUnique();
         builder.Property(entity => entity.IdempotencyKey).HasMaxLength(200).IsRequired();
         builder.Property(entity => entity.SessionId).HasMaxLength(64).IsRequired();

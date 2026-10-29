@@ -46,7 +46,7 @@ class FakeBus implements MessageSubscriberPort {
   }
   public async publish(message: ExtensionMessage): Promise<void> { this.published.push(message); }
   public async emit(type: string, payload: unknown, youtubeVideoId = VIDEO_A): Promise<void> {
-    const message: ExtensionMessage = { type, contractVersion: '0.5.0', correlationId: 'c-1', tabId: 7, youtubeVideoId, occurredAtUtc: '2026-09-29T10:00:00Z', payload };
+    const message: ExtensionMessage = { type, contractVersion: '0.7.0', correlationId: 'c-1', tabId: 7, youtubeVideoId, occurredAtUtc: '2026-09-29T10:00:00Z', payload };
     this.handlers.get(type)?.forEach((handler) => handler(message));
     await new Promise((resolve) => setTimeout(resolve, 0));
   }

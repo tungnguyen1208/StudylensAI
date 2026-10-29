@@ -2,34 +2,48 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using StudyLens.Api.Features.Accounts.Application;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
 using StudyLens.Api.Features.VideoActivation.Infrastructure;
 using StudyLens.Api.Infrastructure.Persistence;
 
 namespace StudyLens.Api.Features.SessionQuiz.Application;
 
-public sealed partial class LearningPackageService(StudyLensDbContext db)
+public sealed partial class LearningPackageService(StudyLensDbContext db, QuotaService? quota = null)
 {
-    public const string ContractVersion = "0.5.0";
+    public const string ContractVersion = "0.7.0";
+    public const string AiContractVersion = "0.5.0";
 
-    public async Task<LearningPackageResult> StartAsync(StartLearningSessionCommand command, CancellationToken cancellationToken)
+    public Task<LearningPackageResult> StartAsync(StartLearningSessionCommand command, CancellationToken cancellationToken) =>
+        StartAsync(string.Empty, command, cancellationToken);
+
+    public async Task<LearningPackageResult> StartAsync(string userId, StartLearningSessionCommand command, CancellationToken cancellationToken)
     {
         if (!ValidStart(command))
-            return LearningPackageResult.Invalid("invalidSessionRequest", "A valid 0.5.0 session request is required.");
+            return LearningPackageResult.Invalid("invalidSessionRequest", "A valid 0.7.0 session request is required.");
 
         var existing = await db.Set<StudySessionEntity>()
-            .SingleOrDefaultAsync(item => item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken);
+            .SingleOrDefaultAsync(item => item.UserId == userId && item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken);
         if (existing is not null)
             return SameStart(existing, command)
                 ? LearningPackageResult.Success(await BuildPackageAsync(existing, cancellationToken))
                 : LearningPackageResult.Conflict();
 
         var activationSession = await db.Set<StudySessionEntity>()
-            .SingleOrDefaultAsync(item => item.ActivationId == command.ActivationId, cancellationToken);
+            .SingleOrDefaultAsync(item => item.UserId == userId && item.ActivationId == command.ActivationId, cancellationToken);
         if (activationSession is not null)
             return SameStart(activationSession, command)
                 ? LearningPackageResult.Success(await BuildPackageAsync(activationSession, cancellationToken))
                 : LearningPackageResult.Conflict();
+
+        string? quizReservationId = null;
+        if (quota is not null && !string.IsNullOrWhiteSpace(userId))
+        {
+            var decision = await quota.ReserveAsync(userId, QuotaService.QuizGenerate,
+                $"session:{command.IdempotencyKey}", 1, cancellationToken);
+            if (!decision.Allowed) return LearningPackageResult.QuotaExceeded(decision.Counter);
+            quizReservationId = decision.ReservationId;
+        }
 
         var now = DateTimeOffset.UtcNow;
         var video = await db.Set<StudyVideoEntity>().SingleOrDefaultAsync(item => item.YoutubeVideoId == command.YoutubeVideoId, cancellationToken);
@@ -52,6 +66,7 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
 
         var session = new StudySessionEntity
         {
+            UserId = userId,
             SessionId = Guid.NewGuid().ToString(),
             ActivationId = command.ActivationId,
             StartIdempotencyKey = command.IdempotencyKey,
@@ -63,6 +78,7 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             TranscriptStatus = "waiting",
             QuizStatus = "notStarted",
             StartedAtUtc = now,
+            QuizQuotaReservationId = quizReservationId,
         };
         db.Add(session);
         try
@@ -76,13 +92,17 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             // a database constraint failure.
             db.ChangeTracker.Clear();
             var concurrent = await db.Set<StudySessionEntity>().AsNoTracking()
-                .SingleOrDefaultAsync(item => item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken)
+                .SingleOrDefaultAsync(item => item.UserId == userId && item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken)
                 ?? await db.Set<StudySessionEntity>().AsNoTracking()
-                    .SingleOrDefaultAsync(item => item.ActivationId == command.ActivationId, cancellationToken);
+                    .SingleOrDefaultAsync(item => item.UserId == userId && item.ActivationId == command.ActivationId, cancellationToken);
             if (concurrent is not null)
+            {
+                if (quota is not null && quizReservationId != concurrent.QuizQuotaReservationId)
+                    await quota.ReleaseAsync(quizReservationId, cancellationToken);
                 return SameStart(concurrent, command)
                     ? LearningPackageResult.Success(await BuildPackageAsync(concurrent, cancellationToken))
                     : LearningPackageResult.Conflict();
+            }
 
             // A different tab can start the same video with its own activation
             // and idempotency key. Both requests may observe no video row; the
@@ -100,10 +120,12 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             {
                 db.ChangeTracker.Clear();
                 concurrent = await db.Set<StudySessionEntity>().AsNoTracking()
-                    .SingleOrDefaultAsync(item => item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken)
+                    .SingleOrDefaultAsync(item => item.UserId == userId && item.StartIdempotencyKey == command.IdempotencyKey, cancellationToken)
                     ?? await db.Set<StudySessionEntity>().AsNoTracking()
-                        .SingleOrDefaultAsync(item => item.ActivationId == command.ActivationId, cancellationToken);
+                        .SingleOrDefaultAsync(item => item.UserId == userId && item.ActivationId == command.ActivationId, cancellationToken);
                 if (concurrent is null) throw;
+                if (quota is not null && quizReservationId != concurrent.QuizQuotaReservationId)
+                    await quota.ReleaseAsync(quizReservationId, cancellationToken);
                 return SameStart(concurrent, command)
                     ? LearningPackageResult.Success(await BuildPackageAsync(concurrent, cancellationToken))
                     : LearningPackageResult.Conflict();
@@ -112,9 +134,12 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
-    public async Task<LearningPackageResult> SubmitTranscriptAsync(string sessionId, SubmitFullTranscriptCommand command, CancellationToken cancellationToken)
+    public Task<LearningPackageResult> SubmitTranscriptAsync(string sessionId, SubmitFullTranscriptCommand command, CancellationToken cancellationToken) =>
+        SubmitTranscriptAsync(string.Empty, sessionId, command, cancellationToken);
+
+    public async Task<LearningPackageResult> SubmitTranscriptAsync(string userId, string sessionId, SubmitFullTranscriptCommand command, CancellationToken cancellationToken)
     {
-        var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == sessionId, cancellationToken);
+        var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == sessionId && item.UserId == userId, cancellationToken);
         if (session is null) return LearningPackageResult.NotFound("sessionNotFound", "The study session was not found.");
         if (!ValidTranscriptEnvelope(session, command))
             return LearningPackageResult.Invalid("invalidTranscript", "The transcript does not match this active session.");
@@ -138,8 +163,17 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
                 return LearningPackageResult.Invalid("transcriptHashMismatch", "The transcript content hash does not match its cues.");
         }
 
-        // An invalid submission must not reserve the session's idempotency key
-        // in this DbContext; the corrected payload must remain retryable.
+        string? transcriptReservationId = null;
+        if (command.Status != "available" && quota is not null && !string.IsNullOrWhiteSpace(userId))
+        {
+            var decision = await quota.ReserveAsync(userId, QuotaService.TranscriptGenerate,
+                $"transcript:{session.SessionId}:{command.IdempotencyKey}", 1, cancellationToken);
+            if (!decision.Allowed) return LearningPackageResult.QuotaExceeded(decision.Counter);
+            transcriptReservationId = decision.ReservationId;
+        }
+
+        // Do not mutate tracked business entities until quota has been reserved:
+        // QuotaService persists its own reservation before this unit of work.
         session.TranscriptSubmissionKey = command.IdempotencyKey;
         session.TranscriptSubmissionFingerprint = fingerprint;
         ClearError(session);
@@ -156,13 +190,13 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             session.TranscriptCaptureId = capture.TranscriptCaptureId;
             session.TranscriptStatus = "ready";
             session.QuizStatus = "queued";
-            QueueJob(session, "quizGenerate", $"quiz:{session.SessionId}:{contentHash}");
+            QueueJob(session, "quizGenerate", $"quiz:{session.SessionId}:{contentHash}", session.QuizQuotaReservationId);
         }
         else
         {
             session.TranscriptStatus = "generating";
             session.QuizStatus = "notStarted";
-            QueueJob(session, "transcriptGenerate", $"transcript:{session.SessionId}:{session.YoutubeVideoId}");
+            QueueJob(session, "transcriptGenerate", $"transcript:{session.SessionId}:{session.YoutubeVideoId}", transcriptReservationId);
         }
 
         try
@@ -177,6 +211,10 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             db.ChangeTracker.Clear();
             var concurrent = await db.Set<StudySessionEntity>().AsNoTracking()
                 .SingleOrDefaultAsync(item => item.SessionId == sessionId, cancellationToken);
+            var reservationCommitted = transcriptReservationId is not null && await db.Set<ProcessingJobEntity>().AsNoTracking()
+                .AnyAsync(item => item.QuotaReservationId == transcriptReservationId, cancellationToken);
+            if (!reservationCommitted && quota is not null)
+                await quota.ReleaseAsync(transcriptReservationId, cancellationToken);
             if (concurrent is null || string.IsNullOrWhiteSpace(concurrent.TranscriptSubmissionKey)) throw;
             return concurrent.TranscriptSubmissionKey == command.IdempotencyKey &&
                 concurrent.TranscriptSubmissionFingerprint == fingerprint
@@ -186,18 +224,24 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
-    public async Task<LearningPackageResult> GetAsync(string sessionId, CancellationToken cancellationToken)
+    public Task<LearningPackageResult> GetAsync(string sessionId, CancellationToken cancellationToken) =>
+        GetAsync(string.Empty, sessionId, cancellationToken);
+
+    public async Task<LearningPackageResult> GetAsync(string userId, string sessionId, CancellationToken cancellationToken)
     {
         var session = await db.Set<StudySessionEntity>().AsNoTracking()
-            .SingleOrDefaultAsync(item => item.SessionId == sessionId, cancellationToken);
+            .SingleOrDefaultAsync(item => item.SessionId == sessionId && item.UserId == userId, cancellationToken);
         return session is null
             ? LearningPackageResult.NotFound("sessionNotFound", "The study session was not found.")
             : LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
-    public async Task<LearningPackageResult> RetryAsync(string sessionId, string contractVersion, string operation, CancellationToken cancellationToken)
+    public Task<LearningPackageResult> RetryAsync(string sessionId, string contractVersion, string operation, CancellationToken cancellationToken) =>
+        RetryAsync(string.Empty, sessionId, contractVersion, operation, cancellationToken);
+
+    public async Task<LearningPackageResult> RetryAsync(string userId, string sessionId, string contractVersion, string operation, CancellationToken cancellationToken)
     {
-        var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == sessionId, cancellationToken);
+        var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == sessionId && item.UserId == userId, cancellationToken);
         if (session is null) return LearningPackageResult.NotFound("sessionNotFound", "The study session was not found.");
         if (contractVersion != ContractVersion || operation is not ("transcriptGenerate" or "quizGenerate"))
             return LearningPackageResult.Invalid("invalidRetryRequest", "A supported failed operation is required.");
@@ -215,6 +259,16 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             return LearningPackageResult.Invalid("transcriptNotReady", "A validated transcript is required before quiz generation.");
         if (latestJob is null || latestJob.Status != "failed")
             return LearningPackageResult.Invalid("failedJobNotFound", "The failed processing job could not be resumed.");
+
+        if (quota is not null && !string.IsNullOrWhiteSpace(userId))
+        {
+            var resource = operation == "quizGenerate" ? QuotaService.QuizGenerate : QuotaService.TranscriptGenerate;
+            var decision = await quota.ReserveAsync(userId, resource,
+                $"retry:{latestJob.ProcessingJobId}:{latestJob.AttemptCount + 1}:{DateOnly.FromDateTime(DateTime.UtcNow):O}", 1, cancellationToken);
+            if (!decision.Allowed) return LearningPackageResult.QuotaExceeded(decision.Counter);
+            latestJob.QuotaReservationId = decision.ReservationId;
+            if (operation == "quizGenerate") session.QuizQuotaReservationId = decision.ReservationId;
+        }
 
         latestJob.Status = "queued";
         latestJob.AttemptCount = 0;
@@ -248,9 +302,12 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
-    public async Task<LearningPackageResult> CompleteAsync(string sessionId, CompleteLearningSessionCommand command, CancellationToken cancellationToken)
+    public Task<LearningPackageResult> CompleteAsync(string sessionId, CompleteLearningSessionCommand command, CancellationToken cancellationToken) =>
+        CompleteAsync(string.Empty, sessionId, command, cancellationToken);
+
+    public async Task<LearningPackageResult> CompleteAsync(string userId, string sessionId, CompleteLearningSessionCommand command, CancellationToken cancellationToken)
     {
-        var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == sessionId, cancellationToken);
+        var session = await db.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == sessionId && item.UserId == userId, cancellationToken);
         if (session is null) return LearningPackageResult.NotFound("sessionNotFound", "The study session was not found.");
         if (command.ContractVersion != ContractVersion || !Guid.TryParse(command.ClientCompletionId, out _) ||
             command.Reason is not ("activationDisabled" or "videoEnded" or "videoContextChanged" or "unsupportedWatchPage"))
@@ -294,6 +351,9 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             job.UpdatedAtUtc = now;
         }
         await db.SaveChangesAsync(cancellationToken);
+        if (quota is not null && session.QuizStatus != "ready") await quota.ReleaseAsync(session.QuizQuotaReservationId, cancellationToken);
+        if (quota is not null)
+            foreach (var job in pendingJobs) await quota.ReleaseAsync(job.QuotaReservationId, cancellationToken);
         return LearningPackageResult.Success(await BuildPackageAsync(session, cancellationToken));
     }
 
@@ -344,7 +404,7 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
         session.SessionId, session.YoutubeVideoId, session.VideoTitle, session.Status,
         new PreferenceSnapshotView(session.QuestionType, session.Difficulty), session.StartedAtUtc, session.CompletedAtUtc);
 
-    private void QueueJob(StudySessionEntity session, string operation, string idempotencyKey)
+    private void QueueJob(StudySessionEntity session, string operation, string idempotencyKey, string? quotaReservationId)
     {
         db.Add(new ProcessingJobEntity
         {
@@ -353,6 +413,7 @@ public sealed partial class LearningPackageService(StudyLensDbContext db)
             JobType = operation,
             Status = "queued",
             IdempotencyKey = idempotencyKey,
+            QuotaReservationId = quotaReservationId,
             MaxAttempts = 3,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             UpdatedAtUtc = DateTimeOffset.UtcNow,
@@ -446,10 +507,13 @@ public sealed record LearningQuestionView(string QuestionId, string Type, string
 public sealed record QuizView(string QuizId, string SessionId, string Status, IReadOnlyList<LearningQuestionView> Questions, DateTimeOffset CreatedAtUtc);
 public sealed record ProcessingErrorView(string Operation, string Code, string Message, bool Retryable);
 public sealed record LearningPackageView(SessionSnapshotView Session, TranscriptView Transcript, string QuizStatus, QuizView? Quiz, ProcessingErrorView? Error);
-public sealed record LearningPackageResult(LearningPackageView? Package, string? ErrorCode, string? ErrorMessage, int StatusCode)
+public sealed record LearningPackageResult(LearningPackageView? Package, string? ErrorCode, string? ErrorMessage, int StatusCode,
+    DateTimeOffset? ResetAtUtc = null)
 {
     public static LearningPackageResult Success(LearningPackageView package) => new(package, null, null, StatusCodes.Status200OK);
     public static LearningPackageResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest);
     public static LearningPackageResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound);
     public static LearningPackageResult Conflict() => new(null, "idempotencyConflict", "The idempotency key was already used with a different payload.", StatusCodes.Status409Conflict);
+    public static LearningPackageResult QuotaExceeded(QuotaCounterView counter) => new(null, "quotaExceeded",
+        $"The daily {counter.ResourceType} quota has been reached.", StatusCodes.Status429TooManyRequests, counter.ResetAtUtc);
 }

@@ -63,11 +63,11 @@ public sealed class LearningPackageWorkerTests
 
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), "session:binary-search", "RD53wLkH3mQ",
+            "0.7.0", Guid.NewGuid().ToString(), "session:binary-search", "RD53wLkH3mQ",
             "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         TranscriptCueView[] cues = [new(0, 4_500, "Introduction"), new(expectedEndMs - 5_000, expectedEndMs, "Final caption")];
         var submitted = await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", "transcript:binary-search", "RD53wLkH3mQ",
+            new SubmitFullTranscriptCommand("0.7.0", "transcript:binary-search", "RD53wLkH3mQ",
                 "vi", "youtubeCaption", "available", null, playerDurationMs, cues), CancellationToken.None);
         Assert.Equal("queued", submitted.Package!.QuizStatus);
 
@@ -102,10 +102,10 @@ public sealed class LearningPackageWorkerTests
 
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), "session:quiz-count", "RD53wLkH3mQ",
+            "0.7.0", Guid.NewGuid().ToString(), "session:quiz-count", "RD53wLkH3mQ",
             "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", "transcript:quiz-count", "RD53wLkH3mQ",
+            new SubmitFullTranscriptCommand("0.7.0", "transcript:quiz-count", "RD53wLkH3mQ",
                 "vi", "youtubeCaption", "available", null, 900_000,
                 [new TranscriptCueView(0, 10_000, "Binary search requires sorted input.")]), CancellationToken.None);
 
@@ -142,10 +142,10 @@ public sealed class LearningPackageWorkerTests
         await db.Database.EnsureCreatedAsync();
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), $"session:invalid-{fault}", "RD53wLkH3mQ",
+            "0.7.0", Guid.NewGuid().ToString(), $"session:invalid-{fault}", "RD53wLkH3mQ",
             "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", $"transcript:invalid-{fault}", "RD53wLkH3mQ",
+            new SubmitFullTranscriptCommand("0.7.0", $"transcript:invalid-{fault}", "RD53wLkH3mQ",
                 "vi", "youtubeCaption", "available", null, 600_000,
                 [new TranscriptCueView(0, 10_000, "Binary search requires sorted input.")]), CancellationToken.None);
 
@@ -174,10 +174,10 @@ public sealed class LearningPackageWorkerTests
         await db.Database.EnsureCreatedAsync();
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), "session:retry-quiz", "RD53wLkH3mQ",
+            "0.7.0", Guid.NewGuid().ToString(), "session:retry-quiz", "RD53wLkH3mQ",
             "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", "transcript:retry-quiz", "RD53wLkH3mQ",
+            new SubmitFullTranscriptCommand("0.7.0", "transcript:retry-quiz", "RD53wLkH3mQ",
                 "vi", "youtubeCaption", "available", null, 600_000,
                 [new TranscriptCueView(0, 10_000, "Binary search requires sorted input.")]), CancellationToken.None);
 
@@ -200,12 +200,12 @@ public sealed class LearningPackageWorkerTests
         Assert.Single(await db.Set<StudyLens.Api.Features.VideoActivation.Infrastructure.TranscriptCaptureEntity>().ToArrayAsync());
 
         var ended = await service.CompleteAsync(started.Session.SessionId,
-            new CompleteLearningSessionCommand("0.5.0", Guid.NewGuid().ToString(), "videoEnded"), CancellationToken.None);
+            new CompleteLearningSessionCommand("0.7.0", Guid.NewGuid().ToString(), "videoEnded"), CancellationToken.None);
         Assert.Equal("failed", ended.Package!.Session.Status);
 
         var failedJob = await db.Set<ProcessingJobEntity>().SingleAsync();
-        var retry = await service.RetryAsync(started.Session.SessionId, "0.5.0", "quizGenerate", CancellationToken.None);
-        var replayedRetry = await service.RetryAsync(started.Session.SessionId, "0.5.0", "quizGenerate", CancellationToken.None);
+        var retry = await service.RetryAsync(started.Session.SessionId, "0.7.0", "quizGenerate", CancellationToken.None);
+        var replayedRetry = await service.RetryAsync(started.Session.SessionId, "0.7.0", "quizGenerate", CancellationToken.None);
         Assert.Equal("active", retry.Package!.Session.Status);
         Assert.Equal(retry.Package.Session.SessionId, replayedRetry.Package!.Session.SessionId);
         var requeuedJob = await db.Set<ProcessingJobEntity>().SingleAsync();
@@ -229,10 +229,10 @@ public sealed class LearningPackageWorkerTests
         await db.Database.EnsureCreatedAsync();
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), "session:missing-captions", "RD53wLkH3mQ",
+            "0.7.0", Guid.NewGuid().ToString(), "session:missing-captions", "RD53wLkH3mQ",
             "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", "transcript:missing-captions", "RD53wLkH3mQ",
+            new SubmitFullTranscriptCommand("0.7.0", "transcript:missing-captions", "RD53wLkH3mQ",
                 "und", "youtubeCaption", "unavailable", null, null, []), CancellationToken.None);
 
         using var provider = new ServiceCollection()
@@ -260,10 +260,10 @@ public sealed class LearningPackageWorkerTests
         await db.Database.EnsureCreatedAsync();
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), "session:fallback-duration", "2b5YsAvWyWU",
+            "0.7.0", Guid.NewGuid().ToString(), "session:fallback-duration", "2b5YsAvWyWU",
             "Claude skills", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", "transcript:fallback-duration", "2b5YsAvWyWU",
+            new SubmitFullTranscriptCommand("0.7.0", "transcript:fallback-duration", "2b5YsAvWyWU",
                 "und", "youtubeCaption", "unavailable", null, 577_000, []), CancellationToken.None);
 
         var questionGateway = new CapturingQuestionGateway();
@@ -306,11 +306,11 @@ public sealed class LearningPackageWorkerTests
             await setup.Database.EnsureCreatedAsync();
             var service = new LearningPackageService(setup);
             var started = (await service.StartAsync(new StartLearningSessionCommand(
-                "0.5.0", Guid.NewGuid().ToString(), "session:restart-recovery", "RD53wLkH3mQ",
+                "0.7.0", Guid.NewGuid().ToString(), "session:restart-recovery", "RD53wLkH3mQ",
                 "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
             sessionId = started.Session.SessionId;
             await service.SubmitTranscriptAsync(sessionId,
-                new SubmitFullTranscriptCommand("0.5.0", "transcript:restart-recovery", "RD53wLkH3mQ",
+                new SubmitFullTranscriptCommand("0.7.0", "transcript:restart-recovery", "RD53wLkH3mQ",
                     "vi", "youtubeCaption", "available", null, 600_000,
                     [new TranscriptCueView(0, 10_000, "Binary search requires sorted input.")]), CancellationToken.None);
 
@@ -362,10 +362,10 @@ public sealed class LearningPackageWorkerTests
         await db.Database.EnsureCreatedAsync();
         var service = new LearningPackageService(db);
         var started = (await service.StartAsync(new StartLearningSessionCommand(
-            "0.5.0", Guid.NewGuid().ToString(), "session:late-result", "RD53wLkH3mQ",
+            "0.7.0", Guid.NewGuid().ToString(), "session:late-result", "RD53wLkH3mQ",
             "Binary search", "multipleChoice", "medium"), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", "transcript:late-result", "RD53wLkH3mQ",
+            new SubmitFullTranscriptCommand("0.7.0", "transcript:late-result", "RD53wLkH3mQ",
                 "vi", "youtubeCaption", "available", null, 600_000,
                 [new TranscriptCueView(0, 10_000, "Binary search requires sorted input.")]), CancellationToken.None);
 
@@ -373,7 +373,7 @@ public sealed class LearningPackageWorkerTests
         {
             await using var closingDb = new StudyLensDbContext(options);
             var closed = await new LearningPackageService(closingDb).CompleteAsync(started.Session.SessionId,
-                new CompleteLearningSessionCommand("0.5.0", Guid.NewGuid().ToString(), "videoContextChanged"),
+                new CompleteLearningSessionCommand("0.7.0", Guid.NewGuid().ToString(), "videoContextChanged"),
                 CancellationToken.None);
             Assert.Equal("closed", closed.Package!.Session.Status);
         });

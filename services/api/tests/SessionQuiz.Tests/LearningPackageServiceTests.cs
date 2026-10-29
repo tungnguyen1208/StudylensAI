@@ -139,7 +139,7 @@ public sealed class LearningPackageServiceTests
         ];
         var normalizedHash = Hash("0|5000|Intro to networks\n5000|12000|IP routes packets.");
         var command = new SubmitFullTranscriptCommand(
-            "0.5.0", $"transcript:{started.Session.SessionId}:{normalizedHash}", "dQw4w9WgXcQ",
+            "0.7.0", $"transcript:{started.Session.SessionId}:{normalizedHash}", "dQw4w9WgXcQ",
             "en", "youtubeCaption", "available", normalizedHash, 12_000, cues);
 
         var accepted = await service.SubmitTranscriptAsync(started.Session.SessionId, command, CancellationToken.None);
@@ -173,7 +173,7 @@ public sealed class LearningPackageServiceTests
                     .Package!.Session.SessionId;
             }
             var command = new SubmitFullTranscriptCommand(
-                "0.5.0", "transcript:concurrent", "dQw4w9WgXcQ", "en", "youtubeCaption", "available",
+                "0.7.0", "transcript:concurrent", "dQw4w9WgXcQ", "en", "youtubeCaption", "available",
                 null, 10_000, [new TranscriptCueView(0, 10_000, "One complete transcript cue")]);
             await using var firstDb = new StudyLensDbContext(options);
             await using var secondDb = new StudyLensDbContext(options);
@@ -209,7 +209,7 @@ public sealed class LearningPackageServiceTests
                     .Package!.Session.SessionId;
             }
             var command = new SubmitFullTranscriptCommand(
-                "0.5.0", "transcript:concurrent-conflict", "dQw4w9WgXcQ", "en", "youtubeCaption", "available",
+                "0.7.0", "transcript:concurrent-conflict", "dQw4w9WgXcQ", "en", "youtubeCaption", "available",
                 null, 10_000, [new TranscriptCueView(0, 10_000, "First transcript payload")]);
             await using var firstDb = new StudyLensDbContext(options);
             await using var secondDb = new StudyLensDbContext(options);
@@ -247,7 +247,7 @@ public sealed class LearningPackageServiceTests
                 var service = new LearningPackageService(setup);
                 sessionId = (await service.StartAsync(StartCommand(), CancellationToken.None)).Package!.Session.SessionId;
                 await service.SubmitTranscriptAsync(sessionId,
-                    new SubmitFullTranscriptCommand("0.5.0", "transcript:retry-concurrent", "dQw4w9WgXcQ",
+                    new SubmitFullTranscriptCommand("0.7.0", "transcript:retry-concurrent", "dQw4w9WgXcQ",
                         "und", "youtubeCaption", "unavailable", null, null, []), CancellationToken.None);
                 var session = await setup.Set<StudySessionEntity>().SingleAsync();
                 var failedJob = await setup.Set<ProcessingJobEntity>().SingleAsync();
@@ -269,8 +269,8 @@ public sealed class LearningPackageServiceTests
             await using var secondDb = new StudyLensDbContext(options);
 
             var results = await Task.WhenAll(
-                new LearningPackageService(firstDb).RetryAsync(sessionId, "0.5.0", "transcriptGenerate", CancellationToken.None),
-                new LearningPackageService(secondDb).RetryAsync(sessionId, "0.5.0", "transcriptGenerate", CancellationToken.None));
+                new LearningPackageService(firstDb).RetryAsync(sessionId, "0.7.0", "transcriptGenerate", CancellationToken.None),
+                new LearningPackageService(secondDb).RetryAsync(sessionId, "0.7.0", "transcriptGenerate", CancellationToken.None));
 
             Assert.All(results, result => Assert.Equal(StatusCodes.Status200OK, result.StatusCode));
             await using var verification = new StudyLensDbContext(options);
@@ -300,7 +300,7 @@ public sealed class LearningPackageServiceTests
             .Select(item => new TranscriptCueView(item.GetProperty("startMs").GetInt64(),
                 item.GetProperty("endMs").GetInt64(), item.GetProperty("text").GetString()!)).ToArray();
 
-        var command = new SubmitFullTranscriptCommand("0.5.0", $"transcript:{started.Session.SessionId}:{hash}",
+        var command = new SubmitFullTranscriptCommand("0.7.0", $"transcript:{started.Session.SessionId}:{hash}",
             "dQw4w9WgXcQ", "en", "youtubeCaption", "available", hash, 30_000, cues);
         var invalid = await service.SubmitTranscriptAsync(started.Session.SessionId,
             command with { ContentHash = new string('0', 64) }, CancellationToken.None);
@@ -323,7 +323,7 @@ public sealed class LearningPackageServiceTests
         var started = (await service.StartAsync(StartCommand(), CancellationToken.None)).Package!;
 
         var result = await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", $"transcript:{started.Session.SessionId}:unavailable", "dQw4w9WgXcQ",
+            new SubmitFullTranscriptCommand("0.7.0", $"transcript:{started.Session.SessionId}:unavailable", "dQw4w9WgXcQ",
                 "und", "youtubeCaption", "unavailable", null, null, []), CancellationToken.None);
 
         Assert.Equal("generating", result.Package!.Transcript.Status);
@@ -341,12 +341,12 @@ public sealed class LearningPackageServiceTests
         var service = new LearningPackageService(fixture.Db);
         var started = (await service.StartAsync(StartCommand(), CancellationToken.None)).Package!;
         await service.SubmitTranscriptAsync(started.Session.SessionId,
-            new SubmitFullTranscriptCommand("0.5.0", "transcript:close-before-quiz", "dQw4w9WgXcQ",
+            new SubmitFullTranscriptCommand("0.7.0", "transcript:close-before-quiz", "dQw4w9WgXcQ",
                 "en", "youtubeCaption", "available", null, 30_000,
                 [new TranscriptCueView(0, 1_000, "A complete caption cue")]), CancellationToken.None);
 
         var completed = await service.CompleteAsync(started.Session.SessionId,
-            new CompleteLearningSessionCommand("0.5.0", Guid.NewGuid().ToString(), "videoEnded"), CancellationToken.None);
+            new CompleteLearningSessionCommand("0.7.0", Guid.NewGuid().ToString(), "videoEnded"), CancellationToken.None);
 
         Assert.Equal("closed", completed.Package!.Session.Status);
         Assert.Empty(await fixture.Db.Set<QuizAssessmentEntity>().ToArrayAsync());
@@ -356,7 +356,7 @@ public sealed class LearningPackageServiceTests
     }
 
     private static StartLearningSessionCommand StartCommand() => new(
-        "0.5.0", "11111111-1111-4111-8111-111111111111", "session:activation-1:dQw4w9WgXcQ",
+        "0.7.0", "11111111-1111-4111-8111-111111111111", "session:activation-1:dQw4w9WgXcQ",
         "dQw4w9WgXcQ", "Networking lesson", "multipleChoice", "medium");
 
     private static string Hash(string value) =>

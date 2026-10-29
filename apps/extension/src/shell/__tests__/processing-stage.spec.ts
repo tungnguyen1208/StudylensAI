@@ -24,11 +24,11 @@ function learningPackage(
 }
 
 describe('processing stage presentation', () => {
-  it('describes the real queued and AI-call stages instead of a synthetic percentage', () => {
+  it('describes quiz preparation in learner-facing language instead of a synthetic percentage', () => {
     expect(resolveProcessingStage(activeState, learningPackage('ready', 'queued')).label)
-      .toBe('Đang chờ job tạo quiz');
+      .toBe('Đang chuẩn bị câu hỏi');
     expect(resolveProcessingStage(activeState, learningPackage('ready', 'generating')).label)
-      .toBe('Đang gọi AI tạo quiz');
+      .toBe('Đang tạo câu hỏi');
   });
 
   it('does not present failed or ready states as waiting', () => {

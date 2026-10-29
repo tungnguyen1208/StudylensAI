@@ -35,7 +35,7 @@ describe('TranscriptService 0.5', () => {
     await service.upload(sessionId, youtubeVideoId, available);
     expect(api.calls).toHaveLength(2);
     expect(api.calls[1]).toEqual(api.calls[0]);
-    expect(api.calls[0].request).toMatchObject({ contractVersion: '0.5.0', youtubeVideoId, status: 'available', durationMs: 20_000 });
+    expect(api.calls[0].request).toMatchObject({ contractVersion: '0.7.0', youtubeVideoId, status: 'available', durationMs: 20_000 });
     expect(api.calls[0].request.contentHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -70,7 +70,7 @@ describe('TranscriptService 0.5', () => {
       577_000,
     );
     expect(request).toEqual({
-      contractVersion: '0.5.0', idempotencyKey: `transcript:${sessionId}:${youtubeVideoId}:unavailable`,
+      contractVersion: '0.7.0', idempotencyKey: `transcript:${sessionId}:${youtubeVideoId}:unavailable`,
       youtubeVideoId, language: 'vi', source: 'youtubeCaption', status: 'unavailable', durationMs: 577_000, cues: [],
     });
   });

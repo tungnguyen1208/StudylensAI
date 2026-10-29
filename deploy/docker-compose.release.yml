@@ -55,7 +55,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      LLM_PROVIDER: ${LLM_PROVIDER:?LLM_PROVIDER is required}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       TRANSCRIPT_TIMEOUT_SECONDS: ${TRANSCRIPT_TIMEOUT_SECONDS:-300}

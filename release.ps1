@@ -134,7 +134,13 @@ switch ($Action) {
         Invoke-Compose @('up', '--build', '--detach', '--wait') -RequireConfigured -SelectedProvider $Provider
         $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5000/api/health/ready' -TimeoutSec 10
         if ($health.status -ne 'ready') { throw 'Release API did not report ready.' }
-        Write-Host "Release stack is healthy with provider mode '$Provider'. The Extension ZIP is ready for Chrome/Edge sideload smoke testing."
+        $aiHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:5000/api/health/ai' -TimeoutSec 10
+        $expectedProvider = if ($Provider -eq 'fake') { 'fake' } else { 'gemini' }
+        if ($aiHealth.aiService.providerMode -ne $expectedProvider -or
+            $aiHealth.aiService.providerConfigured -ne $true) {
+            throw "Release AI provider mismatch. Expected '$expectedProvider' but health reported '$($aiHealth.aiService.providerMode)'."
+        }
+        Write-Host "Release stack is healthy with provider '$expectedProvider'. The Extension ZIP is ready for Chrome/Edge sideload smoke testing."
         break
     }
     'down' {

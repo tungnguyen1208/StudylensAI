@@ -3,6 +3,7 @@ using StudyLens.Api.Features.AssessmentHistory.Infrastructure;
 using StudyLens.Api.Features.SessionQuiz.Application.Abstractions;
 using StudyLens.Api.Features.SessionQuiz.Infrastructure;
 using StudyLens.Api.Infrastructure.Persistence;
+using StudyLens.Api.Features.Accounts.Application;
 
 namespace StudyLens.Api.Features.AssessmentHistory.Application;
 
@@ -10,16 +11,20 @@ public sealed class AssessmentHistoryService(
     AssessmentHistoryDbContext db,
     IQuestionAssessmentReader questions,
     IShortAnswerGradingGateway shortAnswers,
-    StudyLensDbContext? rootDb = null)
+    StudyLensDbContext? rootDb = null,
+    QuotaService? quota = null)
 {
-    public async Task<QuizAttemptResult> SubmitAttemptAsync(SubmitQuizAttemptCommand command, CancellationToken cancellationToken)
+    public Task<QuizAttemptResult> SubmitAttemptAsync(SubmitQuizAttemptCommand command, CancellationToken cancellationToken) =>
+        SubmitAttemptAsync(string.Empty, command, cancellationToken);
+
+    public async Task<QuizAttemptResult> SubmitAttemptAsync(string userId, SubmitQuizAttemptCommand command, CancellationToken cancellationToken)
     {
-        if (command.ContractVersion != "0.5.0" || !Guid.TryParse(command.ClientAttemptId, out _) || command.Answers.Count == 0 ||
+        if (command.ContractVersion != "0.7.0" || !Guid.TryParse(command.ClientAttemptId, out _) || command.Answers.Count == 0 ||
             command.Answers.Select(item => item.QuestionId).Distinct(StringComparer.Ordinal).Count() != command.Answers.Count)
-            return QuizAttemptResult.Invalid("invalidAttemptRequest", "A complete 0.5.0 quiz attempt is required.");
+            return QuizAttemptResult.Invalid("invalidAttemptRequest", "A complete 0.7.0 quiz attempt is required.");
 
         var existing = await db.QuizAttempts.AsNoTracking().Include(item => item.Answers)
-            .SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
+            .SingleOrDefaultAsync(item => item.UserId == userId && item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
         if (existing is not null)
             return existing.Answers.All(ValidEvidenceSource)
                 ? SameAttempt(existing, command) ? QuizAttemptResult.Success(ToAttemptView(existing)) : QuizAttemptResult.Conflict()
@@ -27,7 +32,7 @@ public sealed class AssessmentHistoryService(
 
         var database = rootDb ?? db.RootDb;
         var quiz = await database.Set<QuizAssessmentEntity>().AsNoTracking().Include(item => item.Questions).ThenInclude(item => item.Options)
-            .SingleOrDefaultAsync(item => item.QuizId == command.QuizId, cancellationToken);
+            .SingleOrDefaultAsync(item => item.QuizId == command.QuizId && item.UserId == userId, cancellationToken);
         if (quiz is null) return QuizAttemptResult.NotFound("quizNotFound", "The quiz was not found.");
         if (!ValidYoutubeVideoId(quiz.YoutubeVideoId) || quiz.Questions.Any(question =>
                 question.YoutubeVideoId != quiz.YoutubeVideoId ||
@@ -35,25 +40,42 @@ public sealed class AssessmentHistoryService(
             return QuizAttemptResult.Invalid("invalidEvidenceSource", "Every quiz question requires a valid YouTube evidence range.");
         if (quiz.Status != "ready")
             return QuizAttemptResult.Invalid("quizNotReady", "The quiz is not ready for this video.");
-        var session = await database.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == quiz.SessionId, cancellationToken);
+        var session = await database.Set<StudySessionEntity>().SingleOrDefaultAsync(item => item.SessionId == quiz.SessionId && item.UserId == userId, cancellationToken);
         if (session is null || session.Status is not ("active" or "closed" or "completed") || session.QuizStatus != "ready" ||
             session.QuizId != quiz.QuizId || session.YoutubeVideoId != quiz.YoutubeVideoId)
             return QuizAttemptResult.Invalid("sessionNotReady", "The video session is not ready for a quiz attempt.");
         if (quiz.Questions.Count != command.Answers.Count || quiz.Questions.Any(question => command.Answers.All(answer => answer.QuestionId != question.QuestionId)))
             return QuizAttemptResult.Invalid("incompleteAttempt", "Every quiz question must be answered exactly once.");
 
-        var attemptId = Guid.NewGuid().ToString();
-        var graded = new List<AttemptAnswerEntity>(quiz.Questions.Count);
         foreach (var question in quiz.Questions)
         {
             var submitted = command.Answers.Single(item => item.QuestionId == question.QuestionId);
             if (!ValidAnswer(question.Type, submitted))
                 return QuizAttemptResult.Invalid("invalidAnswer", "An answer does not match its question type.");
+            if (question.Type == "multipleChoice" && question.Options.All(item => item.OptionId != submitted.SelectedOptionId))
+                return QuizAttemptResult.Invalid("invalidOption", "A selected option does not belong to its quiz question.");
+            if (question.Type == "shortAnswer" && string.IsNullOrWhiteSpace(question.ReferenceAnswer))
+                return QuizAttemptResult.Invalid("missingReferenceAnswer", "The short-answer question cannot be graded.");
+        }
+
+        var shortAnswerCount = quiz.Questions.Count(question => question.Type == "shortAnswer");
+        string? gradingReservationId = null;
+        if (quota is not null && !string.IsNullOrWhiteSpace(userId) && shortAnswerCount > 0)
+        {
+            var decision = await quota.ReserveAsync(userId, QuotaService.ShortAnswerGrade,
+                $"attempt:{command.ClientAttemptId}", shortAnswerCount, cancellationToken);
+            if (!decision.Allowed) return QuizAttemptResult.QuotaExceeded(decision.Counter);
+            gradingReservationId = decision.ReservationId;
+        }
+
+        var attemptId = Guid.NewGuid().ToString();
+        var graded = new List<AttemptAnswerEntity>(quiz.Questions.Count);
+        foreach (var question in quiz.Questions)
+        {
+            var submitted = command.Answers.Single(item => item.QuestionId == question.QuestionId);
             GradeData? grade;
             if (question.Type == "multipleChoice")
             {
-                var selected = question.Options.SingleOrDefault(item => item.OptionId == submitted.SelectedOptionId);
-                if (selected is null) return QuizAttemptResult.Invalid("invalidOption", "A selected option does not belong to its quiz question.");
                 var correct = submitted.SelectedOptionId == question.CorrectOptionId;
                 var reference = question.Options.SingleOrDefault(item => item.OptionId == question.CorrectOptionId)?.Text ?? string.Empty;
                 grade = new GradeData(correct ? "correct" : "incorrect", correct ? 1 : 0, reference,
@@ -61,14 +83,25 @@ public sealed class AssessmentHistoryService(
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(question.ReferenceAnswer))
-                    return QuizAttemptResult.Invalid("missingReferenceAnswer", "The short-answer question cannot be graded.");
-                var grading = await shortAnswers.GradeAsync(new("0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, submitted.AnswerText!), cancellationToken);
+                ShortAnswerGradingResult grading;
+                try
+                {
+                    grading = await shortAnswers.GradeAsync(new("0.5.0", question.QuestionId, question.Prompt,
+                        question.ReferenceAnswer!, submitted.AnswerText!), cancellationToken);
+                }
+                catch
+                {
+                    if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
+                    throw;
+                }
                 if (grading.Grade is null || !IsValidShortAnswerGrade(grading.Grade))
+                {
+                    if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
                     return QuizAttemptResult.Unavailable(
                         grading.ErrorCode ?? "gradingUnavailable",
                         grading.ErrorMessage ?? "Short-answer grading is temporarily unavailable.",
                         grading.Retryable);
+                }
                 grade = new GradeData(grading.Grade.Outcome, grading.Grade.Score, grading.Grade.ReferenceAnswer, grading.Grade.Explanation);
             }
 
@@ -84,6 +117,7 @@ public sealed class AssessmentHistoryService(
 
         var attempt = new QuizAttemptEntity
         {
+            UserId = userId,
             QuizAttemptId = attemptId, ClientAttemptId = command.ClientAttemptId, QuizId = command.QuizId,
             SessionId = quiz.SessionId, Score = graded.Average(item => item.Score), SubmittedAtUtc = DateTimeOffset.UtcNow, Answers = graded,
         };
@@ -102,24 +136,45 @@ public sealed class AssessmentHistoryService(
         {
             database.ChangeTracker.Clear();
             existing = await db.QuizAttempts.AsNoTracking().Include(item => item.Answers)
-                .SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
+                .SingleOrDefaultAsync(item => item.UserId == userId && item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
             if (existing is not null)
+            {
+                if (quota is not null) await quota.ConsumeAsync(gradingReservationId, cancellationToken);
                 return SameAttempt(existing, command) ? QuizAttemptResult.Success(ToAttemptView(existing)) : QuizAttemptResult.Conflict();
+            }
+            if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
             throw;
         }
+        catch
+        {
+            if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
+            throw;
+        }
+        if (quota is not null) await quota.ConsumeAsync(gradingReservationId, cancellationToken);
         return QuizAttemptResult.Success(ToAttemptView(attempt));
     }
 
-    public async Task<AssessmentResult> SubmitAsync(SubmitAnswerCommand command, CancellationToken cancellationToken)
+    public Task<AssessmentResult> SubmitAsync(SubmitAnswerCommand command, CancellationToken cancellationToken) =>
+        SubmitAsync(string.Empty, command, cancellationToken);
+
+    public async Task<AssessmentResult> SubmitAsync(string userId, SubmitAnswerCommand command, CancellationToken cancellationToken)
     {
-        if (command.ContractVersion != "0.5.0" || string.IsNullOrWhiteSpace(command.ClientAttemptId) || string.IsNullOrWhiteSpace(command.QuestionId))
+        if (command.ContractVersion != "0.7.0" || string.IsNullOrWhiteSpace(command.ClientAttemptId) || string.IsNullOrWhiteSpace(command.QuestionId))
             return AssessmentResult.Invalid("invalidAnswerRequest", "A valid answer request is required.");
 
-        var existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
+        var existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.UserId == userId && item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
         if (existing is not null)
             return ValidEvidenceSource(existing)
                 ? SameSubmission(existing, command) ? AssessmentResult.Success(ToGrade(existing)) : AssessmentResult.Conflict()
                 : AssessmentResult.Invalid("invalidEvidenceSource", "The stored answer has an invalid evidence source.");
+
+        var database = rootDb ?? db.RootDb;
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            var ownsQuiz = await database.Set<QuizAssessmentEntity>().AsNoTracking()
+                .AnyAsync(item => item.QuizId == command.QuizId && item.UserId == userId, cancellationToken);
+            if (!ownsQuiz) return AssessmentResult.NotFound("quizNotFound", "The quiz was not found.");
+        }
 
         var question = await questions.FindAsync(command.QuizId, command.QuestionId, cancellationToken);
         if (question is null) return AssessmentResult.NotFound("questionNotFound", "The quiz question was not found.");
@@ -128,7 +183,17 @@ public sealed class AssessmentHistoryService(
         if (!IsValidAnswer(question.Type, command)) return AssessmentResult.Invalid("invalidAnswer", "The submitted answer does not match the question type.");
         if (question.Type == "multipleChoice" && !ContainsOption(question, command.SelectedOptionId!))
             return AssessmentResult.Invalid("invalidOption", "The selected option does not belong to the quiz question.");
+        if (question.Type == "shortAnswer" && string.IsNullOrWhiteSpace(question.ReferenceAnswer))
+            return AssessmentResult.Invalid("missingReferenceAnswer", "The short-answer question cannot be graded.");
 
+        string? gradingReservationId = null;
+        if (quota is not null && !string.IsNullOrWhiteSpace(userId) && question.Type == "shortAnswer")
+        {
+            var decision = await quota.ReserveAsync(userId, QuotaService.ShortAnswerGrade,
+                $"answer:{command.ClientAttemptId}", 1, cancellationToken);
+            if (!decision.Allowed) return AssessmentResult.QuotaExceeded(decision.Counter);
+            gradingReservationId = decision.ReservationId;
+        }
         GradeData grade;
         if (question.Type == "multipleChoice")
         {
@@ -136,20 +201,31 @@ public sealed class AssessmentHistoryService(
         }
         else
         {
-            if (string.IsNullOrWhiteSpace(question.ReferenceAnswer))
-                return AssessmentResult.Invalid("missingReferenceAnswer", "The short-answer question cannot be graded.");
-            var grading = await shortAnswers.GradeAsync(new(
-                "0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer, command.AnswerText!), cancellationToken);
+            ShortAnswerGradingResult grading;
+            try
+            {
+                grading = await shortAnswers.GradeAsync(new(
+                    "0.5.0", question.QuestionId, question.Prompt, question.ReferenceAnswer!, command.AnswerText!), cancellationToken);
+            }
+            catch
+            {
+                if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
+                throw;
+            }
             if (grading.Grade is null || !IsValidShortAnswerGrade(grading.Grade))
+            {
+                if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
                 return AssessmentResult.Unavailable(
                     grading.ErrorCode ?? "gradingUnavailable",
                     grading.ErrorMessage ?? "Answer grading is temporarily unavailable.",
                     grading.Retryable);
+            }
             grade = new GradeData(grading.Grade.Outcome, grading.Grade.Score, grading.Grade.ReferenceAnswer, grading.Grade.Explanation);
         }
 
         var attempt = new AnswerAttemptEntity
         {
+            UserId = userId,
             AnswerAttemptId = Guid.NewGuid().ToString(),
             ClientAttemptId = command.ClientAttemptId,
             QuizId = command.QuizId,
@@ -176,20 +252,33 @@ public sealed class AssessmentHistoryService(
         {
             // A concurrent request can win the unique clientAttemptId race. Replay it safely.
             db.Detach(attempt);
-            existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
+            existing = await db.AnswerAttempts.SingleOrDefaultAsync(item => item.UserId == userId && item.ClientAttemptId == command.ClientAttemptId, cancellationToken);
             if (existing is not null)
+            {
+                if (quota is not null) await quota.ConsumeAsync(gradingReservationId, cancellationToken);
                 return SameSubmission(existing, command) ? AssessmentResult.Success(ToGrade(existing)) : AssessmentResult.Conflict();
+            }
+            if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
             throw;
         }
+        catch
+        {
+            if (quota is not null) await quota.ReleaseAsync(gradingReservationId, cancellationToken);
+            throw;
+        }
+        if (quota is not null) await quota.ConsumeAsync(gradingReservationId, cancellationToken);
         return AssessmentResult.Success(ToGrade(attempt));
     }
 
-    public async Task<IReadOnlyList<HistoryItem>> ReadHistoryAsync(string? youtubeVideoId, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<HistoryItem>> ReadHistoryAsync(string? youtubeVideoId, CancellationToken cancellationToken) =>
+        ReadHistoryAsync(string.Empty, youtubeVideoId, cancellationToken);
+
+    public async Task<IReadOnlyList<HistoryItem>> ReadHistoryAsync(string userId, string? youtubeVideoId, CancellationToken cancellationToken)
     {
         var database = rootDb ?? db.RootDb;
         if (!string.IsNullOrWhiteSpace(youtubeVideoId) && !ValidYoutubeVideoId(youtubeVideoId)) return [];
 
-        var legacyQuery = db.AnswerAttempts.AsNoTracking().AsQueryable();
+        var legacyQuery = db.AnswerAttempts.AsNoTracking().Where(item => item.UserId == userId);
         if (!string.IsNullOrWhiteSpace(youtubeVideoId)) legacyQuery = legacyQuery.Where(item => item.YoutubeVideoId == youtubeVideoId);
         var legacyRows = database.Database.IsSqlite()
             ? (await legacyQuery.ToArrayAsync(cancellationToken)).OrderByDescending(item => item.GradedAtUtc)
@@ -197,7 +286,7 @@ public sealed class AssessmentHistoryService(
             : await legacyQuery.OrderByDescending(item => item.GradedAtUtc)
                 .ThenBy(item => item.AnswerAttemptId).Take(200).ToArrayAsync(cancellationToken);
 
-        var attemptQuery = db.QuizAttempts.AsNoTracking().Include(item => item.Answers).AsQueryable();
+        var attemptQuery = db.QuizAttempts.AsNoTracking().Include(item => item.Answers).Where(item => item.UserId == userId);
         if (!string.IsNullOrWhiteSpace(youtubeVideoId))
             attemptQuery = attemptQuery.Where(item => item.Answers.Any(answer => answer.YoutubeVideoId == youtubeVideoId));
         var attempts = database.Database.IsSqlite()
@@ -241,7 +330,7 @@ public sealed class AssessmentHistoryService(
         var sessionIds = items.Select(item => item.SessionId).Distinct().ToArray();
         var videoIds = items.Select(item => item.YoutubeVideoId).Distinct().ToArray();
         var sessionTitles = await database.Set<StudySessionEntity>().AsNoTracking()
-            .Where(item => sessionIds.Contains(item.SessionId))
+            .Where(item => item.UserId == userId && sessionIds.Contains(item.SessionId))
             .Select(item => new { item.SessionId, item.VideoTitle, item.YoutubeVideoId })
             .ToDictionaryAsync(item => item.SessionId, cancellationToken);
         var videoTitles = await database.Set<StudyVideoEntity>().AsNoTracking()
@@ -327,13 +416,16 @@ public sealed record SubmitAttemptAnswer(string QuestionId, string? SelectedOpti
 public sealed record SubmitQuizAttemptCommand(string ContractVersion, string ClientAttemptId, string QuizId, IReadOnlyList<SubmitAttemptAnswer> Answers);
 public sealed record AttemptAnswerView(string QuestionId, string Outcome, double Score, string SubmittedAnswer, string ReferenceAnswer, string Explanation, SourceRef Source);
 public sealed record QuizAttemptView(string QuizAttemptId, string QuizId, double Score, IReadOnlyList<AttemptAnswerView> Results, DateTimeOffset SubmittedAtUtc);
-public sealed record QuizAttemptResult(QuizAttemptView? Attempt, string? ErrorCode, string? ErrorMessage, int StatusCode, bool Retryable)
+public sealed record QuizAttemptResult(QuizAttemptView? Attempt, string? ErrorCode, string? ErrorMessage, int StatusCode, bool Retryable,
+    DateTimeOffset? ResetAtUtc = null)
 {
     public static QuizAttemptResult Success(QuizAttemptView attempt) => new(attempt, null, null, StatusCodes.Status200OK, false);
     public static QuizAttemptResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest, false);
     public static QuizAttemptResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound, false);
     public static QuizAttemptResult Conflict() => new(null, "idempotencyConflict", "The client attempt ID was reused with different answers.", StatusCodes.Status409Conflict, false);
     public static QuizAttemptResult Unavailable(string code, string message, bool retryable) => new(null, code, message, StatusCodes.Status503ServiceUnavailable, retryable);
+    public static QuizAttemptResult QuotaExceeded(QuotaCounterView counter) => new(null, "quotaExceeded",
+        "The daily short-answer grading quota has been reached.", StatusCodes.Status429TooManyRequests, true, counter.ResetAtUtc);
 }
 
 public sealed record SubmitAnswerCommand(string ContractVersion, string ClientAttemptId, string QuizId, string QuestionId, string? SelectedOptionId, string? AnswerText);
@@ -345,11 +437,14 @@ public sealed record HistoryItem(string AnswerAttemptId, string YoutubeVideoId, 
     public string? VideoTitle { get; init; }
     public string? VideoUrl { get; init; }
 }
-public sealed record AssessmentResult(GradeView? Grade, string? ErrorCode, string? ErrorMessage, int StatusCode, bool Retryable)
+public sealed record AssessmentResult(GradeView? Grade, string? ErrorCode, string? ErrorMessage, int StatusCode, bool Retryable,
+    DateTimeOffset? ResetAtUtc = null)
 {
     public static AssessmentResult Success(GradeView grade) => new(grade, null, null, StatusCodes.Status200OK, false);
     public static AssessmentResult Invalid(string code, string message) => new(null, code, message, StatusCodes.Status400BadRequest, false);
     public static AssessmentResult NotFound(string code, string message) => new(null, code, message, StatusCodes.Status404NotFound, false);
     public static AssessmentResult Conflict() => new(null, "idempotencyConflict", "The client attempt ID was reused with a different answer.", StatusCodes.Status409Conflict, false);
     public static AssessmentResult Unavailable(string code, string message, bool retryable) => new(null, code, message, StatusCodes.Status503ServiceUnavailable, retryable);
+    public static AssessmentResult QuotaExceeded(QuotaCounterView counter) => new(null, "quotaExceeded",
+        "The daily short-answer grading quota has been reached.", StatusCodes.Status429TooManyRequests, true, counter.ResetAtUtc);
 }

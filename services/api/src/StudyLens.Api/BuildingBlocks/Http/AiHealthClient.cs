@@ -5,7 +5,9 @@ namespace StudyLens.Api.BuildingBlocks.Http;
 
 public record AiHealthResponse(
     [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("service")] string Service);
+    [property: JsonPropertyName("service")] string Service,
+    [property: JsonPropertyName("providerMode")] string ProviderMode,
+    [property: JsonPropertyName("providerConfigured")] bool ProviderConfigured);
 
 public class AiHealthClient
 {
