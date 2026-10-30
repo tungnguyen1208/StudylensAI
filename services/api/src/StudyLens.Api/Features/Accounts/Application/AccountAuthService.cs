@@ -202,7 +202,11 @@ public sealed partial class AccountAuthService(
         return UsernamePattern().IsMatch(trimmed) ? trimmed.ToUpperInvariant() : null;
     }
 
-    private static bool ValidPassword(string value) => value.Length is >= 15 and <= 128;
+    // The local-demo policy deliberately keeps the rule easy to understand:
+    // a password needs at least one letter and one digit.  Do not trim it;
+    // spaces and other Unicode characters remain part of the password.
+    private static bool ValidPassword(string value) => value.Length is >= 2 and <= 128 &&
+        value.Any(char.IsLetter) && value.Any(char.IsDigit);
     private static string Secret() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
 

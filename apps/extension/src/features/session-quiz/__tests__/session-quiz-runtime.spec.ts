@@ -12,9 +12,15 @@ const activation = { activationId: 'activation-a', source: 'user' as const, vide
 class FakeApi implements SessionApiPort {
   public starts: string[] = [];
   public completions: string[] = [];
+  public failedStarts = 0;
+  public failureCode: string | undefined;
 
   public async start(request: { youtubeVideoId: string }): Promise<SessionSnapshot> {
     this.starts.push(request.youtubeVideoId);
+    if (this.failedStarts > 0) {
+      this.failedStarts -= 1;
+      throw Object.assign(new Error('networkUnavailable'), this.failureCode ? { code: this.failureCode } : {});
+    }
     return {
       sessionId: `session-${request.youtubeVideoId}`,
       youtubeVideoId: request.youtubeVideoId,
@@ -60,6 +66,30 @@ describe('SessionQuizRuntime 0.5 lifecycle', () => {
     await bus.emit('ACTIVATION_ENABLED', activation);
     expect(api.starts).toEqual([VIDEO_A]);
     expect(runtime.getStore().getState().status).toBe('active');
+  });
+
+  it('retries the same activation after a recoverable session-start failure', async () => {
+    const api = new FakeApi(); api.failedStarts = 1;
+    const bus = new FakeBus();
+    const runtime = new SessionQuizRuntime({ api, bus, createCompletionId: () => 'completion-1' });
+    runtime.start();
+
+    await bus.emit('ACTIVATION_ENABLED', activation);
+    expect(runtime.getStore().getState().status).toBe('error');
+
+    await expect(runtime.retryStart()).resolves.toBe(true);
+    expect(api.starts).toEqual([VIDEO_A, VIDEO_A]);
+    expect(runtime.getStore().getState().status).toBe('active');
+  });
+
+  it('keeps the backend failure code so the Side Panel can explain a failed session start', async () => {
+    const api = new FakeApi(); api.failedStarts = 1; api.failureCode = 'authenticationRequired';
+    const bus = new FakeBus();
+    const runtime = new SessionQuizRuntime({ api, bus });
+    runtime.start();
+
+    await bus.emit('ACTIVATION_ENABLED', activation);
+    expect(runtime.getStore().getState()).toMatchObject({ status: 'error', error: 'authenticationRequired' });
   });
 
   it('closes A on navigation and then opens B while global ON remains active', async () => {

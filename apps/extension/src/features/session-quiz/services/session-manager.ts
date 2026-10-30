@@ -16,7 +16,7 @@ export class SessionManager {
       this.apply({ type: 'started', session: await this.api.start({ youtubeVideoId, activation }) });
     } catch (error: unknown) {
       this.lastError = error;
-      this.apply({ type: 'failed', error: 'sessionStartFailed' });
+      this.apply({ type: 'failed', error: errorCode(error, 'sessionStartFailed') });
     }
   }
   public async refresh(): Promise<void> {
@@ -36,4 +36,10 @@ export class SessionManager {
   }
   public reset(): void { this.apply({ type: 'reset' }); }
   private apply(action: SessionAction): void { this.state = sessionReducer(this.state, action); this.dispatch(action); }
+}
+
+function errorCode(error: unknown, fallback: string): string {
+  return error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : fallback;
 }

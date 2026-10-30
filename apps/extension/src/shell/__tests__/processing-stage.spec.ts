@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LearningPackage } from '../../features/session-quiz/models/session-quiz-contracts';
 import { initialActivationState, type ActivationState } from '../../features/video-activation';
-import { formatElapsedWait, resolveProcessingStage } from '../processing-stage';
+import { resolveProcessingStage } from '../processing-stage';
 
 const activeState: ActivationState = {
   ...initialActivationState,
@@ -34,10 +34,5 @@ describe('processing stage presentation', () => {
   it('does not present failed or ready states as waiting', () => {
     expect(resolveProcessingStage(activeState, learningPackage('ready', 'failed')).waiting).toBe(false);
     expect(resolveProcessingStage(activeState, learningPackage('ready', 'ready')).waiting).toBe(false);
-  });
-
-  it('formats elapsed time for seconds and minutes', () => {
-    expect(formatElapsedWait(9_999)).toBe('Đã chờ 9 giây');
-    expect(formatElapsedWait(65_000)).toBe('Đã chờ 1 phút 05 giây');
   });
 });

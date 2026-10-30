@@ -9,7 +9,7 @@ namespace SessionQuiz.Tests;
 
 public sealed class AccountAuthServiceTests
 {
-    private const string Password = "correct horse battery staple";
+    private const string Password = "correct horse battery 1";
 
     [Fact]
     public async Task Register_UsesCaseInsensitiveUniqueUsername_AndStoresOnlyPasswordHash()
@@ -26,6 +26,30 @@ public sealed class AccountAuthServiceTests
         Assert.Equal("usernameUnavailable", duplicate.ErrorCode);
         Assert.NotEqual(Password, credential.PasswordHash);
         Assert.DoesNotContain(Password, credential.PasswordHash, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("lettersOnly")]
+    [InlineData("123456")]
+    [InlineData("!")]
+    public async Task Register_RequiresAtLeastOneLetterAndOneNumber(string password)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var result = await fixture.Service.RegisterAsync("0.7.0", "learner", password, "Learner", default);
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("invalidRegistration", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Register_AcceptsShortPasswordWhenItContainsALetterAndANumber()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var result = await fixture.Service.RegisterAsync("0.7.0", "learner", "a1", "Learner", default);
+
+        Assert.Equal(200, result.StatusCode);
     }
 
     [Fact]
@@ -59,10 +83,10 @@ public sealed class AccountAuthServiceTests
         Assert.Equal(401, replay.StatusCode);
 
         var changed = await fixture.Service.ChangePasswordAsync(registered.Tokens.Account.UserId, "0.7.0",
-            Password, "a completely new passphrase", default);
+            Password, "a completely new passphrase 2", default);
         var revokedRefresh = await fixture.Service.RefreshAsync("0.7.0", refreshed.Tokens!.RefreshToken, default);
         var oldLogin = await fixture.Service.LoginAsync("0.7.0", "learner", Password, default);
-        var newLogin = await fixture.Service.LoginAsync("0.7.0", "learner", "a completely new passphrase", default);
+        var newLogin = await fixture.Service.LoginAsync("0.7.0", "learner", "a completely new passphrase 2", default);
 
         Assert.True(changed.Changed);
         Assert.Equal(401, revokedRefresh.StatusCode);
@@ -78,9 +102,9 @@ public sealed class AccountAuthServiceTests
         for (var attempt = 0; attempt < 5; attempt++)
             await fixture.Service.LoginAsync("0.7.0", "learner", "wrong password", default);
 
-        var reset = await fixture.Service.ResetPasswordAsync("LEARNER", "admin supplied passphrase", default);
+        var reset = await fixture.Service.ResetPasswordAsync("LEARNER", "admin supplied passphrase 3", default);
         var oldRefresh = await fixture.Service.RefreshAsync("0.7.0", registered.Tokens!.RefreshToken, default);
-        var login = await fixture.Service.LoginAsync("0.7.0", "learner", "admin supplied passphrase", default);
+        var login = await fixture.Service.LoginAsync("0.7.0", "learner", "admin supplied passphrase 3", default);
 
         Assert.True(reset.Succeeded);
         Assert.Equal(401, oldRefresh.StatusCode);

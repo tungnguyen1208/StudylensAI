@@ -26,6 +26,7 @@ import {
 import { httpClient } from '../shared/http/http-client';
 import { HttpError } from '../shared/http/http-error';
 import { ACCOUNT_REQUEST_MESSAGE, type AccountStatus, type QuotaCounter, type StudyLensAccount } from '../features/account/account-worker-bridge';
+import { ContentScriptReadinessCoordinator } from './content-script-readiness';
 
 type ToggleRequest = { type: 'STUDYLENS_MANUAL_TOGGLE'; requestedState: 'on' | 'off' };
 type StateRequest = { type: 'STUDYLENS_GET_ACTIVATION_STATE' };
@@ -47,6 +48,7 @@ const relayableMessageTypes = new Set([
   'QUIZ_AVAILABLE', 'OPERATION_STATUS_CHANGED',
 ]);
 const panelRefreshTimers = new Map<number, number>();
+const contentScriptReadiness = new ContentScriptReadinessCoordinator();
 const activationGate = new GlobalActivationGateCoordinator<PersistedActivationState>();
 let activationStateSource: 'user' | 'storageRestore' = 'storageRestore';
 let activationSourceRevision = 0;
@@ -403,6 +405,13 @@ async function retryForActiveTab(operation: string): Promise<{ ok: boolean; code
   if (!tab?.id || !isYoutubeUrl(tab.url)) return { ok: false, code: 'youtubeTabUnavailable' };
   try {
     await ensureContentScriptReady(tab.id);
+    if (operation === 'sessionStart') {
+      const response = await chrome.tabs.sendMessage(tab.id, { type: 'STUDYLENS_RETRY_SESSION_START' }) as { ok?: unknown; code?: unknown } | undefined;
+      return response?.ok === true ? { ok: true } : {
+        ok: false,
+        code: typeof response?.code === 'string' ? response.code : 'sessionStartUnavailable',
+      };
+    }
     await chrome.tabs.sendMessage(tab.id, {
       type: 'OPERATION_RETRY_REQUEST', contractVersion: '0.7.0', correlationId: crypto.randomUUID(),
       tabId: tab.id, youtubeVideoId: '', occurredAtUtc: new Date().toISOString(), payload: { operation },
@@ -509,17 +518,20 @@ async function seekActivePlayer(youtubeVideoId: string, timestampMs: number): Pr
 }
 
 async function ensureContentScriptReady(tabId: number): Promise<void> {
-  const ping = async (): Promise<boolean> => {
-    const response = await chrome.tabs.sendMessage(tabId, { type: 'STUDYLENS_CONTENT_SCRIPT_READY' }) as { ok?: unknown } | undefined;
-    return response?.ok === true;
-  };
-  try {
-    if (await ping()) return;
-  } catch {
-    // An unpacked Extension reload detaches the previous content script.
-  }
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['content-script.js'] });
-  if (!await ping()) throw new Error('contentScriptUnavailable');
+  return contentScriptReadiness.ensure(tabId, {
+    ping: async (targetTabId) => {
+      try {
+        const response = await chrome.tabs.sendMessage(targetTabId, { type: 'STUDYLENS_CONTENT_SCRIPT_READY' }) as { ok?: unknown } | undefined;
+        return response?.ok === true;
+      } catch {
+        // An unpacked Extension reload detaches the prior script context.
+        return false;
+      }
+    },
+    inject: async (targetTabId) => {
+      await chrome.scripting.executeScript({ target: { tabId: targetTabId }, files: ['content-script.js'] });
+    },
+  });
 }
 
 function isYoutubeUrl(value: string | undefined): boolean {

@@ -17,6 +17,7 @@ import {
   youtubeEvidenceUrl,
 } from '../features/assessment-history';
 import type { LearningPackage, ProcessingOperation } from '../features/session-quiz/models/session-quiz-contracts';
+import type { SessionState } from '../features/session-quiz/state/session-types';
 import {
   ActivationToggle,
   DEFAULT_LEARNING_PREFERENCES,
@@ -33,7 +34,7 @@ import { httpClient } from '../shared/http/http-client';
 import { messageBus } from '../shared/messaging/message-bus';
 import type { ExtensionMessage } from '../shared/messaging/message-types';
 import { isOperationStatusMessage, type OperationStatusPayload, type StudyLensOperation } from '../shared/messaging/operation-status';
-import { formatElapsedWait, resolveProcessingStage } from './processing-stage';
+import { resolveProcessingStage } from './processing-stage';
 import { accountBridge, type AccountStatus } from '../features/account/account-worker-bridge';
 
 interface BackendHealthResponse {
@@ -49,6 +50,10 @@ type LocalTranscript = {
   status: 'available' | 'unavailable' | 'insufficient';
   language: string;
   cues: Array<{ startMs: number; endMs: number; text: string }>;
+};
+type SessionRuntimeProgress = Pick<SessionState, 'status' | 'error'> & {
+  sessionId?: string;
+  youtubeVideoId?: string;
 };
 
 const assessmentHistoryApi = new AssessmentHistoryApi();
@@ -133,12 +138,22 @@ export const App: React.FC = () => {
     if (!expected) return;
     const expectedVersion = videoStateVersionRef.current;
     try {
+      const progress = await getActiveSessionProgress();
+      if (!progress.ok) throw new Error(progress.code ?? 'sessionRuntimeUnavailable');
+      const session = progress.state;
+      if (session?.status === 'error') {
+        setOperationStatuses((statuses) => ({ ...statuses, sessionStart: sessionStartFailure(session.error) }));
+        setLearningPackageError(null);
+        return;
+      }
+      if (!session?.sessionId) return;
       const next = await getActiveLearningPackage();
       const current = activeVideoContextRef.current;
       if (!next || !current || expectedVersion !== videoStateVersionRef.current || current.tabId !== expected.tabId ||
         current.youtubeVideoId !== expected.youtubeVideoId || next.session.youtubeVideoId !== current.youtubeVideoId) return;
       setLearningPackage(next);
       setLearningPackageError(null);
+      setOperationStatuses((statuses) => withoutOperationStatus(statuses, 'sessionStart'));
       if (next.quizStatus === 'ready' && next.quiz) {
         setQuiz(next.quiz);
       } else {
@@ -281,6 +296,10 @@ export const App: React.FC = () => {
   const submitAuthentication = async (event: React.FormEvent) => {
     event.preventDefault();
     setAccountFormError(null);
+    if (authMode === 'register' && !isValidNewPassword(authPassword)) {
+      setAccountFormError('Mật khẩu phải có ít nhất một chữ cái và một chữ số, tối đa 128 ký tự.');
+      return;
+    }
     if (authMode === 'register' && authPassword !== authPasswordConfirmation) {
       setAccountFormError('Mật khẩu xác nhận không khớp.');
       return;
@@ -305,6 +324,10 @@ export const App: React.FC = () => {
   const submitPasswordChange = async (event: React.FormEvent) => {
     event.preventDefault();
     setAccountFormError(null);
+    if (!isValidNewPassword(newPassword)) {
+      setAccountFormError('Mật khẩu mới phải có ít nhất một chữ cái và một chữ số, tối đa 128 ký tự.');
+      return;
+    }
     if (newPassword !== newPasswordConfirmation) {
       setAccountFormError('Mật khẩu mới xác nhận không khớp.');
       return;
@@ -402,7 +425,11 @@ export const App: React.FC = () => {
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
     const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_RETRY_OPERATION', operation }) as { ok?: boolean; code?: string } | undefined;
     if (!response?.ok) setLearningPackageError(response?.code ?? 'retryFailed');
-    else void refreshLearningPackage();
+    else {
+      setLearningPackageError(null);
+      if (operation === 'sessionStart') setOperationStatuses((statuses) => withoutOperationStatus(statuses, 'sessionStart'));
+      void refreshLearningPackage();
+    }
   };
 
   const requestManualActivation = async (requestedState: 'on' | 'off') => {
@@ -473,10 +500,10 @@ export const App: React.FC = () => {
           <form className="account-form" onSubmit={(event) => void submitAuthentication(event)}>
             <label>Tên đăng nhập<input required minLength={3} maxLength={32} pattern="[A-Za-z0-9._-]+" autoComplete="username" value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} /></label>
             {authMode === 'register' ? <label>Tên hiển thị<input required minLength={1} maxLength={200} autoComplete="name" value={authDisplayName} onChange={(event) => setAuthDisplayName(event.target.value)} /></label> : null}
-            <label>Mật khẩu<input required minLength={authMode === 'register' ? 15 : 1} maxLength={128} type={showAuthPassword ? 'text' : 'password'} autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /></label>
-            {authMode === 'register' ? <label>Xác nhận mật khẩu<input required minLength={15} maxLength={128} type={showAuthPassword ? 'text' : 'password'} autoComplete="new-password" value={authPasswordConfirmation} onChange={(event) => setAuthPasswordConfirmation(event.target.value)} /></label> : null}
+            <label>Mật khẩu<input required minLength={authMode === 'register' ? 2 : 1} maxLength={128} type={showAuthPassword ? 'text' : 'password'} autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /></label>
+            {authMode === 'register' ? <label>Xác nhận mật khẩu<input required minLength={2} maxLength={128} type={showAuthPassword ? 'text' : 'password'} autoComplete="new-password" value={authPasswordConfirmation} onChange={(event) => setAuthPasswordConfirmation(event.target.value)} /></label> : null}
             <label className="account-form__checkbox"><input type="checkbox" checked={showAuthPassword} onChange={(event) => setShowAuthPassword(event.target.checked)} /> Hiện mật khẩu</label>
-            <p className="account-form__hint">Tên đăng nhập dùng 3–32 ký tự chữ, số, dấu chấm, gạch dưới hoặc gạch ngang. Mật khẩu đăng ký cần ít nhất 15 ký tự.</p>
+            <p className="account-form__hint">Tên đăng nhập dùng 3–32 ký tự chữ, số, dấu chấm, gạch dưới hoặc gạch ngang. Mật khẩu cần có ít nhất một chữ cái và một chữ số.</p>
             {accountFormError || accountStatus.error ? <p className="health-error" role="alert">{accountFormError ?? accountStatus.error}</p> : null}
             <button type="submit" className="primary-button" disabled={accountBusy}>{accountBusy ? 'Đang xử lý…' : authMode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}</button>
           </form>
@@ -500,7 +527,7 @@ export const App: React.FC = () => {
               {activationCommandError ? <p className="health-error" role="alert">{activationCommandError}</p> : null}
             </section>
           ) : activationState.context && (!quiz || learningPackageError) ? (
-            <ProcessingProgressCard activationState={activationState} learningPackage={learningPackage} statuses={operationStatuses} loadingError={learningPackageError} onRetry={retryOperation} onRefresh={() => void refreshLearningPackage()} />
+            <ProcessingProgressCard activationState={activationState} learningPackage={learningPackage} statuses={operationStatuses} loadingError={learningPackageError} onRetry={retryOperation} onRefresh={() => void retryOperation('sessionStart')} />
           ) : null}
 
           {backendStatus === 'error' ? (
@@ -558,8 +585,8 @@ export const App: React.FC = () => {
                 <summary>Đổi mật khẩu</summary>
                 <form className="account-form" onSubmit={(event) => void submitPasswordChange(event)}>
                   <label>Mật khẩu hiện tại<input required maxLength={128} type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-                  <label>Mật khẩu mới<input required minLength={15} maxLength={128} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-                  <label>Xác nhận mật khẩu mới<input required minLength={15} maxLength={128} type="password" autoComplete="new-password" value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} /></label>
+                  <label>Mật khẩu mới<input required minLength={2} maxLength={128} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+                  <label>Xác nhận mật khẩu mới<input required minLength={2} maxLength={128} type="password" autoComplete="new-password" value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} /></label>
                   {accountFormError ? <p className="health-error" role="alert">{accountFormError}</p> : null}
                   <button type="submit" className="secondary-button" disabled={accountBusy}>Đổi mật khẩu</button>
                   <p className="account-form__hint">Quên mật khẩu? Liên hệ người quản trị.</p>
@@ -588,24 +615,10 @@ function ProcessingProgressCard({ activationState, learningPackage, statuses, lo
   onRefresh: () => void;
 }) {
   const stage = resolveProcessingStage(activationState, learningPackage);
-  const [stageStartedAt, setStageStartedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const changedAt = Date.now();
-    setStageStartedAt(changedAt);
-    setNow(changedAt);
-  }, [stage.code]);
-
-  useEffect(() => {
-    if (!stage.waiting) return undefined;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [stage.waiting, stage.code]);
 
   return (
     <section className="panel-section study-cycle" aria-labelledby="study-cycle-heading">
-      <div className="section-heading-row"><h2 id="study-cycle-heading" className="section-heading">Tiến trình học</h2>{stage.waiting ? <strong>{formatElapsedWait(now - stageStartedAt)}</strong> : null}</div>
+      <div className="section-heading-row"><h2 id="study-cycle-heading" className="section-heading">Tiến trình học</h2></div>
       <p className={`study-cycle__stage study-cycle__stage--${stage.code}`} role="status" aria-live="polite">{stage.label}</p>
       <p className="section-copy">{stage.summary}</p>
       {learningPackage?.error ? (
@@ -640,7 +653,7 @@ function OperationStatusList({ statuses, excludeOperation, onRetry }: { statuses
   const values = (Object.values(statuses).filter(Boolean) as OperationStatusPayload[])
     .filter((status) => status.state === 'failed' && status.operation !== excludeOperation);
   if (values.length === 0) return null;
-  return <div className="operation-status-list">{values.map((status) => <div className="operation-status operation-status--failed" key={status.operation} role="alert"><strong>{operationLabel(status.operation)}</strong><span>{status.message}</span>{status.retryable && status.operation !== 'answerSubmit' ? <button type="button" className="operation-status__retry" onClick={() => void onRetry(status.operation)}>Thử lại</button> : null}</div>)}</div>;
+  return <div className="operation-status-list">{values.map((status) => <div className="operation-status operation-status--failed" key={status.operation} role="alert"><strong>{operationLabel(status.operation)}</strong><span>{status.message}</span>{status.code ? <small>Mã: {status.code}</small> : null}{status.retryable && status.operation !== 'answerSubmit' ? <button type="button" className="operation-status__retry" onClick={() => void onRetry(status.operation)}>Thử lại</button> : null}</div>)}</div>;
 }
 
 function operationLabel(operation: StudyLensOperation | ProcessingOperation): string {
@@ -649,6 +662,10 @@ function operationLabel(operation: StudyLensOperation | ProcessingOperation): st
 
 function quotaLabel(resourceType: string): string {
   return { quizGenerate: 'Bài kiểm tra', transcriptGenerate: 'Video không phụ đề', shortAnswerGrade: 'Câu tự luận' }[resourceType] ?? resourceType;
+}
+
+function isValidNewPassword(value: string): boolean {
+  return value.length >= 2 && value.length <= 128 && /\p{L}/u.test(value) && /\d/u.test(value);
 }
 
 function isActiveYoutubeContext(value: unknown): value is ActiveYoutubeContext {
@@ -689,6 +706,49 @@ async function getActiveLearningPackage(): Promise<LearningPackage | null> {
     throw new Error(typeof response?.code === 'string' ? response.code : 'learningPackageUnavailable');
   }
   return isLearningPackage(response.learningPackage) ? response.learningPackage : null;
+}
+
+async function getActiveSessionProgress(): Promise<{ ok: boolean; state?: SessionRuntimeProgress; code?: string }> {
+  const response = await chrome.runtime.sendMessage({ type: 'STUDYLENS_GET_ACTIVE_SESSION_PROGRESS' }) as {
+    ok?: unknown; state?: unknown; code?: unknown;
+  } | undefined;
+  if (response?.ok !== true) {
+    return { ok: false, ...(typeof response?.code === 'string' ? { code: response.code } : {}) };
+  }
+  return isSessionRuntimeProgress(response.state)
+    ? { ok: true, state: response.state }
+    : { ok: false, code: 'sessionRuntimeUnavailable' };
+}
+
+function isSessionRuntimeProgress(value: unknown): value is SessionRuntimeProgress {
+  const progress = value as Partial<SessionRuntimeProgress>;
+  return Boolean(progress) && typeof progress.status === 'string' &&
+    ['idle', 'starting', 'active', 'completing', 'completed', 'closed', 'error'].includes(progress.status) &&
+    (progress.sessionId === undefined || typeof progress.sessionId === 'string') &&
+    (progress.youtubeVideoId === undefined || typeof progress.youtubeVideoId === 'string') &&
+    (progress.error === undefined || typeof progress.error === 'string');
+}
+
+function sessionStartFailure(code: string | undefined): OperationStatusPayload {
+  const resolvedCode = code ?? 'sessionStartFailed';
+  const message = {
+    authenticationRequired: 'Hãy đăng nhập lại StudyLens trước khi bắt đầu phiên học.',
+    quotaExceeded: 'Tài khoản đã dùng hết lượt tạo quiz trong hôm nay.',
+    rateLimited: 'Có quá nhiều yêu cầu tạo phiên học. Vui lòng thử lại sau.',
+  }[resolvedCode] ?? 'Không thể tạo phiên học. Bạn có thể thử lại.';
+  return {
+    operation: 'sessionStart', state: 'failed', code: resolvedCode, message,
+    retryable: !['authenticationRequired', 'quotaExceeded'].includes(resolvedCode),
+  };
+}
+
+function withoutOperationStatus(
+  statuses: Partial<Record<StudyLensOperation, OperationStatusPayload>>,
+  operation: StudyLensOperation,
+): Partial<Record<StudyLensOperation, OperationStatusPayload>> {
+  if (!statuses[operation]) return statuses;
+  const { [operation]: _removed, ...remaining } = statuses;
+  return remaining;
 }
 
 function isLearningPackage(value: unknown): value is LearningPackage {

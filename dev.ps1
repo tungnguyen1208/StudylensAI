@@ -7,8 +7,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = $PSScriptRoot
-$postgresEnvFile = Join-Path $repoRoot 'deploy/postgres.env'
-$composeFile = Join-Path $repoRoot 'deploy/docker-compose.postgres.yml'
+$postgresEnvFile = Join-Path $repoRoot 'deploy/release.env'
+$composeFile = Join-Path $repoRoot 'deploy/docker-compose.release.yml'
 $aiPython = Join-Path $repoRoot 'services/ai/.venv/Scripts/python.exe'
 $extensionDir = Join-Path $repoRoot 'apps/extension'
 $vitest = Join-Path $extensionDir 'node_modules/.bin/vitest.cmd'
@@ -34,7 +34,7 @@ function Invoke-Checked([string] $Command, [string[]] $Arguments, [string] $Dire
 
 function Read-PostgresSettings {
     if (-not (Test-Path -LiteralPath $postgresEnvFile)) {
-        throw 'Missing deploy/postgres.env. Copy deploy/postgres.env.example, then set a private password.'
+        throw 'Missing deploy/release.env. Copy deploy/release.env.example, then set a private password.'
     }
 
     $settings = @{}
@@ -42,7 +42,7 @@ function Read-PostgresSettings {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
         if ($trimmed -notmatch '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
-            throw 'deploy/postgres.env contains an invalid assignment.'
+            throw 'deploy/release.env contains an invalid assignment.'
         }
         $value = $Matches[2].Trim()
         if ($value.Length -ge 2 -and
@@ -53,10 +53,13 @@ function Read-PostgresSettings {
         $settings[$Matches[1]] = $value
     }
 
-    foreach ($key in @('POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_PORT')) {
+    foreach ($key in @('POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD')) {
         if (-not $settings.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($settings[$key])) {
-            throw "Missing $key in deploy/postgres.env."
+            throw "Missing $key in deploy/release.env."
         }
+    }
+    if (-not $settings.ContainsKey('POSTGRES_PORT') -or [string]::IsNullOrWhiteSpace($settings['POSTGRES_PORT'])) {
+        $settings['POSTGRES_PORT'] = '5432'
     }
     $port = 0
     if (-not [int]::TryParse($settings['POSTGRES_PORT'], [ref] $port) -or $port -lt 1 -or $port -gt 65535) {
@@ -144,8 +147,8 @@ switch ($Action) {
         $null = Read-PostgresSettings
         Assert-DockerEngine
         Write-Host 'Stop the foreground dev.ps1 up terminal with Ctrl+C before stopping PostgreSQL.'
-        Invoke-Checked 'docker' (Get-ComposeArguments @('down')) $repoRoot
-        Write-Host 'PostgreSQL stopped; its named data volume was preserved.'
+        Invoke-Checked 'docker' (Get-ComposeArguments @('stop', 'postgres')) $repoRoot
+        Write-Host 'Shared release PostgreSQL stopped; its named data volume was preserved.'
         break
     }
     'up' {
@@ -163,9 +166,9 @@ switch ($Action) {
         $connection['Password'] = $postgres['POSTGRES_PASSWORD']
         $previousConnection = [Environment]::GetEnvironmentVariable('ConnectionStrings__DefaultConnection', 'Process')
         try {
-            Invoke-Checked 'docker' (Get-ComposeArguments @('up', '-d', '--wait', '--wait-timeout', '90')) $repoRoot
+            Invoke-Checked 'docker' (Get-ComposeArguments @('up', '-d', '--wait', '--wait-timeout', '90', 'postgres')) $repoRoot
             [Environment]::SetEnvironmentVariable('ConnectionStrings__DefaultConnection', $connection.ConnectionString, 'Process')
-            Write-Host 'PostgreSQL is ready. Starting Backend, AI Service, and Extension build watcher.'
+            Write-Host 'Shared release PostgreSQL is ready. Starting Backend, AI Service, and Extension build watcher.'
             Write-Host 'Press Ctrl+C to stop the three watchers. PostgreSQL remains running until dev.ps1 down.'
             Invoke-Checked 'node' @('scripts/dev-runner.mjs') $repoRoot
         }

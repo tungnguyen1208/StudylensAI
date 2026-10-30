@@ -48,14 +48,6 @@ export function resolveProcessingStage(
   return stage('transcriptWaiting', 'Đang lấy nội dung video', 'StudyLens đang chuẩn bị bài kiểm tra.', true);
 }
 
-export function formatElapsedWait(elapsedMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
-  if (totalSeconds < 60) return `Đã chờ ${totalSeconds} giây`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `Đã chờ ${minutes} phút ${seconds.toString().padStart(2, '0')} giây`;
-}
-
 function stage(code: string, label: string, summary: string, waiting: boolean): ProcessingStageView {
   return { code, label, summary, waiting };
 }

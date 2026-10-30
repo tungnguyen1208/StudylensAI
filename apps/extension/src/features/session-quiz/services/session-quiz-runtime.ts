@@ -25,6 +25,7 @@ export class SessionQuizRuntime {
   private readonly sessions: SessionManager;
   private youtubeVideoId: string | null = null;
   private activationId: string | null = null;
+  private activation: ActivationEnabledPayload | null = null;
   private messageContext: Pick<ExtensionMessage, 'correlationId' | 'tabId'> | null = null;
   private readonly closedActivationIds = new Set<string>();
   private lifecycleQueue: Promise<void> = Promise.resolve();
@@ -35,6 +36,15 @@ export class SessionQuizRuntime {
   }
 
   public getStore(): SessionStore { return this.store; }
+
+  /** Replays the initial session request after a recoverable browser/network failure.
+   * The activation ID stays unchanged, so Backend idempotency still guarantees one session. */
+  public async retryStart(): Promise<boolean> {
+    if (!this.activation || !this.messageContext || !this.youtubeVideoId || this.closedActivationIds.has(this.activation.activationId)) return false;
+    if (this.store.getState().status === 'active') return true;
+    await this.enqueue(() => this.startCurrentActivation());
+    return this.store.getState().status === 'active';
+  }
 
   public start(): () => void {
     const unsubscribers = [
@@ -53,9 +63,16 @@ export class SessionQuizRuntime {
     if (this.store.getState().session?.youtubeVideoId === message.youtubeVideoId && this.store.getState().status === 'active') return;
     this.youtubeVideoId = message.youtubeVideoId;
     this.activationId = activation.activationId;
+    this.activation = activation;
     this.messageContext = { correlationId: message.correlationId, tabId: message.tabId };
+    await this.startCurrentActivation();
+  }
+
+  private async startCurrentActivation(): Promise<void> {
+    const activation = this.activation;
+    if (!activation || !this.youtubeVideoId || this.closedActivationIds.has(activation.activationId)) return;
     await this.publishStatus({ operation: 'sessionStart', state: 'pending', message: 'Đang tạo phiên học cho video.', retryable: false });
-    await this.sessions.activate(message.youtubeVideoId, activation);
+    await this.sessions.activate(this.youtubeVideoId, activation);
     if (!this.store.getState().session) {
       await this.publishStatus({ operation: 'sessionStart', state: 'failed', ...operationFailure(this.sessions.getLastError(), 'sessionStartFailed', 'Không thể tạo phiên học.') });
       return;
@@ -84,6 +101,7 @@ export class SessionQuizRuntime {
     await this.sessions.complete(reason, (this.options.createCompletionId ?? (() => crypto.randomUUID()))());
     this.youtubeVideoId = null;
     this.activationId = null;
+    this.activation = null;
     this.messageContext = null;
   }
 
@@ -102,7 +120,7 @@ export class SessionQuizRuntime {
   }
 }
 
-export function registerSessionQuizRuntime(options: SessionQuizRuntimeOptions): { store: SessionStore; dispose: () => void } {
+export function registerSessionQuizRuntime(options: SessionQuizRuntimeOptions): { store: SessionStore; retryStart: () => Promise<boolean>; dispose: () => void } {
   const runtime = new SessionQuizRuntime(options);
-  return { store: runtime.getStore(), dispose: runtime.start() };
+  return { store: runtime.getStore(), retryStart: () => runtime.retryStart(), dispose: runtime.start() };
 }

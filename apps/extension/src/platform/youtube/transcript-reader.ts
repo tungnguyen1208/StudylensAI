@@ -70,16 +70,32 @@ export function normalizeTranscriptCues(rawCues: RawTranscriptCue[]): Transcript
     .filter((cue) => cue.startMs >= 0 && cue.text.length > 0)
     .sort((left, right) => left.startMs - right.startMs || (left.endMs ?? 0) - (right.endMs ?? 0));
 
+  // JSON3 can contain the same caption event twice with a slightly different
+  // duration. They are one spoken cue, not two pieces of evidence. Keep the
+  // longest reported duration so the preview and the submitted transcript do
+  // not duplicate the line or truncate its valid time range. Different text
+  // at the same timestamp remains separate because it can be legitimate.
+  const distinct = new Map<string, typeof candidates[number]>();
+  for (const cue of candidates) {
+    if (cue.endMs !== undefined && cue.endMs <= cue.startMs) continue;
+    const key = `${cue.startMs}\u0000${cue.text}`;
+    const existing = distinct.get(key);
+    if (!existing || (cue.endMs ?? -1) > (existing.endMs ?? -1)) {
+      distinct.set(key, cue);
+    }
+  }
+  const uniqueCandidates = [...distinct.values()]
+    .sort((left, right) => left.startMs - right.startMs || (left.endMs ?? 0) - (right.endMs ?? 0));
+
   const normalized: TranscriptCue[] = [];
-  candidates.forEach((cue, index) => {
-    if (cue.endMs !== undefined && cue.endMs <= cue.startMs) return;
-    const nextStartMs = candidates[index + 1]?.startMs;
+  uniqueCandidates.forEach((cue) => {
+    // Even a malformed following event is still a reliable boundary for the
+    // preceding cue. This retains the existing end-time inference behaviour.
+    const nextStartMs = candidates.find((next) => next.startMs > cue.startMs)?.startMs;
     const endMs = cue.endMs ?? (nextStartMs !== undefined && nextStartMs > cue.startMs
       ? nextStartMs
       : cue.startMs + DEFAULT_LAST_CUE_DURATION_MS);
-    if (!normalized.some((item) => item.startMs === cue.startMs && item.endMs === endMs && item.text === cue.text)) {
-      normalized.push({ startMs: cue.startMs, endMs, text: cue.text });
-    }
+    normalized.push({ startMs: cue.startMs, endMs, text: cue.text });
   });
   return normalized;
 }

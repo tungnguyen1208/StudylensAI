@@ -29,9 +29,14 @@ export interface VideoActivationContentScriptOptions {
   tabId: number;
   publish?: (message: ExtensionMessage) => Promise<void>;
   getActiveSessionId?: (youtubeVideoId: string) => string | null;
+  retrySessionStart?: () => Promise<boolean>;
 }
 
-export interface VideoActivationContentScriptController { getPlayerPort(): PlayerPort | null; dispose(): void; }
+export interface VideoActivationContentScriptController {
+  getPlayerPort(): PlayerPort | null;
+  retrySessionStart(): Promise<boolean>;
+  dispose(): void;
+}
 type ToggleRequest = { type: 'ACTIVATION_TOGGLE_REQUEST'; requestedState: 'on' | 'off'; source: 'user' | 'storageRestore'; correlationId: string; };
 type RetryRequest = { type: 'OPERATION_RETRY_REQUEST'; payload?: { operation?: string } };
 type ActivationSource = 'user' | 'storageRestore';
@@ -53,6 +58,8 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
   let domDeadlineAt: number | null = null;
   let submittedGeneration: number | null = null;
   let latestTranscript: TranscriptReadResult | null = null;
+  let activeTarget: LearningTargetCapture | null = null;
+  let activeCorrelationId: string | null = null;
   let storageOnTimer: number | null = null;
   const gateRevision = new LocalGateRevision();
 
@@ -67,6 +74,8 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     clearFallbackTimer();
     domDeadlineAt = null;
     submittedGeneration = null;
+    activeTarget = null;
+    activeCorrelationId = null;
     player?.dispose();
     player = null;
     transcript?.dispose();
@@ -158,6 +167,8 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     const value = generation + 1;
     generation = value;
     activeId = target.youtubeVideoId;
+    activeTarget = target;
+    activeCorrelationId = correlationId;
     source = activationSource;
     submittedGeneration = null;
     latestTranscript = null;
@@ -354,6 +365,25 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
 
   return {
     getPlayerPort: () => player,
+    retrySessionStart: async () => {
+      const target = activeTarget;
+      const correlationId = activeCorrelationId;
+      const value = generation;
+      if (!target || !correlationId || !current(target.youtubeVideoId, value) || !options.retrySessionStart) return false;
+
+      const started = await options.retrySessionStart();
+      if (!started || !current(target.youtubeVideoId, value)) return false;
+
+      submittedGeneration = null;
+      clearFallbackTimer();
+      domDeadlineAt = null;
+      if (latestTranscript) {
+        void upload(target, correlationId, value, latestTranscript);
+      } else {
+        transcript?.retry();
+      }
+      return true;
+    },
     dispose: () => {
       disposed = true;
       enabled = false;

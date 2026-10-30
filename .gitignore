@@ -62,3 +62,29 @@ Thumbs.db
 # Test / Coverage outputs
 coverage/
 TestResults/
+
+# Local-only project governance, coursework and report artefacts
+.agents/
+.codex/
+.vite/
+docs/
+Yeu_cau/
+AGENTS.md
+*.docx
+*.pdf
+*.pptx
+.chart-data-*/
+.codex-build/
+package-lock.json
+deploy/README.md
+scripts/README.md
+scripts/finalize-final-reports.py
+scripts/format-thesis-reports.py
+scripts/render-docx-word.ps1
+scripts/restructure-sds-report.py
+scripts/update-week6-docs.py
+scripts/build-final-report*.py
+scripts/create-submission-reports.py
+scripts/final_report*.py
+scripts/update-v07-reports.py
+scripts/verify-final-report*.py

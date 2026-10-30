@@ -96,6 +96,19 @@ describe('transcript normalization', () => {
     ]);
   });
 
+  it('merges repeated YouTube caption events with the same timestamp and text', () => {
+    expect(normalizeTranscriptCues([
+      { startMs: 68_000, endMs: 69_200, text: 'A caption event rendered twice.' },
+      { startMs: 68_000, endMs: 70_000, text: 'A caption event rendered twice.' },
+      { startMs: 71_000, endMs: 72_000, text: 'A different cue remains available.' },
+      { startMs: 71_000, endMs: 72_000, text: 'A different text at one timestamp remains separate.' },
+    ])).toEqual([
+      { startMs: 68_000, endMs: 70_000, text: 'A caption event rendered twice.' },
+      { startMs: 71_000, endMs: 72_000, text: 'A different cue remains available.' },
+      { startMs: 71_000, endMs: 72_000, text: 'A different text at one timestamp remains separate.' },
+    ]);
+  });
+
   it('distinguishes unavailable, insufficient, and available transcripts', () => {
     expect(readTranscript(source([])).status).toBe('unavailable');
     expect(readTranscript(source([{ startMs: 0, endMs: 1000, text: 'Too short' }])).status).toBe(

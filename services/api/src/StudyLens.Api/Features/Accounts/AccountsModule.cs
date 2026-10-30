@@ -12,6 +12,7 @@ public static class AccountsModule
     public const string ReadPolicy = "account-read";
     public const string WritePolicy = "account-write";
     public const string AuthPolicy = "auth-entry";
+    public const string RefreshPolicy = "auth-refresh";
 
     public static IServiceCollection AddAccountsModule(this IServiceCollection services, IConfiguration configuration)
     {
@@ -33,7 +34,7 @@ public static class AccountsModule
                     ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)) : 60;
                 context.HttpContext.Response.Headers.RetryAfter = retry.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 await context.HttpContext.Response.WriteAsJsonAsync(new ErrorEnvelope("rateLimited", 429,
-                    "Too many requests. Try again after the indicated delay.", context.HttpContext.TraceIdentifier, true), cancellationToken);
+                    $"Too many requests. Try again in {retry} seconds.", context.HttpContext.TraceIdentifier, true), cancellationToken);
             };
             options.AddPolicy(ReadPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
                 context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous",
@@ -44,6 +45,11 @@ public static class AccountsModule
             options.AddPolicy(AuthPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "local",
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
+            // A valid refresh token is already high entropy and rotates on use. It must not
+            // consume the small interactive login/register budget shared by the same browser IP.
+            options.AddPolicy(RefreshPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "local",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
         });
         return services;
     }
@@ -57,7 +63,7 @@ public static class AccountsModule
             TokenResponse(await service.LoginAsync(request.ContractVersion, request.Username, request.Password, ct), context))
             .RequireRateLimiting(AuthPolicy);
         endpoints.MapPost("/api/auth/refresh", async (AuthRefreshRequest request, AccountAuthService service, HttpContext context, CancellationToken ct) =>
-            TokenResponse(await service.RefreshAsync(request.ContractVersion, request.RefreshToken, ct), context)).RequireRateLimiting(AuthPolicy);
+            TokenResponse(await service.RefreshAsync(request.ContractVersion, request.RefreshToken, ct), context)).RequireRateLimiting(RefreshPolicy);
         endpoints.MapPost("/api/auth/logout", async (AuthLogoutRequest request, AccountAuthService service, HttpContext context, CancellationToken ct) =>
         {
             if (request.ContractVersion != AccountAuthService.ContractVersion || string.IsNullOrWhiteSpace(request.RefreshToken))
