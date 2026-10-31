@@ -92,6 +92,23 @@ describe('YoutubePlayerAdapter', () => {
     expect(video.listenerCount()).toBe(0);
   });
 
+  it('reports when YouTube has replaced the media element', () => {
+    const originalVideo = new FakeVideo();
+    const replacementVideo = new FakeVideo();
+    let activeVideo: YoutubeVideoElementPort | null = originalVideo;
+    const adapter = new YoutubePlayerAdapter(
+      { getVideoElement: () => activeVideo, getCurrentYoutubeVideoId: () => 'dQw4w9WgXcQ' },
+      'dQw4w9WgXcQ',
+      () => undefined,
+    );
+
+    adapter.start();
+    expect(adapter.isAttachedToCurrentVideoElement()).toBe(true);
+
+    activeVideo = replacementVideo;
+    expect(adapter.isAttachedToCurrentVideoElement()).toBe(false);
+  });
+
   it('validates seek boundaries and the bound video context', async () => {
     const video = new FakeVideo();
     let currentVideoId = 'dQw4w9WgXcQ';

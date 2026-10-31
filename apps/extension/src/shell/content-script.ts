@@ -116,9 +116,13 @@ function initializeContentScriptRuntime(): ContentScriptRuntime {
       const youtubeVideoId = message.youtubeVideoId;
       void bootstrap.then(async (ok) => {
         const player = getActivePlayerPort?.();
-        if (!ok || !player || typeof timestampMs !== 'number' || !Number.isSafeInteger(timestampMs) || timestampMs < 0 ||
+        if (!ok || typeof timestampMs !== 'number' || !Number.isSafeInteger(timestampMs) || timestampMs < 0 ||
           typeof youtubeVideoId !== 'string') {
           sendResponse({ ok: false, code: 'seekUnavailable' });
+          return;
+        }
+        if (!player) {
+          sendResponse({ ok: false, code: 'playerUnavailable' });
           return;
         }
         try {

@@ -73,6 +73,15 @@ export class YoutubePlayerAdapter implements PlayerPort {
     this.listen('ended', () => this.emit('PLAYER_ENDED'));
   }
 
+  /**
+   * YouTube can replace its media element without changing the /watch video
+   * ID. Callers use this to discard an adapter bound to the old element before
+   * an explicit learner-requested seek or time read.
+   */
+  public isAttachedToCurrentVideoElement(): boolean {
+    return this.video !== null && this.environment.getVideoElement() === this.video;
+  }
+
   public dispose(): void {
     if (!this.video) {
       return;

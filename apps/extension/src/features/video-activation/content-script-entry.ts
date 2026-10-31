@@ -69,6 +69,44 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
     fallbackTimer = null;
   };
+  const attachPlayer = (target: LearningTargetCapture, correlationId: string, value: number): YoutubePlayerAdapter | null => {
+    const nextPlayer = new YoutubePlayerAdapter({
+      getVideoElement: () => document.querySelector<HTMLVideoElement>('video.html5-main-video'),
+      getCurrentYoutubeVideoId: () => {
+        const targetNow = captureLearningTarget(window.location.href, document.title);
+        return targetNow.status === 'supported' ? targetNow.target.youtubeVideoId : null;
+      },
+    }, target.youtubeVideoId, (event) => {
+      if (current(target.youtubeVideoId, value)) {
+        void publish(createVideoActivationMessage(event.type, event.payload, {
+          correlationId,
+          tabId: options.tabId,
+          youtubeVideoId: target.youtubeVideoId,
+        }));
+      }
+    });
+    try {
+      nextPlayer.start();
+      return nextPlayer;
+    } catch {
+      nextPlayer.dispose();
+      return null;
+    }
+  };
+  const ensurePlayer = (): YoutubePlayerAdapter | null => {
+    const target = activeTarget;
+    const correlationId = activeCorrelationId;
+    const value = generation;
+    if (!target || !correlationId || !current(target.youtubeVideoId, value)) return null;
+    if (player?.isAttachedToCurrentVideoElement()) return player;
+
+    // YouTube often creates/replaces the media element after its SPA route and
+    // transcript UI have appeared. Recover lazily for a user-requested seek,
+    // rather than treating an early startup miss as permanent for this tab.
+    player?.dispose();
+    player = attachPlayer(target, correlationId, value);
+    return player;
+  };
   const disposePage = () => {
     generation += 1;
     clearFallbackTimer();
@@ -180,16 +218,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     if (!current(target.youtubeVideoId, value)) return;
     await manager.request('on', target.youtubeVideoId, correlationId, activationSource);
     if (!current(target.youtubeVideoId, value)) return;
-    player = new YoutubePlayerAdapter({
-      getVideoElement: () => document.querySelector<HTMLVideoElement>('video.html5-main-video'),
-      getCurrentYoutubeVideoId: () => {
-        const targetNow = captureLearningTarget(window.location.href, document.title);
-        return targetNow.status === 'supported' ? targetNow.target.youtubeVideoId : null;
-      },
-    }, target.youtubeVideoId, (event) => {
-      if (current(target.youtubeVideoId, value)) void publish(createVideoActivationMessage(event.type, event.payload, { correlationId, tabId: options.tabId, youtubeVideoId: target.youtubeVideoId }));
-    });
-    try { player.start(); } catch { player = null; }
+    player = ensurePlayer();
     transcript = createBrowserYoutubeTranscriptAdapter(document, {
       youtubeVideoId: target.youtubeVideoId,
       readPageCaptionTracks: () => readPageCaptionTracks(target.youtubeVideoId),
@@ -364,7 +393,7 @@ export function initializeVideoActivationContentScript(options: VideoActivationC
     .catch(() => undefined);
 
   return {
-    getPlayerPort: () => player,
+    getPlayerPort: () => ensurePlayer(),
     retrySessionStart: async () => {
       const target = activeTarget;
       const correlationId = activeCorrelationId;
